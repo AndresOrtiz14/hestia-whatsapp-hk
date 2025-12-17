@@ -1,6 +1,8 @@
 from typing import Dict, Any
-from datetime import date
+from datetime import date, datetime
 import time
+print("DEBUG: whatsapp_flows CARGADO DESDE ESTE ARCHIVO")
+
 
 # =========================
 #   ESTADO EN MEMORIA
@@ -23,6 +25,8 @@ def get_user_state(phone: str) -> Dict[str, Any]:
             "last_greet_date": None,      # str ISO con la fecha del último saludo
             # Recordatorios automáticos
             "last_reminder_ts": None,     # timestamp (float) del último recordatorio
+            # Borrador de ticket en lenguaje natural
+            "ticket_draft_text": None,    # str con el texto acumulado
         }
     return USER_STATE[phone]
 
@@ -158,7 +162,175 @@ def _crear_ticket_adicional(phone: str, texto: str, state: Dict[str, Any]):
     por ejemplo: "la habitación 313 también quiere una toalla".
     """
     _crear_ticket_desde_mucama(phone, texto, state)
+# =========================
+#   INTERPRETACIÓN DE TEXTO DE TICKET
+# =========================
 
+TICKET_STOPWORDS = {
+    "en", "la", "el", "los", "las", "de", "del", "al", "a",
+    "y", "para", "por", "con", "hab", "habitacion", "habitación",
+    "pieza", "cuarto", "no", "hay"
+}
+
+ISSUE_KEYWORDS = [
+    "toalla", "toallas",
+    "sucio", "sucia", "sucias", "sucios",
+    "suciedad", "limpiar", "limpieza",
+    "papel", "higienico", "higiénico",
+    "falta", "faltan", "no hay",
+    "ruido", "ruidoso", "ruidosa",
+    "roto", "rota", "rotas", "rotos",
+    "cambiar", "arreglar", "averia", "avería",
+    "mantencion", "mantención",
+    "aire", "calefaccion", "calefacción",
+    "cama", "almohada", "almohadas"
+]
+
+# Palabras de problema “débiles” que por sí solas NO bastan
+WEAK_ISSUE_KEYWORDS = {"falta", "faltan", "no hay"}
+
+
+def _analizar_texto_ticket(texto: str):
+    """
+    Devuelve (tiene_habitacion, tiene_problema) usando reglas simples.
+    - tiene_habitacion: si hay algún dígito en el texto.
+    - tiene_problema: si detectamos un problema “suficientemente completo”.
+    """
+    texto_l = texto.lower()
+    tokens = [tok.strip(".,;:!¿?") for tok in texto_l.split() if tok.strip(".,;:!¿?")]
+
+    # ¿Hay algún dígito? → asumimos que es número de habitación
+    tiene_habitacion = any(ch.isdigit() for ch in texto_l)
+
+    # Palabras con letras (sin contar números puros)
+    tokens_letras = [tok for tok in tokens if any(ch.isalpha() for ch in tok)]
+    # Quitamos conectores muy básicos
+    contenido = [tok for tok in tokens_letras if tok not in TICKET_STOPWORDS]
+    # Quitamos además las “palabras débiles” tipo 'falta', 'faltan', 'no hay'
+    contenido_sin_weak = [tok for tok in contenido if tok not in WEAK_ISSUE_KEYWORDS]
+
+    # ¿Hay keywords fuertes o débiles?
+    has_strong_kw = any(
+        kw in texto_l
+        for kw in ISSUE_KEYWORDS
+        if kw not in WEAK_ISSUE_KEYWORDS
+    )
+    has_weak_kw = any(kw in texto_l for kw in WEAK_ISSUE_KEYWORDS)
+
+    # Palabras de contenido “largas” sin contar las débiles
+    palabras_largas = [tok for tok in contenido_sin_weak if len(tok) >= 4]
+
+    # Criterio de “problema completo”:
+    #  - keyword fuerte (ej: toallas, sucio, papel, etc.), O
+    #  - al menos 2 palabras de contenido, O
+    #  - keyword débil + al menos 1 palabra de contenido adicional (ej: "faltan toallas")
+    tiene_problema = bool(
+        has_strong_kw
+        or len(palabras_largas) >= 2
+        or (has_weak_kw and len(palabras_largas) >= 1)
+    )
+
+    return tiene_habitacion, tiene_problema
+
+def _extraer_habitacion(texto: str) -> str | None:
+    """
+    Busca el primer grupo de dígitos en el texto para mostrarlo en mensajes.
+    """
+    for token in texto.split():
+        digits = "".join(ch for ch in token if ch.isdigit())
+        if digits:
+            return digits
+    return None
+
+def _manejar_ticket_libre(
+    phone: str,
+    texto: str,
+    state: Dict[str, Any],
+    *,
+    adicional: bool = False
+) -> bool:
+    """
+    Maneja creación de tickets en lenguaje natural desde CUALQUIER parte del flujo.
+
+    Lógica:
+      - Acumula texto en state["ticket_draft_text"].
+      - Solo crea ticket cuando detecta habitación Y problema.
+      - Si solo ve habitación → pregunta qué pasa.
+      - Si solo ve problema → pide la habitación.
+
+    Retorna True si se trató como parte del flujo de ticket (para que
+    quien llama no haga nada más con ese mensaje).
+    """
+    texto = (texto or "").strip()
+    if not texto:
+        return False
+
+    # Permitir cancelar explícitamente el borrador
+    if texto.upper() in {"CANCELAR TICKET", "CANCELAR PROBLEMA"}:
+        if state.get("ticket_draft_text"):
+            state["ticket_draft_text"] = None
+            send_whatsapp(
+                phone,
+                "Listo, descarté el problema que estabas describiendo."
+            )
+            return True
+        return False
+
+    draft = state.get("ticket_draft_text") or ""
+    combined = (draft + " " + texto).strip() if draft else texto
+
+    tiene_hab, tiene_prob = _analizar_texto_ticket(combined)
+
+    # 1) No tenemos ni habitación ni problema claro → solo acumulamos
+    if not tiene_hab and not tiene_prob:
+        state["ticket_draft_text"] = combined
+        if not draft:
+            send_whatsapp(
+                phone,
+                "Entendí que quieres reportar algo.\n"
+                "Cuéntame qué pasa y en qué habitación."
+            )
+        return True
+
+    # 2) Solo problema (falta la habitación)
+    if tiene_prob and not tiene_hab:
+        state["ticket_draft_text"] = combined
+        if not draft:
+            send_whatsapp(
+                phone,
+                "Entendí el problema. ¿En qué habitación es?"
+            )
+        return True
+
+    # 3) Solo habitación (falta el problema)
+    if tiene_hab and not tiene_prob:
+        state["ticket_draft_text"] = combined
+        if not draft:
+            hab = _extraer_habitacion(combined)
+            if hab:
+                send_whatsapp(
+                    phone,
+                    f"Anoté la habitación {hab}. ¿Qué sucede ahí?"
+                )
+            else:
+                send_whatsapp(
+                    phone,
+                    "Anoté la habitación. ¿Qué sucede ahí?"
+                )
+        return True
+
+    # 4) Tenemos habitación + problema → ahora sí creamos ticket
+    if adicional:
+        _crear_ticket_adicional(phone, combined, state)
+    else:
+        _crear_ticket_desde_mucama(phone, combined, state)
+        send_whatsapp(
+            phone,
+            "\nVolviendo al menú principal.\n\n" + _texto_menu_principal(state)
+        )
+
+    state["ticket_draft_text"] = None
+    return True
 
 # =========================
 #   RECORDATORIOS
@@ -204,7 +376,6 @@ def _maybe_send_recordatorio_pendientes(phone: str, state: Dict[str, Any]):
 # =========================
 #   FLUJO DE TICKETS S0/S1/S2
 # =========================
-
 def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
     """
     Implementa el sub-diagrama 'Flujo de Tickets (PUSH)'.
@@ -216,11 +387,12 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
     if state["ticket_state"] is None:
         return  # No hay flujo de tickets activo
 
-    t = (text or "").strip().lower()
+    raw = (text or "").strip()
+    t = raw.lower()
     s = state["ticket_state"]
 
     # Atajo global: 'M' / 'MENU' → salir del flujo de tickets y volver al menú
-    if (text or "").strip().upper() in {"M", "MENU"}:
+    if raw.upper() in {"M", "MENU"}:
         # NO cambiamos el estado del ticket a pausado.
         # Solo dejamos de estar “hablando” del flujo S0/S1/S2.
         state["ticket_state"] = None
@@ -235,6 +407,21 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
         )
         return
 
+    # NUEVO: navegación rápida por números 1–4
+    # Si está en S0 o S1 y escribe 1,2,3,4 → salir del flujo de ticket
+    # y mandar esa opción directamente al menú.
+    if s in {"S0", "S1"} and t in {"1", "2", "3", "4"}:
+        state["ticket_state"] = None  # dejamos de “hablar del ticket”
+        # opcional: no tocamos ticket_activo, se mantiene en ejecución de fondo
+
+        send_whatsapp(
+            phone,
+            "Cambio de opción. Salgo de este ticket y voy al menú.\n"
+        )
+        # Reutilizamos la lógica normal del menú con ese mismo número
+        _handle_menu(phone, raw, state)
+        return
+
     # S0: nuevo ticket / decisión
     if s == "S0":
         if t == "aceptar":
@@ -247,7 +434,12 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
             detalle = ticket.get("detalle", "")
             prioridad = ticket.get("prioridad", "—")
 
+            # El ticket entra en ejecución
             ticket["paused"] = False
+            # Guardamos la hora de inicio (demo)
+            if "started_at" not in ticket:
+                ticket["started_at"] = datetime.now()
+
             state["ticket_activo"] = ticket
 
             send_whatsapp(
@@ -295,12 +487,42 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
 
         # Comandos comunes
         if t in {"fin", "terminar", "cerrar"}:
+            # Datos básicos del ticket
+            ticket_id = ticket.get("id", "—")
+            room = ticket.get("room", "—")
+            detalle = ticket.get("detalle", "")
+            prioridad = ticket.get("prioridad", "—")
+
+            # Calcular tiempo de resolución (demo)
+            started_at = ticket.get("started_at")
+            if isinstance(started_at, datetime):
+                elapsed = datetime.now() - started_at
+                total_seconds = int(elapsed.total_seconds())
+                minutes = total_seconds // 60
+                if minutes <= 0:
+                    tiempo_txt = "menos de 1 minuto"
+                elif minutes == 1:
+                    tiempo_txt = "1 minuto"
+                else:
+                    tiempo_txt = f"{minutes} minutos"
+            else:
+                tiempo_txt = "no disponible (demo)"
+
+            # Marcamos cierre lógico del flujo
             state["ticket_state"] = "S2"
+
+            # Mensaje de resumen + recordatorio genérico
             send_whatsapp(
                 phone,
-                "✅ Ticket marcado como FINALIZADO (S2 - Cierre).\n"
-                "Volviendo al menú.\n\n" + _texto_menu_principal(state)
+                "✅ Ticket FINALIZADO (S2 - Cierre).\n"
+                f"Ticket #{ticket_id} · Hab. {room} · Prioridad {prioridad}\n"
+                f"Detalle: {detalle}\n"
+                f"Tiempo de resolución (demo): {tiempo_txt}.\n\n"
+                "Si todavía tienes otros tickets pendientes, recuerda ir a "
+                "'Tickets por resolver' (opción 2) para continuar."
             )
+
+            # Limpiamos el ticket activo del flujo
             state["ticket_state"] = None
             state["ticket_activo"] = None
             return
@@ -334,19 +556,19 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
                 )
                 return
 
-            # Texto libre en S1 EN CURSO:
-            # solo creamos ticket adicional si hay algún número (habitación)
-            if any(ch.isdigit() for ch in text or ""):
-                _crear_ticket_adicional(phone, text, state)
-            else:
-                send_whatsapp(
-                    phone,
-                    "No reconocí ese comando.\n"
-                    "En ejecución (S1) puedes usar:\n"
-                    "- 'pausar', 'fin', 'supervisor'\n"
-                    "o describir un nuevo problema indicando habitación, por ejemplo:\n"
-                    "'la 415 necesita toallas'."
-                )
+            # Texto libre en S1 EN CURSO: intentamos tratarlo como nuevo ticket
+            if _manejar_ticket_libre(phone, text, state, adicional=True):
+                return
+
+            # Si por alguna razón no se interpretó como ticket:
+            send_whatsapp(
+                phone,
+                "No reconocí ese comando.\n"
+                "En ejecución (S1) puedes usar:\n"
+                "- 'pausar', 'fin', 'supervisor'\n"
+                "o describir un nuevo problema indicando habitación, por ejemplo:\n"
+                "'la 415 necesita toallas'."
+            )
             return
 
         # Estado PAUSADO
@@ -370,19 +592,18 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
                 )
                 return
 
-            # Texto libre en S1 PAUSADO:
-            # solo creamos ticket adicional si hay algún número (habitación)
-            if any(ch.isdigit() for ch in text or ""):
-                _crear_ticket_adicional(phone, text, state)
-            else:
-                send_whatsapp(
-                    phone,
-                    "No reconocí ese comando.\n"
-                    "Con el ticket PAUSADO puedes usar:\n"
-                    "- 'reanudar', 'fin', 'supervisor'\n"
-                    "o describir un nuevo problema indicando habitación, por ejemplo:\n"
-                    "'la 415 necesita toallas'."
-                )
+            # Texto libre con ticket PAUSADO: también puede ser un ticket nuevo
+            if _manejar_ticket_libre(phone, text, state, adicional=True):
+                return
+
+            send_whatsapp(
+                phone,
+                "No reconocí ese comando.\n"
+                "Con el ticket PAUSADO puedes usar:\n"
+                "- 'reanudar', 'fin', 'supervisor'\n"
+                "o describir un nuevo problema indicando habitación, por ejemplo:\n"
+                "'la 415 necesita toallas'."
+            )
             return
 
     # S2: cierre / salida (por seguridad, limpiamos y volvemos a menú)
@@ -394,7 +615,6 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
             "🏁 TicketFlow finalizado. Volviendo al menú.\n\n" + _texto_menu_principal(state)
         )
         return
-
 
 # =========================
 #   MENÚ M0/M1/M2/M3
@@ -491,7 +711,10 @@ def _handle_menu(phone: str, text: str, state: Dict[str, Any]):
             )
             return
 
-        # Fallback en menú principal
+        # Fallback en menú principal: probar si es un problema nuevo
+        if _manejar_ticket_libre(phone, text, state):
+            return
+
         send_whatsapp(
             phone,
             "No entendí esa opción.\n\n" + _texto_menu_principal(state)
@@ -500,6 +723,16 @@ def _handle_menu(phone: str, text: str, state: Dict[str, Any]):
 
     # M2: crear ticket / problema
     if menu_state == "M2":
+        # Navegación rápida: si la mucama escribe 1,2,3,4 cambiamos de opción
+        if t in {"1", "2", "3", "4"}:
+            state["menu_state"] = "M1" if state["turno_activo"] else "M0"
+            send_whatsapp(
+                phone,
+                "Cambio de opción. Salgo de crear ticket y voy al menú.\n"
+            )
+            _handle_menu(phone, t, state)
+            return
+
         if t.upper() in {"CANCELAR", "M", "MENU"}:
             state["menu_state"] = "M1" if state["turno_activo"] else "M0"
             send_whatsapp(
@@ -508,16 +741,24 @@ def _handle_menu(phone: str, text: str, state: Dict[str, Any]):
             )
             return
 
-        # Cualquier texto aquí se interpreta como descripción del problema
-        _crear_ticket_desde_mucama(phone, text, state)
-        send_whatsapp(
-            phone,
-            "\nVolviendo al menú principal.\n\n" + _texto_menu_principal(state)
-        )
+        # Cualquier otro texto aquí se maneja como ticket en lenguaje natural
+        if _manejar_ticket_libre(phone, text, state, adicional=False):
+            return
+
         return
 
     # M3: ayuda / supervisor
     if menu_state == "M3":
+        # Navegación rápida: 1,2,3,4 cambian de opción
+        if t in {"1", "2", "3", "4"}:
+            state["menu_state"] = "M1" if state["turno_activo"] else "M0"
+            send_whatsapp(
+                phone,
+                "Cambio de opción. Salgo de ayuda y voy al menú.\n"
+            )
+            _handle_menu(phone, t, state)
+            return
+
         if t.upper() in {"CANCELAR", "M", "MENU"}:
             state["menu_state"] = "M1" if state["turno_activo"] else "M0"
             send_whatsapp(
@@ -546,7 +787,6 @@ def _handle_menu(phone: str, text: str, state: Dict[str, Any]):
         )
         state["menu_state"] = "M1" if state["turno_activo"] else "M0"
         return
-
 
 # =========================
 #   PUNTOS DE ENTRADA PÚBLICOS
