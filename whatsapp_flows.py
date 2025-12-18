@@ -1,8 +1,7 @@
 from typing import Dict, Any
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+import re
 import time
-print("DEBUG: whatsapp_flows CARGADO DESDE ESTE ARCHIVO")
-
 
 # =========================
 #   ESTADO EN MEMORIA
@@ -70,14 +69,19 @@ DEMO_TICKETS = [
         "room": "312",
         "detalle": "Toallas adicionales",
         "prioridad": "MEDIA",
+        "created_at": datetime.now() - timedelta(minutes=35),
+        "esfuerzo": "FACIL",   # FACIL | MEDIO | DIFICIL
     },
     {
         "id": 1011,
         "room": "221",
         "detalle": "Limpieza rápida",
         "prioridad": "ALTA",
+        "created_at": datetime.now() - timedelta(minutes=10),
+        "esfuerzo": "MEDIO",
     },
 ]
+
 
 # Cada cuánto tiempo podemos mandar un recordatorio (en segundos)
 REMINDER_INTERVAL_SECONDS = 5 * 60  # 5 minutos
@@ -93,22 +97,102 @@ def _hay_tickets_pendientes(state: Dict[str, Any]) -> bool:
     """
     return bool(DEMO_TICKETS)
 
+# =========================
+#   INTERPRETACIÓN S0 (ACEPTAR/RECHAZAR) + PRIORIZACIÓN
+# =========================
+
+ACCEPT_PHRASES = {
+    "aceptar", "acepto", "aceptado",
+    "tomar ticket", "tomar el ticket", "tomar", "tomo",
+    "agarrar", "agarro",
+    "me lo llevo", "me hago cargo", "me encargo",
+    "lo tomo", "lo hago", "voy con ese", "voy con ese ticket",
+    "ok", "oka", "okey", "dale", "listo", "ya", "de acuerdo",
+}
+
+REJECT_PHRASES = {
+    "rechazar", "rechazo", "rechazado",
+    "derivar", "derivo", "derivado",
+    "no puedo", "no alcanzo", "paso", "siguiente",
+}
+
+def _norm(s: str) -> str:
+    s = (s or "").strip().lower()
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+def _match_frase(text: str, frases: set[str]) -> bool:
+    t = _norm(text)
+    return any(frase in t for frase in frases)
+
+def _es_aceptacion_ticket(text: str) -> bool:
+    t = _norm(text)
+    # Evita falsos positivos tipo "no acepto", "no lo tomo"
+    if ("no acept" in t) or ("no lo tomo" in t) or ("no tomar" in t) or ("no tomo" in t):
+        return False
+    return _match_frase(t, ACCEPT_PHRASES)
+
+def _es_rechazo_ticket(text: str) -> bool:
+    return _match_frase(text, REJECT_PHRASES)
+
+def _extraer_id_ticket_en_texto(text: str) -> int | None:
+    """
+    Permite escribir: '#1011' o '1011' para elegir ticket específico.
+    """
+    t = _norm(text)
+    m = re.search(r"#?\b(\d{3,6})\b", t)
+    if not m:
+        return None
+    try:
+        return int(m.group(1))
+    except:
+        return None
+
+PRIORIDAD_PESO = {"ALTA": 100, "MEDIA": 60, "BAJA": 30}
+ESFUERZO_PESO = {"FACIL": 25, "MEDIO": 10, "DIFICIL": 0}
+
+def _score_ticket(t: Dict[str, Any]) -> float:
+    p = PRIORIDAD_PESO.get((t.get("prioridad") or "").upper(), 0)
+
+    created_at = t.get("created_at")
+    if isinstance(created_at, datetime):
+        age_min = (datetime.now() - created_at).total_seconds() / 60.0
+    else:
+        age_min = 0.0
+
+    e = ESFUERZO_PESO.get((t.get("esfuerzo") or "MEDIO").upper(), 10)
+
+    # Ajusta pesos a gusto:
+    return (p * 1.0) + (age_min * 0.8) + (e * 1.0)
+
+def _elegir_mejor_ticket(tickets: list[Dict[str, Any]]) -> Dict[str, Any] | None:
+    if not tickets:
+        return None
+    return max(tickets, key=_score_ticket)
 
 def _mock_listado_tickets_por_resolver() -> str:
-    """
-    Mock sencillo para 'tickets por resolver'.
-    En producción aquí se listan:
-    - tickets asignados a la mucama
-    - y/o tickets disponibles para que los tome
-    """
     lines = ["Tickets por resolver (demo):"]
-    for t in DEMO_TICKETS:
+
+    ordered = sorted(DEMO_TICKETS, key=_score_ticket, reverse=True)
+
+    for t in ordered:
+        created_at = t.get("created_at")
+        if isinstance(created_at, datetime):
+            age_min = int((datetime.now() - created_at).total_seconds() / 60)
+            age_txt = f"hace {age_min} min"
+        else:
+            age_txt = "sin hora"
+
+        esfuerzo = t.get("esfuerzo", "MEDIO")
         lines.append(
-            f"- #{t['id']} / Hab. {t['room']} / {t['detalle']} / prioridad {t['prioridad']}"
+            f"- #{t['id']} / Hab. {t['room']} / {t['detalle']} / prioridad {t['prioridad']} / {age_txt} / {esfuerzo}"
         )
+
     lines.append(
-        "\nResponde 'aceptar' para tomar el primer ticket,\n"
-        "o 'rechazar' para simular rechazo/derivación."
+        "\nPuedes responder por ejemplo:\n"
+        "- 'aceptar' / 'tomar ticket' / 'ok lo tomo'\n"
+        "- 'rechazar' / 'derivar'\n"
+        "O escribir el ID: '#1011' para elegir uno específico."
     )
     return "\n".join(lines)
 
@@ -424,60 +508,77 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
 
     # S0: nuevo ticket / decisión
     if s == "S0":
-        if t == "aceptar":
-            # Pasamos a S1, ticket aceptado
-            state["ticket_state"] = "S1"
-            ticket = state.get("ticket_activo") or {}
-
-            ticket_id = ticket.get("id", "—")
-            room = ticket.get("room", "—")
-            detalle = ticket.get("detalle", "")
-            prioridad = ticket.get("prioridad", "—")
-
-            # El ticket entra en ejecución
-            ticket["paused"] = False
-            # Guardamos la hora de inicio (demo)
-            if "started_at" not in ticket:
-                ticket["started_at"] = datetime.now()
-
-            state["ticket_activo"] = ticket
-
-            send_whatsapp(
-                phone,
-                "✅ Has ACEPTADO un ticket (S1 - Ejecución).\n"
-                f"Ticket #{ticket_id} · Hab. {room} · Prioridad {prioridad}\n"
-                f"Detalle: {detalle}\n\n"
-                "Comandos: 'pausar', 'fin', 'supervisor'.\n"
-                "También puedes escribir texto libre para crear tickets adicionales."
-            )
-        elif t in {"rechazar", "derivar"}:
-            # Cerramos flujo del ticket y volvemos a menú
-            state["ticket_state"] = "S2"
-            send_whatsapp(
-                phone,
-                "🚫 Has RECHAZADO/DERIVADO el ticket (S2 - Cierre).\n"
-                "Volviendo al menú.\n\n" + _texto_menu_principal(state)
-            )
-            state["ticket_state"] = None
-            state["ticket_activo"] = None
-        elif t == "timeout":
-            state["ticket_state"] = "S2"
-            send_whatsapp(
-                phone,
-                "⌛ Timeout de ticket (S2 - Cierre por sistema).\n"
-                "Volviendo al menú.\n\n" + _texto_menu_principal(state)
-            )
-            state["ticket_state"] = None
-            state["ticket_activo"] = None
+        if _es_aceptacion_ticket(raw):
+        # Si la persona escribió un ID (#1011), lo usamos
+            tid = _extraer_id_ticket_en_texto(raw)
+        if tid is not None:
+            elegido = next((x for x in DEMO_TICKETS if x.get("id") == tid), None)
         else:
-            send_whatsapp(
-                phone,
-                "No entendí. En tickets por resolver (S0) puedes escribir:\n"
-                "- 'aceptar'\n"
-                "- 'rechazar'\n"
-                "- 'derivar'\n"
-                "- 'timeout' (demo)\n"
-            )
+            elegido = _elegir_mejor_ticket(DEMO_TICKETS)
+
+        if not elegido:
+            send_whatsapp(phone, "No encontré tickets pendientes para tomar (demo).")
+            state["ticket_state"] = None
+            state["ticket_activo"] = None
+            return
+
+        # (Opcional recomendado) sacar el ticket de la cola demo
+        try:
+            DEMO_TICKETS.remove(elegido)
+        except ValueError:
+            pass
+
+        state["ticket_state"] = "S1"
+        state["ticket_activo"] = {
+            "id": elegido["id"],
+            "room": elegido["room"],
+            "detalle": elegido["detalle"],
+            "prioridad": elegido["prioridad"],
+            "paused": False,
+            "started_at": datetime.now(),
+        }
+
+        send_whatsapp(
+            phone,
+            "✅ Has ACEPTADO un ticket (S1 - Ejecución).\n"
+            f"Ticket #{elegido['id']} · Hab. {elegido['room']} · Prioridad {elegido['prioridad']}\n"
+            f"Detalle: {elegido['detalle']}\n\n"
+            "Comandos: 'pausar', 'fin', 'supervisor'.\n"
+            "También puedes escribir texto libre para crear tickets adicionales."
+        )
+        return
+
+    elif _es_rechazo_ticket(raw):
+        state["ticket_state"] = "S2"
+        send_whatsapp(
+            phone,
+            "🚫 Has RECHAZADO/DERIVADO el ticket (S2 - Cierre).\n"
+            "Volviendo al menú.\n\n" + _texto_menu_principal(state)
+        )
+        state["ticket_state"] = None
+        state["ticket_activo"] = None
+        return
+
+    elif t == "timeout":
+        state["ticket_state"] = "S2"
+        send_whatsapp(
+            phone,
+            "⌛ Timeout de ticket (S2 - Cierre por sistema).\n"
+            "Volviendo al menú.\n\n" + _texto_menu_principal(state)
+        )
+        state["ticket_state"] = None
+        state["ticket_activo"] = None
+        return
+
+    else:
+        send_whatsapp(
+            phone,
+            "No entendí. En tickets por resolver (S0) puedes escribir por ejemplo:\n"
+            "- 'aceptar' / 'tomar ticket' / 'ok lo tomo'\n"
+            "- 'rechazar' / 'derivar'\n"
+            "- '#1011' para elegir uno\n"
+            "- 'timeout' (demo)\n"
+        )
         return
 
     # S1: ejecución (EN_CURSO o PAUSADO)
@@ -671,7 +772,10 @@ def _handle_menu(phone: str, text: str, state: Dict[str, Any]):
                 )
 
             # Para el demo usamos siempre el primer ticket de la lista
-            demo_ticket = DEMO_TICKETS[0]
+            demo_ticket = _elegir_mejor_ticket(DEMO_TICKETS)
+            if not demo_ticket:
+                send_whatsapp(phone, "No hay tickets pendientes (demo).")
+                return
 
             state["ticket_state"] = "S0"
             state["ticket_activo"] = {
