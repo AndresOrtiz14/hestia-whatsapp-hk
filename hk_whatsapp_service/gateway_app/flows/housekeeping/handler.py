@@ -3,6 +3,7 @@ from datetime import date, datetime, timedelta
 import re
 import time
 
+
 # =========================
 #   ESTADO EN MEMORIA
 # =========================
@@ -36,7 +37,6 @@ def send_whatsapp(to: str, body: str):
     En el simulador, hk_cli_simulator.py sobreescribe esta función.
     """
     print(f"[FAKE SEND] → {to}: {body}")
-
 
 # =========================
 #   HELPERS DE TEXTO
@@ -460,27 +460,21 @@ def _maybe_send_recordatorio_pendientes(phone: str, state: Dict[str, Any]):
 # =========================
 #   FLUJO DE TICKETS S0/S1/S2
 # =========================
-def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
+def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]) -> None:
     """
-    Implementa el sub-diagrama 'Flujo de Tickets (PUSH)'.
-    Estados:
-      - S0: llegada / decisión sobre ticket por resolver
-      - S1: ejecución (en curso o pausado)
-      - S2: cierre / salida
+    Maneja el flujo de tickets (S0/S1/S2).
+    Se llama SOLO cuando state["ticket_state"] no es None.
     """
-    if state["ticket_state"] is None:
-        return  # No hay flujo de tickets activo
+    if state.get("ticket_state") is None:
+        return
 
     raw = (text or "").strip()
     t = raw.lower()
-    s = state["ticket_state"]
+    s = state.get("ticket_state")
 
-    # Atajo global: 'M' / 'MENU' → salir del flujo de tickets y volver al menú
+    # Atajo: volver al menú sin alterar el ticket activo (solo sales de la "conversación" del ticket)
     if raw.upper() in {"M", "MENU"}:
-        # NO cambiamos el estado del ticket a pausado.
-        # Solo dejamos de estar “hablando” del flujo S0/S1/S2.
         state["ticket_state"] = None
-
         send_whatsapp(
             phone,
             "Te muestro el menú de Housekeeping.\n"
@@ -491,86 +485,78 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
         )
         return
 
-    # NUEVO: navegación rápida por números 1–4
-    # Si está en S0 o S1 y escribe 1,2,3,4 → salir del flujo de ticket
-    # y mandar esa opción directamente al menú.
+    # Navegación rápida desde S0/S1: si escriben 1-4, salimos del ticket y vamos al menú
     if s in {"S0", "S1"} and t in {"1", "2", "3", "4"}:
-        state["ticket_state"] = None  # dejamos de “hablar del ticket”
-        # opcional: no tocamos ticket_activo, se mantiene en ejecución de fondo
-
-        send_whatsapp(
-            phone,
-            "Cambio de opción. Salgo de este ticket y voy al menú.\n"
-        )
-        # Reutilizamos la lógica normal del menú con ese mismo número
+        state["ticket_state"] = None
+        send_whatsapp(phone, "Cambio de opción. Salgo de este ticket y voy al menú.\n")
         _handle_menu(phone, raw, state)
         return
 
-    # S0: nuevo ticket / decisión
+    # =========================
+    # S0: decisión (aceptar/rechazar/timeout)
+    # =========================
     if s == "S0":
         if _es_aceptacion_ticket(raw):
-        # Si la persona escribió un ID (#1011), lo usamos
             tid = _extraer_id_ticket_en_texto(raw)
-        if tid is not None:
-            elegido = next((x for x in DEMO_TICKETS if x.get("id") == tid), None)
-        else:
-            elegido = _elegir_mejor_ticket(DEMO_TICKETS)
+            if tid is not None:
+                elegido = next((x for x in DEMO_TICKETS if x.get("id") == tid), None)
+            else:
+                elegido = _elegir_mejor_ticket(DEMO_TICKETS)
 
-        if not elegido:
-            send_whatsapp(phone, "No encontré tickets pendientes para tomar (demo).")
+            if not elegido:
+                send_whatsapp(phone, "No encontré tickets pendientes para tomar (demo).")
+                state["ticket_state"] = None
+                state["ticket_activo"] = None
+                return
+
+            # (Opcional recomendado) sacar el ticket de la cola demo
+            try:
+                DEMO_TICKETS.remove(elegido)
+            except ValueError:
+                pass
+
+            state["ticket_state"] = "S1"
+            state["ticket_activo"] = {
+                "id": elegido["id"],
+                "room": elegido["room"],
+                "detalle": elegido["detalle"],
+                "prioridad": elegido["prioridad"],
+                "paused": False,
+                "started_at": datetime.now(),
+            }
+
+            send_whatsapp(
+                phone,
+                "✅ Has ACEPTADO un ticket (S1 - Ejecución).\n"
+                f"Ticket #{elegido['id']} · Hab. {elegido['room']} · Prioridad {elegido['prioridad']}\n"
+                f"Detalle: {elegido['detalle']}\n\n"
+                "Comandos: 'pausar', 'fin', 'supervisor'.\n"
+                "También puedes escribir texto libre para crear tickets adicionales."
+            )
+            return
+
+        if _es_rechazo_ticket(raw):
+            state["ticket_state"] = "S2"
+            send_whatsapp(
+                phone,
+                "🚫 Has RECHAZADO/DERIVADO el ticket (S2 - Cierre).\n"
+                "Volviendo al menú.\n\n" + _texto_menu_principal(state)
+            )
             state["ticket_state"] = None
             state["ticket_activo"] = None
             return
 
-        # (Opcional recomendado) sacar el ticket de la cola demo
-        try:
-            DEMO_TICKETS.remove(elegido)
-        except ValueError:
-            pass
+        if t == "timeout":
+            state["ticket_state"] = "S2"
+            send_whatsapp(
+                phone,
+                "⌛ Timeout de ticket (S2 - Cierre por sistema).\n"
+                "Volviendo al menú.\n\n" + _texto_menu_principal(state)
+            )
+            state["ticket_state"] = None
+            state["ticket_activo"] = None
+            return
 
-        state["ticket_state"] = "S1"
-        state["ticket_activo"] = {
-            "id": elegido["id"],
-            "room": elegido["room"],
-            "detalle": elegido["detalle"],
-            "prioridad": elegido["prioridad"],
-            "paused": False,
-            "started_at": datetime.now(),
-        }
-
-        send_whatsapp(
-            phone,
-            "✅ Has ACEPTADO un ticket (S1 - Ejecución).\n"
-            f"Ticket #{elegido['id']} · Hab. {elegido['room']} · Prioridad {elegido['prioridad']}\n"
-            f"Detalle: {elegido['detalle']}\n\n"
-            "Comandos: 'pausar', 'fin', 'supervisor'.\n"
-            "También puedes escribir texto libre para crear tickets adicionales."
-        )
-        return
-
-    elif _es_rechazo_ticket(raw):
-        state["ticket_state"] = "S2"
-        send_whatsapp(
-            phone,
-            "🚫 Has RECHAZADO/DERIVADO el ticket (S2 - Cierre).\n"
-            "Volviendo al menú.\n\n" + _texto_menu_principal(state)
-        )
-        state["ticket_state"] = None
-        state["ticket_activo"] = None
-        return
-
-    elif t == "timeout":
-        state["ticket_state"] = "S2"
-        send_whatsapp(
-            phone,
-            "⌛ Timeout de ticket (S2 - Cierre por sistema).\n"
-            "Volviendo al menú.\n\n" + _texto_menu_principal(state)
-        )
-        state["ticket_state"] = None
-        state["ticket_activo"] = None
-        return
-
-    else:
         send_whatsapp(
             phone,
             "No entendí. En tickets por resolver (S0) puedes escribir por ejemplo:\n"
@@ -581,20 +567,20 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
         )
         return
 
+    # =========================
     # S1: ejecución (EN_CURSO o PAUSADO)
+    # =========================
     if s == "S1":
         ticket = state.get("ticket_activo") or {}
         paused = ticket.get("paused", False)
 
         # Comandos comunes
         if t in {"fin", "terminar", "cerrar"}:
-            # Datos básicos del ticket
             ticket_id = ticket.get("id", "—")
             room = ticket.get("room", "—")
             detalle = ticket.get("detalle", "")
             prioridad = ticket.get("prioridad", "—")
 
-            # Calcular tiempo de resolución (demo)
             started_at = ticket.get("started_at")
             if isinstance(started_at, datetime):
                 elapsed = datetime.now() - started_at
@@ -609,10 +595,8 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
             else:
                 tiempo_txt = "no disponible (demo)"
 
-            # Marcamos cierre lógico del flujo
             state["ticket_state"] = "S2"
 
-            # Mensaje de resumen + recordatorio genérico
             send_whatsapp(
                 phone,
                 "✅ Ticket FINALIZADO (S2 - Cierre).\n"
@@ -623,7 +607,6 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
                 "'Tickets por resolver' (opción 2) para continuar."
             )
 
-            # Limpiamos el ticket activo del flujo
             state["ticket_state"] = None
             state["ticket_activo"] = None
             return
@@ -648,6 +631,7 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
                     "También puedes escribir texto libre para crear tickets adicionales."
                 )
                 return
+
             if t == "reanudar":
                 send_whatsapp(
                     phone,
@@ -657,11 +641,9 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
                 )
                 return
 
-            # Texto libre en S1 EN CURSO: intentamos tratarlo como nuevo ticket
             if _manejar_ticket_libre(phone, text, state, adicional=True):
                 return
 
-            # Si por alguna razón no se interpretó como ticket:
             send_whatsapp(
                 phone,
                 "No reconocí ese comando.\n"
@@ -684,6 +666,7 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
                     "o texto libre para nuevos tickets."
                 )
                 return
+
             if t == "pausar":
                 send_whatsapp(
                     phone,
@@ -693,7 +676,6 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
                 )
                 return
 
-            # Texto libre con ticket PAUSADO: también puede ser un ticket nuevo
             if _manejar_ticket_libre(phone, text, state, adicional=True):
                 return
 
@@ -707,7 +689,9 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
             )
             return
 
-    # S2: cierre / salida (por seguridad, limpiamos y volvemos a menú)
+    # =========================
+    # S2: cierre / salida (seguridad)
+    # =========================
     if s == "S2":
         state["ticket_state"] = None
         state["ticket_activo"] = None
@@ -716,6 +700,65 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
             "🏁 TicketFlow finalizado. Volviendo al menú.\n\n" + _texto_menu_principal(state)
         )
         return
+
+
+from datetime import date
+
+# ======================================================
+#   ORQUESTADOR (ENTRYPOINT) DEL FLUJO DE HOUSEKEEPING
+# ======================================================
+
+def handle_hk_message(from_phone: str, text: str) -> None:
+    """
+    Punto de entrada único para:
+    - Simulador CLI
+    - Webhook (producción)
+
+    Orquesta:
+    - Saludo 1 vez al día
+    - Ticket flow (S0/S1/S2) si hay ticket activo
+    - Menú (M0/M1/M2/M3) si no hay ticket activo
+    - Recordatorios opcionales
+    """
+    state = get_user_state(from_phone)
+
+    raw = (text or "").strip()
+    today_str = date.today().isoformat()
+
+    # 0) Saludo: solo primer mensaje del día y solo si NO hay ticket activo
+    if state.get("ticket_state") is None and state.get("last_greet_date") != today_str:
+        state["last_greet_date"] = today_str
+        send_whatsapp(
+            from_phone,
+            "Hola, soy el asistente de Housekeeping de Hestia.\n"
+            "Te ayudaré a organizar y resolver tus tareas de hoy.\n\n"
+            + _texto_menu_principal(state)
+        )
+        return
+
+    # 1) Si hay un flujo de ticket activo, tiene prioridad
+    if state.get("ticket_state") is not None:
+        _handle_ticket_flow(from_phone, raw, state)
+        return
+
+    # 2) Si no hay ticket activo, manejamos menú
+    _handle_menu(from_phone, raw, state)
+
+    # 3) Recordatorio opcional (solo aplica si corresponde)
+    _maybe_send_recordatorio_pendientes(from_phone, state)
+
+
+def hk_check_reminder(from_phone: str) -> None:
+    """
+    Pensado para un scheduler (cron) en producción.
+    Se puede llamar cada minuto; la función interna respeta el intervalo real.
+    """
+    state = get_user_state(from_phone)
+    _maybe_send_recordatorio_pendientes(from_phone, state)
+
+
+# (Opcional) Alias por compatibilidad si en algún lugar aún llaman al underscore:
+_handle_hk_message = handle_hk_message
 
 # =========================
 #   MENÚ M0/M1/M2/M3
@@ -891,6 +934,7 @@ def _handle_menu(phone: str, text: str, state: Dict[str, Any]):
         )
         state["menu_state"] = "M1" if state["turno_activo"] else "M0"
         return
+
 
 # =========================
 #   PUNTOS DE ENTRADA PÚBLICOS
