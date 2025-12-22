@@ -1,3 +1,4 @@
+# gateway_app/routes/webhook.py
 from flask import Blueprint, request, jsonify
 from gateway_app.config import Config
 from gateway_app.services.whatsapp_client import send_whatsapp_text
@@ -5,7 +6,7 @@ from gateway_app.flows.housekeeping_flows import hk_handle_incoming
 
 bp = Blueprint("whatsapp_webhook", __name__)
 
-@bp.get("/webhook")
+@bp.route("/webhook", methods=["GET"], strict_slashes=False)
 def verify():
     mode = request.args.get("hub.mode")
     token = request.args.get("hub.verify_token")
@@ -15,10 +16,11 @@ def verify():
         return challenge, 200
     return "Forbidden", 403
 
-
-@bp.post("/webhook")
+@bp.route("/webhook", methods=["POST"], strict_slashes=False)
 def inbound():
+    print("[WEBHOOK] POST received", flush=True)  # <-- add this
     payload = request.get_json(silent=True) or {}
+    print(f"[WEBHOOK] payload keys={list(payload.keys())}", flush=True)
 
     try:
         entry = payload["entry"][0]
@@ -43,4 +45,5 @@ def inbound():
         return jsonify(ok=True), 200
 
     except Exception as e:
+        print(f"[WEBHOOK] ERROR {e}", flush=True)
         return jsonify(ok=False, error=str(e)), 500
