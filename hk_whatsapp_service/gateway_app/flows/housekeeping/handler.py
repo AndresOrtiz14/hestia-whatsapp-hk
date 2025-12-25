@@ -3,6 +3,10 @@ from datetime import date, datetime, timedelta
 import re
 import time
 
+from hk_whatsapp_service.gateway_app.flows.housekeeping.ticket_flow import _handle_ticket_flow
+from hk_whatsapp_service.gateway_app.flows.housekeeping.ui import texto_menu_principal
+from .reminders import _maybe_send_recordatorio_pendientes
+
 
 # =========================
 #   ESTADO EN MEMORIA
@@ -37,6 +41,24 @@ def send_whatsapp(to: str, body: str):
     En el simulador, hk_cli_simulator.py sobreescribe esta función.
     """
     print(f"[FAKE SEND] → {to}: {body}")
+
+def maybe_route_ticket_command_anywhere(phone: str, text: str, state: dict) -> bool:
+    """
+    Permite manejar comandos del ticket activo desde cualquier parte (menú, M0/M1/M2/M3, etc).
+    Si hay ticket_activo, y llega un comando tipo 'fin/pausar/reanudar/supervisor',
+    forzamos ticket_state = 'S1' y delegamos en handle_ticket_flow.
+    """
+    if state.get("ticket_activo") is None:
+        return False
+
+    t = (text or "").strip().lower()
+    if t in {"fin", "terminar", "cerrar", "pausar", "reanudar", "supervisor"}:
+        # Aseguramos que el ticket_flow lo procese como ejecución (S1)
+        state["ticket_state"] = "S1"
+        handle_ticket_flow(phone, text, state)
+        return True
+
+    return False
 
 # =========================
 #   HELPERS DE TEXTO
@@ -415,52 +437,10 @@ def _manejar_ticket_libre(
 
     state["ticket_draft_text"] = None
     return True
-
-# =========================
-#   RECORDATORIOS
-# =========================
-
-def _maybe_send_recordatorio_pendientes(phone: str, state: Dict[str, Any]):
-    """
-    Envía un recordatorio cada 5 minutos *solo si*:
-    - La persona tiene turno activo
-    - NO está trabajando en ningún ticket (ticket_state es None)
-    - Hay tickets pendientes por resolver
-    - Ya pasaron al menos 5 minutos desde el último recordatorio
-    """
-    # 1) Debe tener turno activo
-    if not state.get("turno_activo"):
-        return
-
-    # 2) No puede estar en un flujo de ticket
-    if state.get("ticket_state") is not None:
-        return
-
-    # 3) Debe haber tickets pendientes / disponibles
-    if not _hay_tickets_pendientes(state):
-        return
-
-    # 4) Intervalo mínimo entre recordatorios
-    now = time.time()
-    last_ts = state.get("last_reminder_ts")
-
-    if last_ts is not None and (now - last_ts) < REMINDER_INTERVAL_SECONDS:
-        return
-
-    # Actualizamos timestamp y enviamos recordatorio
-    state["last_reminder_ts"] = now
-
-    send_whatsapp(
-        phone,
-        "Tienes casos pendientes por resolver.\n"
-        "Para verlos, escribe *2* (Tickets por resolver) o *M* para ver el menú."
-    )
-
-
 # =========================
 #   FLUJO DE TICKETS S0/S1/S2
 # =========================
-def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]) -> None:
+def handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]) -> None:
     """
     Maneja el flujo de tickets (S0/S1/S2).
     Se llama SOLO cuando state["ticket_state"] no es None.
@@ -566,7 +546,7 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]) -> None:
             "- 'timeout' (demo)\n"
         )
         return
-
+    handle_ticket_flow = _handle_ticket_flow
     # =========================
     # S1: ejecución (EN_CURSO o PAUSADO)
     # =========================
@@ -723,18 +703,28 @@ def handle_hk_message(from_phone: str, text: str) -> None:
     state = get_user_state(from_phone)
 
     raw = (text or "").strip()
+
+    # 0) Comandos globales del ticket activo (desde cualquier parte)
+    if maybe_route_ticket_command_anywhere(from_phone, raw, state):
+        return
+
     today_str = date.today().isoformat()
 
-    # 0) Saludo: solo primer mensaje del día y solo si NO hay ticket activo
-    if state.get("ticket_state") is None and state.get("last_greet_date") != today_str:
+# Saludo solo si NO hay ticket activo (ni conversacional ni en ejecución)
+    if (
+        state.get("ticket_state") is None
+        and state.get("ticket_activo") is None
+        and state.get("last_greet_date") != today_str
+    ):
         state["last_greet_date"] = today_str
         send_whatsapp(
             from_phone,
             "Hola, soy el asistente de Housekeeping de Hestia.\n"
             "Te ayudaré a organizar y resolver tus tareas de hoy.\n\n"
-            + _texto_menu_principal(state)
+            + texto_menu_principal(state)
         )
         return
+
 
     # 1) Si hay un flujo de ticket activo, tiene prioridad
     if state.get("ticket_state") is not None:
@@ -934,58 +924,3 @@ def _handle_menu(phone: str, text: str, state: Dict[str, Any]):
         )
         state["menu_state"] = "M1" if state["turno_activo"] else "M0"
         return
-
-
-# =========================
-#   PUNTOS DE ENTRADA PÚBLICOS
-# =========================
-
-def _handle_hk_message(from_phone: str, text: str):
-    """
-    Punto de entrada único para el simulador y (en producción) para el webhook.
-    Orquesta:
-    - Menú Housekeeping (M0..M3)
-    - Flujo de tickets (S0..S2)
-
-    Además:
-    - Envía un saludo amable SOLO en el primer mensaje de cada día,
-      siempre que no haya un flujo de ticket activo.
-    """
-    state = get_user_state(from_phone)
-
-    raw = (text or "").strip()
-    today_str = date.today().isoformat()
-
-    # 0) Saludo de bienvenida: solo primer mensaje del día y sin ticket activo
-    if state.get("ticket_state") is None and state.get("last_greet_date") != today_str:
-        state["last_greet_date"] = today_str
-
-        send_whatsapp(
-            from_phone,
-            "Hola, soy el asistente de Housekeeping de Hestia.\n"
-            "Te ayudaré a organizar y resolver tus tareas de hoy.\n\n"
-            + _texto_menu_principal(state)
-        )
-        # Importante: NO interpretamos este primer mensaje como opción de menú.
-        return
-
-    # 1) Si hay un flujo de tickets activo, darle prioridad
-    if state["ticket_state"] is not None:
-        _handle_ticket_flow(from_phone, text, state)
-        return
-
-    # 2) Si no hay ticket activo, manejar menú M0/M1/M2/M3
-    _handle_menu(from_phone, raw, state)
-
-    # 3) (Opcional en el simulador) revisar si toca mandar recordatorio
-    _maybe_send_recordatorio_pendientes(from_phone, state)
-
-
-def hk_check_reminder(from_phone: str):
-    """
-    Pensado para una tarea periódica (cron / scheduler) en producción.
-    Se puede llamar cada minuto; internamente respetamos el intervalo
-    real de 5 minutos entre recordatorios por persona.
-    """
-    state = get_user_state(from_phone)
-    _maybe_send_recordatorio_pendientes(from_phone, state)

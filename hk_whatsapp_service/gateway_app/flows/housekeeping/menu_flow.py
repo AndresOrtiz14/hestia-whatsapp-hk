@@ -18,6 +18,32 @@ def handle_menu(phone: str, text: str, state: Dict[str, Any]):
     M3 = ayuda / supervisor
     """
     t = (text or "").strip()
+    
+    # =========================
+    #   NUEVO: COMANDOS GLOBALES DE TICKET (desde cualquier menú)
+    #   Permite 'fin/terminar/pausar/reanudar/supervisor' incluso estando en M0..M3
+    # =========================
+    cmd = t.lower()
+
+    if cmd in {"fin", "terminar", "cerrar", "pausar", "reanudar", "supervisor"}:
+        ticket = state.get("ticket_activo") or {}
+
+        # Solo consideramos "activo real" si fue aceptado (tiene started_at)
+        if ticket.get("started_at") is not None:
+            # Forzamos a S1 para que el ticket_flow entienda el comando
+            state["ticket_state"] = "S1"
+
+            # Import local para evitar import circular menu_flow <-> ticket_flow
+            from .ticket_flow import handle_ticket_flow
+            handle_ticket_flow(phone, text, state)
+            return
+
+        send_whatsapp(
+            phone,
+            "No tienes un ticket en ejecución ahora.\n"
+            "Escribe *2* para ver tickets por resolver."
+        )
+        return
 
     # Atajo global: 'M' o 'MENU' muestran el menú principal
     if t.upper() in {"M", "MENU"}:
@@ -50,9 +76,9 @@ def handle_menu(phone: str, text: str, state: Dict[str, Any]):
             return
 
         if tlower == "2":
-            # Tickets por resolver
+            # Tickets por resolver / gestionar ticket en ejecución
+
             if not state["turno_activo"]:
-                # Auto-inicio de turno
                 state["turno_activo"] = True
                 state["menu_state"] = "M1"
                 send_whatsapp(
@@ -60,7 +86,22 @@ def handle_menu(phone: str, text: str, state: Dict[str, Any]):
                     "🔄 No tenías turno activo, lo he iniciado automáticamente.\n"
                 )
 
-            # Para el demo usamos siempre el primer ticket de la lista
+            # 1) Si ya hay ticket ACEPTADO en ejecución (started_at existe), entramos a S1
+            ticket = state.get("ticket_activo") or {}
+            if ticket.get("started_at") is not None:
+                state["ticket_state"] = "S1"
+
+                estado_txt = "PAUSADO" if ticket.get("paused") else "EN CURSO"
+                send_whatsapp(
+                    phone,
+                    "🎫 Tienes un ticket en ejecución.\n"
+                    f"Ticket #{ticket.get('id', '—')} · Hab. {ticket.get('room', '—')} · {estado_txt}\n"
+                    f"Detalle: {ticket.get('detalle', '')}\n\n"
+                    "Escribe: *pausar*, *reanudar*, *fin* o *supervisor*."
+                )
+                return
+
+            # 2) Si NO hay ticket aceptado en ejecución, mostramos lista y entramos a S0 (como antes)
             demo_ticket = elegir_mejor_ticket(DEMO_TICKETS)
             if not demo_ticket:
                 send_whatsapp(phone, "No hay tickets pendientes (demo).")
@@ -73,6 +114,7 @@ def handle_menu(phone: str, text: str, state: Dict[str, Any]):
                 "detalle": demo_ticket["detalle"],
                 "prioridad": demo_ticket["prioridad"],
                 "paused": False,
+                # OJO: aquí NO ponemos started_at porque aún no está aceptado
             }
 
             send_whatsapp(

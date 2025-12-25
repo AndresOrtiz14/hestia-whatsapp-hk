@@ -131,7 +131,7 @@ def extraer_habitacion(texto: str) -> str | None:
             return digits
     return None
 
-def _manejar_ticket_libre(
+def manejar_ticket_libre(
     phone: str,
     texto: str,
     state: Dict[str, Any],

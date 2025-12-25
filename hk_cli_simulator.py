@@ -5,21 +5,23 @@ Nodo 2 = lógica     (reutilizamos la del backend)
 Nodo 3 = output     (imprimimos en pantalla)
 """
 
-# TODO: AJUSTAR ESTE IMPORT con tu developer
-# Debe apuntar al módulo donde está _handle_hk_message y send_whatsapp.
-# Ejemplo inventado:
-# from hestia.whatsapp_flows import _handle_hk_message
 import hk_whatsapp_service.gateway_app.flows.housekeeping_flows as flows
 import hk_whatsapp_service.gateway_app.flows.housekeeping.outgoing as outgoing_mod
 
-def send_whatsapp_cli(to: str, body: str):
+
+def send_whatsapp_cli(to: str, body: str) -> None:
     print(f"\nBOT → {to}: {body}\n")
 
-outgoing_mod.send_whatsapp = send_whatsapp_cli
+
+# IMPORTANTE:
+# Con el nuevo outgoing.py NO parcheamos outgoing_mod.send_whatsapp (wrapper),
+# sino outgoing_mod.SEND_IMPL (la implementación real).
+outgoing_mod.SEND_IMPL = send_whatsapp_cli
 
 handle_message = flows.handle_hk_message
 
-def main():
+
+def main() -> None:
     fake_phone = "56900000000"
     print("Simulador Hestia HK (CLI)")
     print("Escribe como si fueras la mucama. 'salir' para terminar.\n")
@@ -31,6 +33,6 @@ def main():
             break
         handle_message(fake_phone, text)
 
+
 if __name__ == "__main__":
     main()
-
