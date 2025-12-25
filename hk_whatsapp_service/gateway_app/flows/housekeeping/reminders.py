@@ -5,10 +5,10 @@ from .outgoing import send_whatsapp
 from .demo_tickets import DEMO_TICKETS
 
 # Cada cuánto tiempo podemos mandar un recordatorio (en segundos)
-REMINDER_INTERVAL_SECONDS = 5 * 60 # 5 minutos
+REMINDER_INTERVAL_SECONDS = 5 * 60  # 5 minutos
+
 
 def hay_tickets_pendientes(state: Dict[str, Any]) -> bool:
-        
     """
     DEMO: consideramos que hay tickets pendientes si existe al menos
     un ticket en DEMO_TICKETS.
@@ -18,18 +18,20 @@ def hay_tickets_pendientes(state: Dict[str, Any]) -> bool:
     """
     return bool(DEMO_TICKETS)
 
-# =========================
-#   RECORDATORIOS
-# =========================
 
 def _maybe_send_recordatorio_pendientes(phone: str, state: Dict[str, Any]):
     """
     Envía un recordatorio cada 5 minutos *solo si*:
     - La persona tiene turno activo
-    - NO está trabajando en ningún ticket (ticket_state es None)
+    - NO hay ticket en ejecución (ticket_activo is None)
+    - NO está en un flujo conversacional de ticket (ticket_state is None)
     - Hay tickets pendientes por resolver
     - Ya pasaron al menos 5 minutos desde el último recordatorio
     """
+    # 0) Si hay un ticket activo (aunque estés en menú), NO mandar recordatorios
+    if state.get("ticket_activo") is not None:
+        return
+
     # 1) Debe tener turno activo
     if not state.get("turno_activo"):
         return
