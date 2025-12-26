@@ -85,7 +85,13 @@ def handle_hk_message(from_phone: str, text: str) -> None:
     handle_menu(from_phone, raw, state)
 
     # 3) Recordatorio opcional (solo aplica si corresponde)
-    maybe_send_recordatorio_pendientes(from_phone, state)
+    # No enviar recordatorio si acabamos de iniciar turno
+    if not state.get("_just_started_shift"):
+        maybe_send_recordatorio_pendientes(from_phone, state)
+    
+    # Limpiar flag temporal después de usarlo
+    if state.get("_just_started_shift"):
+        state["_just_started_shift"] = False
 
 
 # Alias por compatibilidad (por si algún módulo aún usa este nombre)

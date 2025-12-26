@@ -62,6 +62,7 @@ def handle_menu(phone: str, text: str, state: Dict[str, Any]):
             if not state["turno_activo"]:
                 state["turno_activo"] = True
                 state["menu_state"] = "M1"
+                state["_just_started_shift"] = True  # ✅ Flag: evita recordatorio inmediato
                 send_whatsapp(
                     phone,
                     "✅ Has INICIADO tu turno.\n\n" + texto_menu_principal(state)

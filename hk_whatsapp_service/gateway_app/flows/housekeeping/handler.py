@@ -5,7 +5,7 @@ import time
 
 from hk_whatsapp_service.gateway_app.flows.housekeeping.ticket_flow import _handle_ticket_flow
 from hk_whatsapp_service.gateway_app.flows.housekeeping.ui import texto_menu_principal
-from .reminders import _maybe_send_recordatorio_pendientes
+from .reminders import maybe_send_recordatorio_pendientes
 
 
 # =========================
@@ -103,7 +103,6 @@ DEMO_TICKETS = [
         "esfuerzo": "MEDIO",
     },
 ]
-
 
 # Cada cuánto tiempo podemos mandar un recordatorio (en segundos)
 REMINDER_INTERVAL_SECONDS = 5 * 60  # 5 minutos
@@ -735,7 +734,7 @@ def handle_hk_message(from_phone: str, text: str) -> None:
     _handle_menu(from_phone, raw, state)
 
     # 3) Recordatorio opcional (solo aplica si corresponde)
-    _maybe_send_recordatorio_pendientes(from_phone, state)
+    maybe_send_recordatorio_pendientes(from_phone, state)
 
 
 def hk_check_reminder(from_phone: str) -> None:
@@ -744,7 +743,7 @@ def hk_check_reminder(from_phone: str) -> None:
     Se puede llamar cada minuto; la función interna respeta el intervalo real.
     """
     state = get_user_state(from_phone)
-    _maybe_send_recordatorio_pendientes(from_phone, state)
+    maybe_send_recordatorio_pendientes(from_phone, state)
 
 
 # (Opcional) Alias por compatibilidad si en algún lugar aún llaman al underscore:
