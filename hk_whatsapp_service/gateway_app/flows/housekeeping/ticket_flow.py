@@ -6,7 +6,6 @@ from .outgoing import send_whatsapp
 from .ui import texto_menu_principal
 from .demo_tickets import DEMO_TICKETS, elegir_mejor_ticket
 from .ticket_text import manejar_ticket_libre
-from .menu_flow import handle_menu
 
 ACCEPT_PHRASES = {
     "aceptar", "acepto", "aceptado",
@@ -101,6 +100,8 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
             phone,
             "Cambio de opción. Salgo de este ticket y voy al menú.\n"
         )
+        # Import local para evitar import circular ✅
+        from .menu_flow import handle_menu
         # Reutilizamos la lógica normal del menú con ese mismo número
         handle_menu(phone, raw, state)
         return
