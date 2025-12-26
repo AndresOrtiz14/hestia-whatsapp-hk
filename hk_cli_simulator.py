@@ -5,20 +5,18 @@ Nodo 2 = lógica     (reutilizamos la del backend)
 Nodo 3 = output     (imprimimos en pantalla)
 """
 
-import hk_whatsapp_service.gateway_app.flows.housekeeping_flows as flows
+import hk_whatsapp_service.gateway_app.flows.housekeeping.orchestrator as orchestrator
 import hk_whatsapp_service.gateway_app.flows.housekeeping.outgoing as outgoing_mod
-
 
 def send_whatsapp_cli(to: str, body: str) -> None:
     print(f"\nBOT → {to}: {body}\n")
-
 
 # IMPORTANTE:
 # Con el nuevo outgoing.py NO parcheamos outgoing_mod.send_whatsapp (wrapper),
 # sino outgoing_mod.SEND_IMPL (la implementación real).
 outgoing_mod.SEND_IMPL = send_whatsapp_cli
 
-handle_message = flows.handle_hk_message
+handle_message = orchestrator.handle_hk_message
 
 
 def main() -> None:

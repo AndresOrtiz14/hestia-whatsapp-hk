@@ -1,18 +1,15 @@
-from typing import Callable
+from typing import Callable, Optional
 
-def _real_send_whatsapp(to: str, body: str) -> None:
-    """
-    En producción esto enviaría un WhatsApp (Meta/WhatsApp API).
-    Por ahora, dejamos un fallback a consola.
-    """
-    print(f"[FAKE SEND] → {to}: {body}")
+SEND_IMPL: Optional[Callable[[str, str], None]] = None
 
-# Esta es la “implementación” que se puede reemplazar desde el simulador
-SEND_IMPL: Callable[[str, str], None] = _real_send_whatsapp
 
 def send_whatsapp(to: str, body: str) -> None:
     """
-    Wrapper estable: siempre llama a SEND_IMPL.
-    En el simulador, cambiamos SEND_IMPL para interceptar todos los envíos.
+    En producción: aquí va el envío real (WhatsApp API).
+    En simulador: se setea outgoing.SEND_IMPL = send_whatsapp_cli
     """
-    return SEND_IMPL(to, body)
+    if SEND_IMPL is not None:
+        SEND_IMPL(to, body)
+        return
+
+    print(f"[FAKE SEND] → {to}: {body}")
