@@ -1,11 +1,13 @@
 from typing import Dict, Any
 from datetime import datetime, timedelta
+import copy
 
 # =========================
 #   DEMO TICKETS
 # =========================
 
-DEMO_TICKETS = [
+# Lista base inmutable (no modificar directamente)
+_DEMO_TICKETS_BASE = [
     {
         "id": 1010,
         "room": "312",
@@ -23,6 +25,14 @@ DEMO_TICKETS = [
         "esfuerzo": "MEDIO",
     },
 ]
+
+# Función para obtener tickets frescos (copia limpia cada vez)
+def get_demo_tickets():
+    """Retorna una copia fresca de los tickets demo."""
+    return copy.deepcopy(_DEMO_TICKETS_BASE)
+
+# Para compatibilidad con código existente
+DEMO_TICKETS = get_demo_tickets()
 
 PRIORIDAD_PESO = {"ALTA": 100, "MEDIA": 60, "BAJA": 30}
 ESFUERZO_PESO = {"FACIL": 25, "MEDIO": 10, "DIFICIL": 0}
