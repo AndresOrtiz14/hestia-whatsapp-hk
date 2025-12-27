@@ -100,7 +100,7 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
             phone,
             "Cambio de opción. Salgo de este ticket y voy al menú.\n"
         )
-        # Import local para evitar import circular ✅
+        # Import local para evitar import circular
         from .menu_flow import handle_menu
         # Reutilizamos la lógica normal del menú con ese mismo número
         handle_menu(phone, raw, state)
@@ -124,11 +124,9 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
                 state["ticket_activo"] = None
                 return
 
-            # (Opcional recomendado) sacar el ticket de la cola demo
-            try:
-                DEMO_TICKETS.remove(elegido)
-            except ValueError:
-                pass
+            # DEMO: En modo demo, los tickets son infinitos (no se eliminan)
+            # En producción, aquí se marcaría el ticket como "en progreso" en la BD
+            # Para evitar que otro usuario lo tome al mismo tiempo
 
             state["ticket_state"] = "S1"
             state["ticket_activo"] = {
@@ -230,6 +228,14 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
             # Limpiamos el ticket activo del flujo
             state["ticket_state"] = None
             state["ticket_activo"] = None
+            
+            # PUSH: Verificar si hay tickets pendientes en cola y asignar el siguiente
+            from .orchestrator import check_and_assign_pending_tickets
+            next_ticket_result = check_and_assign_pending_tickets(phone)
+            
+            # Si se asignó un ticket de la cola, ya se notificó en check_and_assign_pending_tickets
+            # Si no hay más tickets pendientes, el flujo termina normalmente
+            
             return
 
         if t == "supervisor":
