@@ -143,7 +143,10 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
                 "✅ Has ACEPTADO un ticket (S1 - Ejecución).\n"
                 f"Ticket #{elegido['id']} · Hab. {elegido['room']} · Prioridad {elegido['prioridad']}\n"
                 f"Detalle: {elegido['detalle']}\n\n"
-                "Comandos: 'pausar', 'fin', 'supervisor'.\n"
+                "Comandos disponibles:\n"
+                "• 'pausar' - Pausar temporalmente\n"
+                "• 'fin' / 'finalizar' / 'listo' - Completar ticket\n"
+                "• 'supervisor' - Pedir ayuda\n\n"
                 "También puedes escribir texto libre para crear tickets adicionales."
             )
             return
@@ -189,7 +192,7 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
         paused = ticket.get("paused", False)
 
         # Comandos comunes
-        if t in {"fin", "terminar", "cerrar"}:
+        if t in {"fin", "terminar", "cerrar", "finalizar", "completar", "listo", "hecho"}:
             # Datos básicos del ticket
             ticket_id = ticket.get("id", "—")
             room = ticket.get("room", "—")

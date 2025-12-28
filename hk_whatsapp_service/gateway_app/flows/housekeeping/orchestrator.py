@@ -27,7 +27,7 @@ def maybe_route_ticket_command_anywhere(phone: str, text: str, state: Dict[str, 
         return False
 
     t = (text or "").strip().lower()
-    if t in {"fin", "terminar", "cerrar", "pausar", "reanudar", "supervisor"}:
+    if t in {"fin", "terminar", "cerrar", "finalizar", "completar", "listo", "hecho", "pausar", "reanudar", "supervisor"}:
         # Aseguramos que el ticket_flow lo procese como ejecución (S1)
         state["ticket_state"] = "S1"
         _handle_ticket_flow(phone, text, state)
@@ -248,7 +248,7 @@ def notify_new_ticket(
         f"Este ticket ha sido asignado automáticamente.\n"
         f"Puedes gestionarlo con:\n"
         f"• 'pausar' - Pausar temporalmente\n"
-        f"• 'fin' - Marcar como completado\n"
+        f"• 'fin' / 'finalizar' / 'listo' - Marcar como completado\n"
         f"• 'supervisor' - Pedir ayuda\n"
         f"• 'M' - Ver menú completo"
     )

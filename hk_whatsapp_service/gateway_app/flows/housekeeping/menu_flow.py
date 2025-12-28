@@ -25,7 +25,7 @@ def handle_menu(phone: str, text: str, state: Dict[str, Any]):
     # =========================
     cmd = t.lower()
 
-    if cmd in {"fin", "terminar", "cerrar", "pausar", "reanudar", "supervisor"}:
+    if cmd in {"fin", "terminar", "cerrar", "finalizar", "completar", "listo", "hecho", "pausar", "reanudar", "supervisor"}:
         ticket = state.get("ticket_activo") or {}
 
         # Solo consideramos "activo real" si fue aceptado (tiene started_at)
@@ -98,7 +98,10 @@ def handle_menu(phone: str, text: str, state: Dict[str, Any]):
                     "🎫 Tienes un ticket en ejecución.\n"
                     f"Ticket #{ticket.get('id', '—')} · Hab. {ticket.get('room', '—')} · {estado_txt}\n"
                     f"Detalle: {ticket.get('detalle', '')}\n\n"
-                    "Escribe: *pausar*, *reanudar*, *fin* o *supervisor*."
+                    "Comandos disponibles:\n"
+                    "• 'pausar' / 'reanudar' - Gestionar ejecución\n"
+                    "• 'fin' / 'finalizar' / 'listo' - Completar\n"
+                    "• 'supervisor' - Pedir ayuda"
                 )
                 return
 
