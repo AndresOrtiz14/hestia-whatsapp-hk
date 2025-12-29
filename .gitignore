@@ -2,3 +2,4 @@ venv
 .env
 .*pychache*
 __pycache__
+project_extract.txt
