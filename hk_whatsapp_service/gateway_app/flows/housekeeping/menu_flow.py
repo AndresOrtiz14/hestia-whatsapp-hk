@@ -38,10 +38,30 @@ def handle_menu(phone: str, text: str, state: Dict[str, Any]):
             handle_ticket_flow(phone, text, state)
             return
 
+        # Mensaje específico según el comando intentado
+        comando_intentado = cmd
+        
+        mensaje_comando = {
+            "fin": "finalizar",
+            "terminar": "finalizar",
+            "cerrar": "finalizar",
+            "finalizar": "finalizar",
+            "completar": "finalizar",
+            "listo": "finalizar",
+            "hecho": "finalizar",
+            "pausar": "pausar",
+            "reanudar": "reanudar",
+            "supervisor": "contactar al supervisor"
+        }.get(comando_intentado, "gestionar un ticket")
+        
         send_whatsapp(
             phone,
-            "No tienes un ticket en ejecución ahora.\n"
-            "Escribe *2* para ver tickets por resolver."
+            f"⚠️ No puedes {mensaje_comando} porque no tienes un ticket activo.\n\n"
+            f"Para trabajar en un ticket primero debes:\n"
+            f"1. Ir a 'Tickets por resolver' (opción 2)\n"
+            f"2. Aceptar un ticket\n"
+            f"3. Luego podrás usar comandos como 'pausar', 'finalizar', etc.\n\n"
+            f"Escribe *2* para ver tickets disponibles."
         )
         return
 

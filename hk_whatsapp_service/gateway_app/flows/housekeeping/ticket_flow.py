@@ -175,7 +175,21 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
             state["ticket_activo"] = None
             return
 
-        # 4) Fallback
+        # 4) Detectar comandos de ejecución (fin, pausar, etc.) y dar warning
+        comandos_ejecucion = {"fin", "terminar", "cerrar", "finalizar", "completar", "listo", "hecho", "pausar", "reanudar"}
+        if t in comandos_ejecucion:
+            send_whatsapp(
+                phone,
+                f"⚠️ No puedes usar '{t}' todavía.\n\n"
+                f"Primero debes ACEPTAR el ticket para poder gestionarlo.\n\n"
+                f"Escribe:\n"
+                f"• 'aceptar' / 'tomar ticket' - Para aceptar el ticket\n"
+                f"• 'rechazar' / 'derivar' - Para rechazarlo\n"
+                f"• '#1011' - Para elegir un ticket específico"
+            )
+            return
+
+        # 5) Fallback general
         send_whatsapp(
             phone,
             "No entendí. En tickets por resolver (S0) puedes escribir por ejemplo:\n"

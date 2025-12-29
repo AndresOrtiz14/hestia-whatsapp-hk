@@ -17,13 +17,16 @@ def maybe_route_ticket_command_anywhere(phone: str, text: str, state: Dict[str, 
     """
     Permite manejar comandos del ticket activo desde cualquier parte del flujo.
     
-    Si hay ticket_activo, y llega un comando tipo 'fin/pausar/reanudar/supervisor',
-    forzamos ticket_state = 'S1' y delegamos en _handle_ticket_flow.
+    Si hay ticket_activo Y fue aceptado (tiene started_at), permite comandos 
+    tipo 'fin/pausar/reanudar/supervisor' desde cualquier parte.
     
     Returns:
         True si el comando fue manejado, False en caso contrario.
     """
-    if state.get("ticket_activo") is None:
+    ticket = state.get("ticket_activo")
+    
+    # Solo permitir comandos si el ticket fue realmente aceptado (tiene started_at)
+    if ticket is None or ticket.get("started_at") is None:
         return False
 
     t = (text or "").strip().lower()
