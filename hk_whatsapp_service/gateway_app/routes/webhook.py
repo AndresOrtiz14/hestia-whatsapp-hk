@@ -1,9 +1,13 @@
 from flask import Blueprint, request, jsonify
 from gateway_app.config import Config
+from gateway_app.flows import handle_hk_message
 from gateway_app.services.whatsapp_client import send_whatsapp_text
-from gateway_app.flows.housekeeping_flows import hk_handle_incoming
 
 bp = Blueprint("whatsapp_webhook", __name__)
+
+# Wire up the real WhatsApp sender
+import gateway_app.flows.housekeeping.outgoing as outgoing
+outgoing.SEND_IMPL = lambda to, body: send_whatsapp_text(to=to, body=body)
 
 @bp.get("/webhook")
 def verify():
@@ -34,11 +38,7 @@ def inbound():
         text = (msg.get("text") or {}).get("body", "")
 
         if from_phone and text:
-            hk_handle_incoming(
-                from_phone=from_phone,
-                text=text,
-                send=lambda to, body: send_whatsapp_text(to=to, body=body),
-            )
+            handle_hk_message(from_phone, text)
 
         return jsonify(ok=True), 200
 
