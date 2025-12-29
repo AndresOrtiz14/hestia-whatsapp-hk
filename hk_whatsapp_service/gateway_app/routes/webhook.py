@@ -1,13 +1,15 @@
 from flask import Blueprint, request, jsonify
 from gateway_app.config import Config
-from gateway_app.flows import handle_hk_message
 from gateway_app.services.whatsapp_client import send_whatsapp_text
 
 bp = Blueprint("whatsapp_webhook", __name__)
 
-# Wire up the real WhatsApp sender
+# Wire up the real WhatsApp sender BEFORE importing the handler
 import gateway_app.flows.housekeeping.outgoing as outgoing
 outgoing.SEND_IMPL = lambda to, body: send_whatsapp_text(to=to, body=body)
+
+# Now import the handler (after SEND_IMPL is set)
+from gateway_app.flows.housekeeping.orchestrator import handle_hk_message
 
 @bp.get("/webhook")
 def verify():
