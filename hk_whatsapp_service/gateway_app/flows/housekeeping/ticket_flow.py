@@ -136,6 +136,9 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
                 "prioridad": elegido["prioridad"],
                 "paused": False,
                 "started_at": datetime.now(),
+                # Tracking de tiempo real (excluyendo pausas)
+                "paused_at": None,
+                "total_paused_seconds": 0,
             }
 
             send_whatsapp(
@@ -210,20 +213,49 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
             detalle = ticket.get("detalle", "")
             prioridad = ticket.get("prioridad", "—")
 
-            # Calcular tiempo de resolución (demo)
+            # Calcular tiempos de resolución
             started_at = ticket.get("started_at")
+            total_paused_sec = ticket.get("total_paused_seconds", 0)
+            
+            # Si está pausado al finalizar, incluir esa pausa también
+            if ticket.get("paused") and ticket.get("paused_at"):
+                final_pause = (datetime.now() - ticket["paused_at"]).total_seconds()
+                total_paused_sec += final_pause
+            
             if isinstance(started_at, datetime):
-                elapsed = datetime.now() - started_at
-                total_seconds = int(elapsed.total_seconds())
-                minutes = total_seconds // 60
-                if minutes <= 0:
-                    tiempo_txt = "menos de 1 minuto"
-                elif minutes == 1:
-                    tiempo_txt = "1 minuto"
+                # TIEMPO TOTAL: desde aceptación hasta cierre
+                total_elapsed = datetime.now() - started_at
+                total_seconds = int(total_elapsed.total_seconds())
+                
+                # TIEMPO REAL: tiempo total - tiempo pausado
+                real_work_seconds = total_seconds - int(total_paused_sec)
+                
+                # Formatear tiempos
+                def formato_tiempo(seg):
+                    if seg < 60:
+                        return "menos de 1 minuto"
+                    minutos = seg // 60
+                    if minutos == 1:
+                        return "1 minuto"
+                    return f"{minutos} minutos"
+                
+                tiempo_total_txt = formato_tiempo(total_seconds)
+                tiempo_real_txt = formato_tiempo(real_work_seconds)
+                tiempo_pausa_txt = formato_tiempo(int(total_paused_sec))
+                
+                # Mensaje de tiempo condicional
+                if total_paused_sec > 60:  # Si hubo pausas significativas (>1 min)
+                    tiempo_msg = (
+                        f"⏱️ Tiempos de resolución:\n"
+                        f"• Total: {tiempo_total_txt}\n"
+                        f"• Trabajo efectivo: {tiempo_real_txt}\n"
+                        f"• En pausa: {tiempo_pausa_txt}"
+                    )
                 else:
-                    tiempo_txt = f"{minutes} minutos"
+                    # Sin pausas significativas, mostrar solo tiempo real
+                    tiempo_msg = f"Tiempo de resolución: {tiempo_real_txt}"
             else:
-                tiempo_txt = "no disponible (demo)"
+                tiempo_msg = "Tiempo de resolución: no disponible (demo)"
 
             # Marcamos cierre lógico del flujo
             state["ticket_state"] = "S2"
@@ -233,8 +265,8 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
                 phone,
                 "✅ Ticket FINALIZADO (S2 - Cierre).\n"
                 f"Ticket #{ticket_id} · Hab. {room} · Prioridad {prioridad}\n"
-                f"Detalle: {detalle}\n"
-                f"Tiempo de resolución (demo): {tiempo_txt}.\n\n"
+                f"Detalle: {detalle}\n\n"
+                f"{tiempo_msg}\n\n"
                 "Si todavía tienes otros tickets pendientes, recuerda ir a "
                 "'Tickets por resolver' (opción 2) para continuar."
             )
@@ -264,6 +296,7 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
         if not paused:
             if t == "pausar":
                 ticket["paused"] = True
+                ticket["paused_at"] = datetime.now()  # Registrar cuando se pausó
                 state["ticket_activo"] = ticket
                 send_whatsapp(
                     phone,
@@ -298,7 +331,14 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
         # Estado PAUSADO
         if paused:
             if t == "reanudar":
+                # Acumular tiempo que estuvo pausado
+                paused_at = ticket.get("paused_at")
+                if paused_at and isinstance(paused_at, datetime):
+                    pause_duration = (datetime.now() - paused_at).total_seconds()
+                    ticket["total_paused_seconds"] = ticket.get("total_paused_seconds", 0) + pause_duration
+                
                 ticket["paused"] = False
+                ticket["paused_at"] = None  # Limpiar
                 state["ticket_activo"] = ticket
                 send_whatsapp(
                     phone,

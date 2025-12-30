@@ -215,6 +215,9 @@ def notify_new_ticket(
         "auto_assigned": True,  # Flag para saber que fue PUSH
         "guest_name": ticket_data.get("guest_name"),
         "esfuerzo": ticket_data.get("esfuerzo"),
+        # Tracking de tiempo real (excluyendo pausas)
+        "paused_at": None,
+        "total_paused_seconds": 0,
     }
     
     # ====================================
