@@ -3,7 +3,7 @@ from datetime import datetime
 import re
 
 from .outgoing import send_whatsapp
-from .ui import texto_menu_principal
+from .ui import texto_menu_principal, recordatorio_menu
 from .demo_tickets import DEMO_TICKETS, elegir_mejor_ticket
 from .ticket_text import manejar_ticket_libre
 
@@ -147,8 +147,7 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
                 "• 'pausar' - Pausar temporalmente\n"
                 "• 'fin' / 'finalizar' / 'listo' - Completar ticket\n"
                 "• 'supervisor' - Pedir ayuda\n\n"
-                "También puedes escribir texto libre para crear tickets adicionales."
-            )
+                "También puedes escribir texto libre para crear tickets adicionales." + recordatorio_menu())
             return
 
         # 2) Rechazo / Derivación
@@ -185,8 +184,7 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
                 f"Escribe:\n"
                 f"• 'aceptar' / 'tomar ticket' - Para aceptar el ticket\n"
                 f"• 'rechazar' / 'derivar' - Para rechazarlo\n"
-                f"• '#1011' - Para elegir un ticket específico"
-            )
+                f"• '#1011' - Para elegir un ticket específico" + recordatorio_menu())
             return
 
         # 5) Fallback general
@@ -196,8 +194,7 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
             "- 'aceptar' / 'tomar ticket' / 'ok lo tomo'\n"
             "- 'rechazar' / 'derivar'\n"
             "- '#1011' para elegir uno\n"
-            "- 'timeout' (demo)\n"
-        )
+            "- 'timeout' (demo)\n" + recordatorio_menu())
         return
 
     # S1: ejecución (EN_CURSO o PAUSADO)
@@ -272,8 +269,7 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
                     phone,
                     "⏸ Has PAUSADO la ejecución (demo).\n"
                     "Comandos ahora: 'reanudar', 'fin', 'supervisor'.\n"
-                    "También puedes escribir texto libre para crear tickets adicionales."
-                )
+                    "También puedes escribir texto libre para crear tickets adicionales." + recordatorio_menu())
                 return
             if t == "reanudar":
                 send_whatsapp(

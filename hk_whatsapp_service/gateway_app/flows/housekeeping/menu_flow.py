@@ -1,7 +1,7 @@
 from typing import Dict, Any
 
 from .outgoing import send_whatsapp
-from .ui import texto_menu_principal
+from .ui import texto_menu_principal, recordatorio_menu
 from .demo_tickets import DEMO_TICKETS, elegir_mejor_ticket, mock_listado_tickets_por_resolver
 from .ticket_text import manejar_ticket_libre
 
@@ -61,8 +61,7 @@ def handle_menu(phone: str, text: str, state: Dict[str, Any]):
             f"1. Ir a 'Tickets por resolver' (opción 2)\n"
             f"2. Aceptar un ticket\n"
             f"3. Luego podrás usar comandos como 'pausar', 'finalizar', etc.\n\n"
-            f"Escribe *2* para ver tickets disponibles."
-        )
+            f"Escribe *2* para ver tickets disponibles." + recordatorio_menu())
         return
 
     # Atajo global: 'M' o 'MENU' muestran el menú principal
@@ -121,8 +120,7 @@ def handle_menu(phone: str, text: str, state: Dict[str, Any]):
                     "Comandos disponibles:\n"
                     "• 'pausar' / 'reanudar' - Gestionar ejecución\n"
                     "• 'fin' / 'finalizar' / 'listo' - Completar\n"
-                    "• 'supervisor' - Pedir ayuda"
-                )
+                    "• 'supervisor' - Pedir ayuda" + recordatorio_menu())
                 return
 
             # 2) Si NO hay ticket aceptado en ejecución, mostramos lista y entramos a S0 (como antes)
@@ -155,8 +153,7 @@ def handle_menu(phone: str, text: str, state: Dict[str, Any]):
                 "🆕 Crear ticket / reportar problema (M2).\n"
                 "Describe brevemente qué sucede y, si puedes, indica la habitación.\n\n"
                 "Ejemplo: 'La 415 necesita toallas y papel higiénico'.\n\n"
-                "Si al final no quieres crear nada, escribe *cancelar* o *M* para volver al menú."
-            )
+                "Si al final no quieres crear nada, escribe *cancelar* o *M* para volver al menú." + recordatorio_menu())
             return
 
         if tlower == "4":
@@ -166,8 +163,7 @@ def handle_menu(phone: str, text: str, state: Dict[str, Any]):
                 phone,
                 "🆘 Ayuda / supervisor (M3).\n"
                 "Escribe el mensaje que quieras enviar al supervisor.\n\n"
-                "Ejemplo: 'Tengo muchas habitaciones atrasadas, necesito apoyo'."
-            )
+                "Ejemplo: 'Tengo muchas habitaciones atrasadas, necesito apoyo'." + recordatorio_menu())
             return
 
         # Fallback en menú principal: probar si es un problema nuevo
@@ -176,8 +172,7 @@ def handle_menu(phone: str, text: str, state: Dict[str, Any]):
 
         send_whatsapp(
             phone,
-            "No entendí esa opción.\n\n" + texto_menu_principal(state)
-        )
+            "No entendí esa opción.\n\n" + texto_menu_principal(state))
         return
 
     # M2: crear ticket / problema

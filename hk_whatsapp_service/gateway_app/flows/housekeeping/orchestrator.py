@@ -8,7 +8,7 @@ from typing import Dict, Any, Optional
 
 from .state import get_user_state
 from .outgoing import send_whatsapp
-from .ui import texto_menu_principal
+from .ui import texto_menu_principal, recordatorio_menu
 from .menu_flow import handle_menu
 from .ticket_flow import _handle_ticket_flow
 from .reminders import maybe_send_recordatorio_pendientes
@@ -181,8 +181,7 @@ def notify_new_ticket(
                 f"Ticket #{ticket_data['id']} · Hab. {ticket_data['room']}\n"
                 f"Solicitud: {ticket_data['detalle']}\n\n"
                 f"Actualmente estás trabajando en el ticket #{existing_ticket.get('id')}.\n"
-                f"Este nuevo ticket se asignará automáticamente cuando termines el actual."
-            )
+                f"Este nuevo ticket se asignará automáticamente cuando termines el actual." + recordatorio_menu())
             
             return {
                 "success": True,
@@ -253,8 +252,7 @@ def notify_new_ticket(
         f"• 'pausar' - Pausar temporalmente\n"
         f"• 'fin' / 'finalizar' / 'listo' - Marcar como completado\n"
         f"• 'supervisor' - Pedir ayuda\n"
-        f"• 'M' - Ver menú completo"
-    )
+        f"• 'M' - Ver menú completo" + recordatorio_menu())
     
     send_whatsapp(phone, mensaje)
     
