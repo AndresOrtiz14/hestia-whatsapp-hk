@@ -24,3 +24,6 @@ class Config:
     # Alias para compatibilidad con services/audio.py
     # (Tu audio.py usa WHATSAPP_CLOUD_TOKEN)
     WHATSAPP_CLOUD_TOKEN = WHATSAPP_TOKEN
+
+    # CRÍTICO: Crear instancia 'cfg' para que audio.py pueda importarla
+    cfg = Config()
