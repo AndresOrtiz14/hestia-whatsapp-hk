@@ -5,6 +5,19 @@ from .ui import texto_menu_principal, recordatorio_menu
 from .demo_tickets import DEMO_TICKETS, elegir_mejor_ticket, mock_listado_tickets_por_resolver
 from .ticket_text import manejar_ticket_libre
 
+# Función para corregir typos comunes
+def corregir_typo_comando(text: str) -> str:
+    """Corrige typos comunes en comandos."""
+    t = (text or "").strip().lower()
+    typos_map = {
+        "termianr": "terminar", "termirar": "terminar", "terminra": "terminar",
+        "temrinar": "terminar", "termniar": "terminar",
+        "psusar": "pausar", "pauar": "pausar", "pausr": "pausar",
+        "reanudra": "reanudar", "reanuadr": "reanudar", "renaudar": "reanudar",
+        "finalizra": "finalizar", "finalizr": "finalizar", "finalziar": "finalizar",
+    }
+    return typos_map.get(t, text)
+
 # =========================
 #   MENÚ M0/M1/M2/M3
 # =========================
@@ -18,6 +31,9 @@ def handle_menu(phone: str, text: str, state: Dict[str, Any]):
     M3 = ayuda / supervisor
     """
     t = (text or "").strip()
+    
+    # Corregir typos comunes antes de procesar
+    t = corregir_typo_comando(t)
     
     # =========================
     #   NUEVO: COMANDOS GLOBALES DE TICKET (desde cualquier menú)

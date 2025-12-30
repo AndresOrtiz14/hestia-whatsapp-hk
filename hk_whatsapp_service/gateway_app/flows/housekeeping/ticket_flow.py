@@ -27,6 +27,40 @@ def norm(s: str) -> str:
     s = re.sub(r"\s+", " ", s)
     return s
 
+def corregir_typo_comando(text: str) -> str:
+    """
+    Corrige typos comunes en comandos.
+    Retorna el comando corregido o el texto original si no es un typo conocido.
+    """
+    t = norm(text)
+    
+    # Mapeo de typos comunes → comando correcto
+    typos_map = {
+        # Variaciones de "terminar"
+        "termianr": "terminar",
+        "termirar": "terminar",
+        "terminra": "terminar",
+        "temrinar": "terminar",
+        "termniar": "terminar",
+        
+        # Variaciones de "pausar"
+        "psusar": "pausar",
+        "pauar": "pausar",
+        "pausr": "pausar",
+        
+        # Variaciones de "reanudar"
+        "reanudra": "reanudar",
+        "reanuadr": "reanudar",
+        "renaudar": "reanudar",
+        
+        # Variaciones de "finalizar"
+        "finalizra": "finalizar",
+        "finalizr": "finalizar",
+        "finalziar": "finalizar",
+    }
+    
+    return typos_map.get(t, text)
+
 def match_frase(text: str, frases: set[str]) -> bool:
     t = norm(text)
     return any(frase in t for frase in frases)
@@ -70,6 +104,10 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
         return  # No hay flujo de tickets activo
 
     raw = (text or "").strip()
+    
+    # Corregir typos comunes antes de procesar
+    raw = corregir_typo_comando(raw)
+    
     t = raw.lower()
     s = state["ticket_state"]
 
@@ -268,7 +306,7 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
                 f"Detalle: {detalle}\n\n"
                 f"{tiempo_msg}\n\n"
                 "Si todavía tienes otros tickets pendientes, recuerda ir a "
-                "'Tickets por resolver' (opción 2) para continuar."
+                "'Tickets por resolver' (opción 2) para continuar." + recordatorio_menu()
             )
 
             # Limpiamos el ticket activo del flujo
