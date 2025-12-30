@@ -146,7 +146,50 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
 
     # S0: nuevo ticket / decisión
     if s == "S0":
-        # 1) Aceptación
+        # 1a) Si el texto es SOLO un ID (#1011 o 1011), tratarlo como aceptación
+        tid_directo = extraer_id_ticket_en_texto(raw)
+        if tid_directo is not None and raw.strip().replace("#", "").isdigit():
+            # Usuario escribió solo el ID, es una aceptación implícita
+            elegido = next((x for x in DEMO_TICKETS if x.get("id") == tid_directo), None)
+            
+            if not elegido:
+                send_whatsapp(
+                    phone, 
+                    f"❌ No encontré el ticket #{tid_directo}.\n\n"
+                    f"Tickets disponibles:\n" + 
+                    "\n".join([f"- #{t['id']} / Hab. {t['room']}" for t in DEMO_TICKETS[:5]]) +
+                    recordatorio_menu()
+                )
+                return
+            
+            # Aceptar automáticamente
+            state["ticket_state"] = "S1"
+            state["ticket_activo"] = {
+                "id": elegido["id"],
+                "room": elegido["room"],
+                "detalle": elegido["detalle"],
+                "prioridad": elegido["prioridad"],
+                "paused": False,
+                "started_at": datetime.now(),
+                # Tracking de tiempo real (excluyendo pausas)
+                "paused_at": None,
+                "total_paused_seconds": 0,
+            }
+
+            send_whatsapp(
+                phone,
+                "✅ Has ACEPTADO un ticket (S1 - Ejecución).\n"
+                f"Ticket #{elegido['id']} · Hab. {elegido['room']} · Prioridad {elegido['prioridad']}\n"
+                f"Detalle: {elegido['detalle']}\n\n"
+                "Comandos disponibles:\n"
+                "• 'pausar' - Pausar temporalmente\n"
+                "• 'fin' / 'finalizar' / 'listo' - Completar ticket\n"
+                "• 'supervisor' - Pedir ayuda\n\n"
+                "También puedes escribir texto libre para crear tickets adicionales." + recordatorio_menu()
+            )
+            return
+        
+        # 1b) Aceptación explícita con palabras clave
         if es_aceptacion_ticket(raw):
             # Si la persona escribió un ID (#1011), lo usamos
             tid = extraer_id_ticket_en_texto(raw)
@@ -225,17 +268,16 @@ def _handle_ticket_flow(phone: str, text: str, state: Dict[str, Any]):
                 f"Escribe:\n"
                 f"• 'aceptar' / 'tomar ticket' - Para aceptar el ticket\n"
                 f"• 'rechazar' / 'derivar' - Para rechazarlo\n"
-                f"• '#1011' - Para elegir un ticket específico" + recordatorio_menu())
+                f"• El número del ticket (ej: 1011 o #1011) - Para elegir uno específico" + recordatorio_menu())
             return
 
         # 5) Fallback general
         send_whatsapp(
             phone,
-            "No entendí. En tickets por resolver (S0) puedes escribir por ejemplo:\n"
-            "- 'aceptar' / 'tomar ticket' / 'ok lo tomo'\n"
-            "- 'rechazar' / 'derivar'\n"
-            "- '#1011' para elegir uno\n"
-            "- 'timeout' (demo)\n" + recordatorio_menu())
+            "No entendí. En tickets por resolver (S0) puedes escribir:\n"
+            "• 'aceptar' / 'tomar ticket' - Toma el de mayor prioridad\n"
+            "• 'rechazar' / 'derivar' - Rechaza el ticket\n"
+            "• El número del ticket (ej: 1011 o #1011) - Elige uno específico" + recordatorio_menu())
         return
 
     # S1: ejecución (EN_CURSO o PAUSADO)

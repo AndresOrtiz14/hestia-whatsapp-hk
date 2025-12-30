@@ -70,9 +70,9 @@ def mock_listado_tickets_por_resolver() -> str:
         )
 
     lines.append(
-        "\nPuedes responder por ejemplo:\n"
-        "- 'aceptar' / 'tomar ticket' / 'ok lo tomo'\n"
-        "- 'rechazar' / 'derivar'\n"
-        "O escribir el ID: '#1011' para elegir uno específico."
+        "\nPuedes responder:\n"
+        "• 'aceptar' / 'tomar ticket' - Toma el de mayor prioridad\n"
+        "• 'rechazar' / 'derivar' - Rechaza el ticket\n"
+        "• Escribe el número del ticket (ej: 1011 o #1011) para elegir uno específico"
     )
     return "\n".join(lines)
