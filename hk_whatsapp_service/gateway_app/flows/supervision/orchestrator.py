@@ -28,6 +28,61 @@ from .ui import texto_menu_principal
 from .outgoing import send_whatsapp
 
 
+def maybe_handle_global_navigation(from_phone: str, raw: str) -> bool:
+    """
+    Detecta y maneja comandos de navegación global.
+    Permite ir directamente a cualquier sección desde cualquier parte.
+    
+    Args:
+        from_phone: Número de teléfono del supervisor
+        raw: Texto del mensaje (ya en minúsculas)
+    
+    Returns:
+        True si se manejó un comando de navegación
+    """
+    state = get_supervisor_state(from_phone)
+    
+    # Comando: Ver pendientes
+    if raw in ["1", "pendientes", "pendiente"]:
+        from .monitoring import mostrar_tickets_pendientes
+        mostrar_tickets_pendientes(from_phone)
+        state["menu_state"] = VER_PENDIENTES
+        return True
+    
+    # Comando: Ver en progreso
+    if raw in ["2", "progreso", "en progreso", "en curso"]:
+        from .monitoring import mostrar_tickets_en_progreso
+        mostrar_tickets_en_progreso(from_phone)
+        state["menu_state"] = VER_EN_PROGRESO
+        return True
+    
+    # Comando: Ver mucamas
+    if raw in ["3", "mucamas", "mucama", "empleados"]:
+        from .monitoring import mostrar_estado_mucamas
+        mostrar_estado_mucamas(from_phone)
+        state["menu_state"] = VER_MUCAMAS
+        return True
+    
+    # Comando: Crear ticket
+    if raw in ["4", "crear", "nuevo"]:
+        send_whatsapp(
+            from_phone,
+            "➕ Creación de tickets en desarrollo...\n\n"
+            "Por ahora, usa las otras opciones del menú."
+        )
+        mostrar_menu_principal(from_phone)
+        return True
+    
+    # Comando: Estadísticas
+    if raw in ["5", "stats", "estadisticas", "estadística"]:
+        from .monitoring import mostrar_estadisticas
+        mostrar_estadisticas(from_phone)
+        state["menu_state"] = ESTADISTICAS
+        return True
+    
+    return False
+
+
 def handle_supervisor_message(from_phone: str, text: str) -> None:
     """
     Punto de entrada principal para mensajes del supervisor.
@@ -44,14 +99,18 @@ def handle_supervisor_message(from_phone: str, text: str) -> None:
         text: Texto del mensaje recibido
     """
     state = get_supervisor_state(from_phone)
-    raw = (text or "").strip()
+    raw = (text or "").strip().lower()  # Normalizar a minúsculas
     
     # 1) Comando global: Menú
     if es_comando_menu(raw):
         mostrar_menu_principal(from_phone)
         return
     
-    # 2) Saludo inicial del día
+    # 2) Comandos globales de navegación directa
+    if maybe_handle_global_navigation(from_phone, raw):
+        return
+    
+    # 3) Saludo inicial del día
     today_str = date.today().isoformat()
     current_state = state.get("menu_state")
     
