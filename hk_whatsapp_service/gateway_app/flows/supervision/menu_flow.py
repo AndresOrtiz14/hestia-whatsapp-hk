@@ -87,57 +87,40 @@ def handle_menu_principal(from_phone: str, raw: str) -> None:
     
     # Opción 1: Ver tickets pendientes
     if raw == "1" or "pendiente" in raw:
-        state["menu_state"] = VER_PENDIENTES
-        # TODO: Llamar a función que muestra pendientes
-        send_whatsapp(
-            from_phone,
-            "📋 Cargando tickets pendientes..." + recordatorio_menu()
-        )
-        # En la próxima fase, esto llamará a monitoring.py
+        from .monitoring import mostrar_tickets_pendientes
+        mostrar_tickets_pendientes(from_phone)
+        state["menu_state"] = MENU_PRINCIPAL
         return
     
     # Opción 2: Ver tickets en progreso
     if raw == "2" or "progreso" in raw or "en curso" in raw:
-        state["menu_state"] = VER_EN_PROGRESO
-        # TODO: Llamar a función que muestra en progreso
-        send_whatsapp(
-            from_phone,
-            "🔄 Cargando tickets en progreso..." + recordatorio_menu()
-        )
-        # En la próxima fase, esto llamará a monitoring.py
+        from .monitoring import mostrar_tickets_en_progreso
+        mostrar_tickets_en_progreso(from_phone)
+        state["menu_state"] = MENU_PRINCIPAL
         return
     
     # Opción 3: Ver estado de mucamas
     if raw == "3" or "mucama" in raw or "empleado" in raw:
-        state["menu_state"] = VER_MUCAMAS
-        # TODO: Llamar a función que muestra mucamas
-        send_whatsapp(
-            from_phone,
-            "👥 Cargando estado de mucamas..." + recordatorio_menu()
-        )
-        # En la próxima fase, esto llamará a monitoring.py
+        from .monitoring import mostrar_estado_mucamas
+        mostrar_estado_mucamas(from_phone)
+        state["menu_state"] = MENU_PRINCIPAL
         return
     
     # Opción 4: Crear ticket manual
     if raw == "4" or "crear" in raw or "nuevo ticket" in raw:
         state["menu_state"] = CREAR_TICKET
-        # TODO: Llamar a función de creación
         send_whatsapp(
             from_phone,
-            "➕ Iniciando creación de ticket..." + recordatorio_menu()
+            "➕ Creación de tickets en desarrollo..." + recordatorio_menu()
         )
-        # En la próxima fase, esto llamará a ticket_creation.py
+        state["menu_state"] = MENU_PRINCIPAL
         return
     
     # Opción 5: Estadísticas
     if raw == "5" or "estadistica" in raw or "stats" in raw:
-        state["menu_state"] = ESTADISTICAS
-        # TODO: Llamar a función de estadísticas
-        send_whatsapp(
-            from_phone,
-            "📊 Cargando estadísticas..." + recordatorio_menu()
-        )
-        # En la próxima fase, esto llamará a monitoring.py
+        from .monitoring import mostrar_estadisticas
+        mostrar_estadisticas(from_phone)
+        state["menu_state"] = MENU_PRINCIPAL
         return
     
     # Opción no reconocida
