@@ -89,21 +89,21 @@ def handle_menu_principal(from_phone: str, raw: str) -> None:
     if raw == "1" or "pendiente" in raw:
         from .monitoring import mostrar_tickets_pendientes
         mostrar_tickets_pendientes(from_phone)
-        state["menu_state"] = MENU_PRINCIPAL
+        state["menu_state"] = VER_PENDIENTES  # MANTENER en VER_PENDIENTES
         return
     
     # Opción 2: Ver tickets en progreso
     if raw == "2" or "progreso" in raw or "en curso" in raw:
         from .monitoring import mostrar_tickets_en_progreso
         mostrar_tickets_en_progreso(from_phone)
-        state["menu_state"] = MENU_PRINCIPAL
+        state["menu_state"] = VER_EN_PROGRESO  # MANTENER en VER_EN_PROGRESO
         return
     
     # Opción 3: Ver estado de mucamas
     if raw == "3" or "mucama" in raw or "empleado" in raw:
         from .monitoring import mostrar_estado_mucamas
         mostrar_estado_mucamas(from_phone)
-        state["menu_state"] = MENU_PRINCIPAL
+        state["menu_state"] = VER_MUCAMAS  # MANTENER en VER_MUCAMAS
         return
     
     # Opción 4: Crear ticket manual
