@@ -51,11 +51,7 @@ def handle_supervisor_message(from_phone: str, text: str) -> None:
         mostrar_menu_principal(from_phone)
         return
     
-    # 2) Comando global: Ver ID de ticket específico
-    if maybe_handle_ticket_id(from_phone, raw):
-        return
-    
-    # 3) Saludo inicial del día
+    # 2) Saludo inicial del día
     today_str = date.today().isoformat()
     current_state = state.get("menu_state")
     
@@ -70,7 +66,7 @@ def handle_supervisor_message(from_phone: str, text: str) -> None:
         state["menu_state"] = MENU_PRINCIPAL
         return
     
-    # 4) Routing por estado actual
+    # 3) Routing por estado actual (ANTES de detectar IDs)
     
     # Estados de menú (M0-M5)
     if current_state in [
@@ -102,6 +98,10 @@ def handle_supervisor_message(from_phone: str, text: str) -> None:
     ]:
         # TODO: Implementar en Fase 3
         handle_ticket_assignment_flow(from_phone, raw)
+        return
+    
+    # 4) Comando global: Ver ID de ticket específico (solo si no está en menú)
+    if maybe_handle_ticket_id(from_phone, raw):
         return
     
     # Estado desconocido o primera interacción
