@@ -132,12 +132,49 @@ def maybe_handle_ticket_id(from_phone: str, text: str) -> bool:
     if raw.isdigit():
         ticket_id = int(raw)
         
-        # TODO: Buscar ticket y mostrar detalles
-        send_whatsapp(
-            from_phone,
-            f"🔍 Buscando ticket #{ticket_id}...\n\n"
-            "💡 Función en desarrollo. Por ahora, usa el menú."
-        )
+        # Buscar ticket
+        from .demo_data import get_ticket_by_id
+        ticket = get_ticket_by_id(ticket_id)
+        
+        if not ticket:
+            send_whatsapp(
+                from_phone,
+                f"❌ No encontré el ticket #{ticket_id}\n\n"
+                "Verifica el número e intenta de nuevo."
+            )
+            from .menu_flow import mostrar_menu_principal
+            mostrar_menu_principal(from_phone)
+            return True
+        
+        # Mostrar detalles del ticket
+        from .ui import formato_ticket_detallado, recordatorio_menu
+        
+        # Determinar si mostrar versión simple o detallada
+        tiempo = ticket.get("tiempo_sin_resolver_mins", 0)
+        if tiempo > 10:
+            mensaje = formato_ticket_detallado(ticket)
+        else:
+            from .ui import formato_ticket_simple
+            prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(
+                ticket.get("prioridad", "MEDIA"), "🟡"
+            )
+            
+            mensaje = f"""📋 Detalles del Ticket
+
+{formato_ticket_simple(ticket)}
+
+Estado: {ticket.get('estado', 'desconocido')}
+Origen: {ticket.get('origen', 'desconocido')}"""
+            
+            # Si está asignado, mostrar a quién
+            if ticket.get("asignado_a_nombre"):
+                mensaje += f"\nAsignado a: {ticket['asignado_a_nombre']}"
+        
+        mensaje += recordatorio_menu()
+        send_whatsapp(from_phone, mensaje)
+        
+        # Volver al menú
+        from .menu_flow import mostrar_menu_principal
         mostrar_menu_principal(from_phone)
         return True
     
