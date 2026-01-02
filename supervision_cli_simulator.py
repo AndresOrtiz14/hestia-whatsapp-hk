@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Simulador CLI para el bot de Housekeeping.
+Simulador CLI para el bot de Supervisión.
 Permite probar el bot sin necesidad de WhatsApp.
 """
 
@@ -8,14 +8,13 @@ import sys
 import os
 
 # CRÍTICO: Agregar la ruta correcta al path
-# Para que los imports de gateway_app funcionen
 project_root = os.path.dirname(os.path.abspath(__file__))
 service_path = os.path.join(project_root, 'hk_whatsapp_service')
 sys.path.insert(0, service_path)
 
-# Ahora sí importar el orquestador
-import gateway_app.flows.housekeeping.outgoing as outgoing
-from gateway_app.flows.housekeeping.orchestrator import handle_hk_message
+# Importar el orquestador de supervisión
+import gateway_app.flows.supervision.outgoing as outgoing
+from gateway_app.flows.supervision.orchestrator import handle_supervisor_message
 
 # Mock de envío de mensajes para testing
 messages = []
@@ -37,7 +36,7 @@ def main():
     Loop principal del simulador.
     """
     print("=" * 60)
-    print("🤖 SIMULADOR CLI - Bot de Housekeeping")
+    print("👤 SIMULADOR CLI - Bot de Supervisión")
     print("=" * 60)
     print("Comandos especiales:")
     print("  - 'exit' o 'quit' → Salir")
@@ -45,13 +44,13 @@ def main():
     print("  - 'estado' → Ver estado actual")
     print("=" * 60)
     
-    # Número de prueba
-    test_phone = "56900000001"
+    # Número de prueba (supervisor)
+    test_phone = "56987654321"
     
     while True:
         try:
             # Leer input del usuario
-            user_input = input(f"\nTÚ → ")
+            user_input = input(f"\nSUPERVISOR → ")
             
             if not user_input.strip():
                 continue
@@ -62,22 +61,22 @@ def main():
                 break
             
             if user_input.lower() == 'reset':
-                from gateway_app.flows.housekeeping.state import USER_STATE
-                USER_STATE.clear()
+                from gateway_app.flows.supervision.state import SUPERVISOR_STATE
+                SUPERVISOR_STATE.clear()
                 messages.clear()
                 print("\n🔄 Estado reiniciado\n")
                 continue
             
             if user_input.lower() == 'estado':
-                from gateway_app.flows.housekeeping.state import USER_STATE
+                from gateway_app.flows.supervision.state import SUPERVISOR_STATE
                 import json
-                state = USER_STATE.get(test_phone, {})
+                state = SUPERVISOR_STATE.get(test_phone, {})
                 print("\n📊 Estado actual:")
                 print(json.dumps(state, indent=2, default=str))
                 continue
             
             # Procesar mensaje normal
-            handle_hk_message(test_phone, user_input)
+            handle_supervisor_message(test_phone, user_input)
             
         except KeyboardInterrupt:
             print("\n\n👋 ¡Hasta luego!\n")

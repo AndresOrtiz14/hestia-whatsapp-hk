@@ -1,6 +1,5 @@
 """
-Webhook de WhatsApp con soporte para texto Y audio.
-Versión actualizada que maneja notas de voz con transcripción automática.
+Webhook de WhatsApp con routing por rol (Supervisor vs Mucama).
 """
 
 from flask import Blueprint, request, jsonify
@@ -12,19 +11,46 @@ from gateway_app.services.whatsapp_client import send_whatsapp_text
 bp = Blueprint("whatsapp_webhook", __name__)
 logger = logging.getLogger(__name__)
 
-# Wire up the real WhatsApp sender BEFORE importing the handler
-import gateway_app.flows.housekeeping.outgoing as outgoing
-outgoing.SEND_IMPL = lambda to, body: send_whatsapp_text(to=to, body=body)
+# Wire up WhatsApp sender para ambos bots
+import gateway_app.flows.housekeeping.outgoing as hk_outgoing
+import gateway_app.flows.supervision.outgoing as sup_outgoing
 
-# Import NUEVO handler con soporte de audio
+hk_outgoing.SEND_IMPL = lambda to, body: send_whatsapp_text(to=to, body=body)
+sup_outgoing.SEND_IMPL = lambda to, body: send_whatsapp_text(to=to, body=body)
+
+# Import handlers
 from gateway_app.flows.housekeeping.message_handler import handle_hk_message_with_audio
+from gateway_app.flows.supervision import handle_supervisor_message
+
+
+# Configuración: Detectar rol por número de teléfono
+# TODO: Mover a base de datos o config
+SUPERVISOR_PHONES = [
+    "56956326272",  # Número del supervisor (número andres para testing)
+    # Agregar más supervisores si es necesario
+]
+
+
+def get_user_role(phone: str) -> str:
+    """
+    Determina el rol del usuario basado en su número de teléfono.
+    
+    Args:
+        phone: Número de teléfono
+    
+    Returns:
+        "supervisor" o "housekeeper"
+    """
+    # TODO: Consultar base de datos en lugar de lista hardcodeada
+    if phone in SUPERVISOR_PHONES:
+        return "supervisor"
+    return "housekeeper"
 
 
 @bp.get("/webhook")
 def verify():
     """
     Verificación del webhook (requerido por WhatsApp Cloud API).
-    No cambió - mantiene la misma lógica.
     """
     mode = request.args.get("hub.mode")
     token = request.args.get("hub.verify_token")
@@ -41,11 +67,10 @@ def verify():
 @bp.post("/webhook")
 def inbound():
     """
-    Webhook principal - ACTUALIZADO con soporte de audio.
+    Webhook principal con routing por rol.
     
-    Ahora maneja:
-    - Mensajes de texto (como antes)
-    - Mensajes de audio/voz (NUEVO)
+    Detecta si el mensaje viene de un supervisor o mucama
+    y rutea al bot correspondiente.
     """
     payload = request.get_json(silent=True) or {}
 
@@ -60,25 +85,28 @@ def inbound():
 
         msg = messages[0]
         from_phone = msg.get("from")
-        msg_type = msg.get("type")  # ← NUEVO: detectar tipo de mensaje
+        msg_type = msg.get("type")
 
         if not from_phone or not msg_type:
             logger.warning("Mensaje sin from o type")
             return jsonify(ok=True), 200
 
+        # Detectar rol del usuario
+        user_role = get_user_role(from_phone)
+        logger.info(f"Mensaje de {from_phone} (rol: {user_role})")
+
         # Preparar datos del mensaje
         message_data = {"type": msg_type}
 
-        # CASO 1: Mensaje de texto (como antes)
+        # CASO 1: Mensaje de texto
         if msg_type == "text":
             text = (msg.get("text") or {}).get("body", "")
             if not text:
                 return jsonify(ok=True), 200
             
             message_data["text"] = text
-            logger.info(f"Mensaje de texto de {from_phone}: {text[:50]}...")
 
-        # CASO 2: Mensaje de audio/voz (NUEVO)
+        # CASO 2: Mensaje de audio/voz
         elif msg_type in ["audio", "voice"]:
             audio_data = msg.get("audio") or msg.get("voice") or {}
             media_id = audio_data.get("id")
@@ -88,24 +116,32 @@ def inbound():
                 return jsonify(ok=True), 200
             
             message_data["media_id"] = media_id
-            logger.info(f"Mensaje de audio de {from_phone}, media_id={media_id}")
 
-        # CASO 3: Otros tipos (imagen, video, documento, etc.)
+        # CASO 3: Otros tipos (ignorar por ahora)
         else:
             logger.info(f"Tipo de mensaje no soportado: {msg_type}")
-            # Opcionalmente, puedes notificar al usuario:
-            # send_whatsapp_text(
-            #     to=from_phone,
-            #     body="⚠️ Solo puedo procesar mensajes de texto y audio por ahora."
-            # )
             return jsonify(ok=True), 200
 
-        # Procesar mensaje (maneja texto Y audio automáticamente)
-        handle_hk_message_with_audio(
-            from_phone,
-            message_data,
-            show_transcription=True  # Mostrar "🎤 Escuché: ..."
-        )
+        # ROUTING POR ROL
+        if user_role == "supervisor":
+            # Supervisor: Solo texto por ahora (audio opcional para Fase 3)
+            if msg_type == "text":
+                handle_supervisor_message(from_phone, message_data["text"])
+            else:
+                # Audio para supervisor en desarrollo
+                send_whatsapp_text(
+                    to=from_phone,
+                    body="🎤 Soporte de audio para supervisor en desarrollo.\n"
+                         "Por ahora, usa texto."
+                )
+        
+        else:  # housekeeper
+            # Mucama: Texto + Audio
+            handle_hk_message_with_audio(
+                from_phone,
+                message_data,
+                show_transcription=True
+            )
 
         return jsonify(ok=True), 200
 
@@ -113,3 +149,22 @@ def inbound():
         logger.exception("Error procesando webhook")
         # Siempre retornar 200 para que WhatsApp no reintente
         return jsonify(ok=False, error=str(e)), 200
+
+
+@bp.route("/health", methods=["GET"])
+def health_check():
+    """
+    Endpoint de health check para monitoreo.
+    """
+    import os
+    
+    whatsapp_token_configured = bool(os.getenv("WHATSAPP_TOKEN"))
+    openai_key_configured = bool(os.getenv("OPENAI_API_KEY"))
+    
+    return jsonify({
+        "status": "healthy",
+        "whatsapp_configured": whatsapp_token_configured,
+        "audio_support": openai_key_configured,
+        "bots": ["housekeeping", "supervision"],
+        "message": "WhatsApp Multi-Bot is running"
+    }), 200
