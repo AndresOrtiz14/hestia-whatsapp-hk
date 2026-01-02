@@ -206,13 +206,10 @@ def handle_ticket_assignment_flow(from_phone: str, text: str) -> None:
         from_phone: Número de teléfono del supervisor
         text: Texto del mensaje
     """
-    # TODO: Implementar en Fase 3 con ticket_assignment.py
-    send_whatsapp(
-        from_phone,
-        "🎯 Asignación de tickets en desarrollo...\n\n"
-        "Por ahora, usa el menú para otras opciones."
-    )
-    mostrar_menu_principal(from_phone)
+    from .ticket_assignment import handle_seleccion_mucama
+    
+    # Manejar selección de mucama
+    handle_seleccion_mucama(from_phone, text)
 
 
 # Función de notificación para cuando llega ticket de huésped

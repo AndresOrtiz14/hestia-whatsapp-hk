@@ -139,7 +139,26 @@ def handle_ver_pendientes(from_phone: str, raw: str) -> None:
         from_phone: Número de teléfono del supervisor
         raw: Texto del mensaje
     """
-    # Si escribe un ID de ticket, mostrar detalles
+    # Si escribe "asignar", asignar el de mayor prioridad
+    if "asignar" in raw:
+        from .demo_data import get_demo_tickets_pendientes
+        from .ticket_assignment import iniciar_asignacion
+        
+        tickets = get_demo_tickets_pendientes()
+        if tickets:
+            # Ordenar por prioridad (ALTA primero)
+            prioridad_order = {"ALTA": 0, "MEDIA": 1, "BAJA": 2}
+            tickets_sorted = sorted(
+                tickets,
+                key=lambda t: prioridad_order.get(t.get("prioridad", "MEDIA"), 1)
+            )
+            ticket_id = tickets_sorted[0]["id"]
+            iniciar_asignacion(from_phone, ticket_id)
+        else:
+            send_whatsapp(from_phone, "❌ No hay tickets pendientes")
+        return
+    
+    # Si escribe un ID de ticket, verificar si quiere ver detalles o asignar
     if raw.replace("#", "").isdigit():
         ticket_id = int(raw.replace("#", ""))
         
@@ -149,7 +168,7 @@ def handle_ver_pendientes(from_phone: str, raw: str) -> None:
         ticket = get_ticket_by_id(ticket_id)
         
         if ticket:
-            # Mostrar detalles
+            # Mostrar detalles CON opción de asignar
             prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(
                 ticket.get("prioridad", "MEDIA"), "🟡"
             )
@@ -163,24 +182,31 @@ Origen: {ticket.get('origen', 'desconocido')}"""
             
             if ticket.get("asignado_a_nombre"):
                 mensaje += f"\nAsignado a: {ticket['asignado_a_nombre']}"
+            else:
+                # Si está pendiente, ofrecer asignar
+                mensaje += "\n\n¿Asignar este ticket?"
+                mensaje += "\n• Escribe 'asignar' para asignarlo"
+                
+                # Guardar el ticket en estado para asignación rápida
+                state = get_supervisor_state(from_phone)
+                state["ticket_seleccionado"] = ticket_id
             
-            mensaje += "\n\n💡 Próximamente: asignar tickets"
             mensaje += recordatorio_menu()
-            
             send_whatsapp(from_phone, mensaje)
         else:
             send_whatsapp(
                 from_phone,
                 f"❌ No encontré el ticket #{ticket_id}" + recordatorio_menu()
             )
-    else:
-        # Si no es un ID, mostrar tickets de nuevo
-        from .monitoring import mostrar_tickets_pendientes
-        mostrar_tickets_pendientes(from_phone)
+        return
     
-    # Volver al menú
+    # Si no es un comando especial, mostrar tickets de nuevo
+    from .monitoring import mostrar_tickets_pendientes
+    mostrar_tickets_pendientes(from_phone)
+    
+    # Mantener en VER_PENDIENTES
     state = get_supervisor_state(from_phone)
-    state["menu_state"] = MENU_PRINCIPAL
+    state["menu_state"] = VER_PENDIENTES
 
 
 def handle_ver_en_progreso(from_phone: str, raw: str) -> None:
