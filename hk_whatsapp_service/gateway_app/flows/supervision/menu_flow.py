@@ -139,12 +139,46 @@ def handle_ver_pendientes(from_phone: str, raw: str) -> None:
         from_phone: Número de teléfono del supervisor
         raw: Texto del mensaje
     """
-    from .monitoring import mostrar_tickets_pendientes
+    # Si escribe un ID de ticket, mostrar detalles
+    if raw.replace("#", "").isdigit():
+        ticket_id = int(raw.replace("#", ""))
+        
+        from .demo_data import get_ticket_by_id
+        from .ui import formato_ticket_simple, recordatorio_menu
+        
+        ticket = get_ticket_by_id(ticket_id)
+        
+        if ticket:
+            # Mostrar detalles
+            prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(
+                ticket.get("prioridad", "MEDIA"), "🟡"
+            )
+            
+            mensaje = f"""📋 Detalles del Ticket
+
+{formato_ticket_simple(ticket)}
+
+Estado: {ticket.get('estado', 'desconocido')}
+Origen: {ticket.get('origen', 'desconocido')}"""
+            
+            if ticket.get("asignado_a_nombre"):
+                mensaje += f"\nAsignado a: {ticket['asignado_a_nombre']}"
+            
+            mensaje += "\n\n💡 Próximamente: asignar tickets"
+            mensaje += recordatorio_menu()
+            
+            send_whatsapp(from_phone, mensaje)
+        else:
+            send_whatsapp(
+                from_phone,
+                f"❌ No encontré el ticket #{ticket_id}" + recordatorio_menu()
+            )
+    else:
+        # Si no es un ID, mostrar tickets de nuevo
+        from .monitoring import mostrar_tickets_pendientes
+        mostrar_tickets_pendientes(from_phone)
     
-    # Mostrar tickets
-    mostrar_tickets_pendientes(from_phone)
-    
-    # Volver al menú (por ahora, en Fase 4 se implementará asignación)
+    # Volver al menú
     state = get_supervisor_state(from_phone)
     state["menu_state"] = MENU_PRINCIPAL
 
