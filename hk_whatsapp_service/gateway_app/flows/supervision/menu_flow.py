@@ -156,13 +156,14 @@ def handle_ver_pendientes(from_phone: str, raw: str) -> None:
         from_phone: Número de teléfono del supervisor
         raw: Texto del mensaje
     """
-    # TODO: Implementar en Fase 3 con monitoring.py
-    # Por ahora, placeholder
-    send_whatsapp(
-        from_phone,
-        "📋 Vista de pendientes en desarrollo..." + recordatorio_menu()
-    )
-    mostrar_menu_principal(from_phone)
+    from .monitoring import mostrar_tickets_pendientes
+    
+    # Mostrar tickets
+    mostrar_tickets_pendientes(from_phone)
+    
+    # Volver al menú (por ahora, en Fase 4 se implementará asignación)
+    state = get_supervisor_state(from_phone)
+    state["menu_state"] = MENU_PRINCIPAL
 
 
 def handle_ver_en_progreso(from_phone: str, raw: str) -> None:
@@ -173,12 +174,14 @@ def handle_ver_en_progreso(from_phone: str, raw: str) -> None:
         from_phone: Número de teléfono del supervisor
         raw: Texto del mensaje
     """
-    # TODO: Implementar en Fase 3 con monitoring.py
-    send_whatsapp(
-        from_phone,
-        "🔄 Vista de progreso en desarrollo..." + recordatorio_menu()
-    )
-    mostrar_menu_principal(from_phone)
+    from .monitoring import mostrar_tickets_en_progreso
+    
+    # Mostrar tickets
+    mostrar_tickets_en_progreso(from_phone)
+    
+    # Volver al menú
+    state = get_supervisor_state(from_phone)
+    state["menu_state"] = MENU_PRINCIPAL
 
 
 def handle_ver_mucamas(from_phone: str, raw: str) -> None:
@@ -189,12 +192,14 @@ def handle_ver_mucamas(from_phone: str, raw: str) -> None:
         from_phone: Número de teléfono del supervisor
         raw: Texto del mensaje
     """
-    # TODO: Implementar en Fase 3 con monitoring.py
-    send_whatsapp(
-        from_phone,
-        "👥 Vista de mucamas en desarrollo..." + recordatorio_menu()
-    )
-    mostrar_menu_principal(from_phone)
+    from .monitoring import mostrar_estado_mucamas
+    
+    # Mostrar mucamas
+    mostrar_estado_mucamas(from_phone)
+    
+    # Volver al menú
+    state = get_supervisor_state(from_phone)
+    state["menu_state"] = MENU_PRINCIPAL
 
 
 def handle_estadisticas(from_phone: str, raw: str) -> None:
@@ -205,12 +210,14 @@ def handle_estadisticas(from_phone: str, raw: str) -> None:
         from_phone: Número de teléfono del supervisor
         raw: Texto del mensaje
     """
-    # TODO: Implementar en Fase 3 con monitoring.py
-    send_whatsapp(
-        from_phone,
-        "📊 Estadísticas en desarrollo..." + recordatorio_menu()
-    )
-    mostrar_menu_principal(from_phone)
+    from .monitoring import mostrar_estadisticas
+    
+    # Mostrar estadísticas
+    mostrar_estadisticas(from_phone)
+    
+    # Volver al menú
+    state = get_supervisor_state(from_phone)
+    state["menu_state"] = MENU_PRINCIPAL
 
 
 def es_comando_menu(text: str) -> bool:

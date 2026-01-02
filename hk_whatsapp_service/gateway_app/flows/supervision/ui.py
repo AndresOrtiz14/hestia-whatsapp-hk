@@ -17,7 +17,7 @@ def texto_menu_principal(tickets_pendientes: int = 0, tickets_progreso: int = 0)
     Returns:
         Texto del menú formateado
     """
-    return f"""👤 Menú Supervisor
+    return f"""👤 Menú
 
 1. 📋 Ver tickets pendientes ({tickets_pendientes})
 2. 🔄 Ver tickets en progreso ({tickets_progreso})
