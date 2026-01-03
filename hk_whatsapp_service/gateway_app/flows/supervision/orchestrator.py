@@ -83,6 +83,164 @@ def maybe_handle_global_navigation(from_phone: str, raw: str) -> bool:
     return False
 
 
+def maybe_handle_audio_command(from_phone: str, text: str) -> bool:
+    """
+    Detecta y maneja comandos dados por audio.
+    
+    Args:
+        from_phone: Número de teléfono del supervisor
+        text: Texto transcrito del audio
+    
+    Returns:
+        True si se manejó un comando de audio
+    """
+    from .audio_commands import detect_audio_intent
+    from .ticket_assignment import iniciar_asignacion, confirmar_asignacion
+    from .demo_data import get_mucama_by_nombre, get_demo_tickets_pendientes
+    from .ui import recordatorio_menu
+    
+    # Detectar intención
+    intent_data = detect_audio_intent(text)
+    intent = intent_data.get("intent")
+    
+    # Caso 1: Asignar ticket existente
+    if intent == "asignar_ticket":
+        ticket_id = intent_data["ticket_id"]
+        mucama_nombre = intent_data["mucama"]
+        
+        mucama = get_mucama_by_nombre(mucama_nombre)
+        if mucama:
+            confirmar_asignacion(from_phone, ticket_id, mucama)
+            return True
+        else:
+            send_whatsapp(
+                from_phone,
+                f"❌ No encontré a la mucama '{mucama_nombre}'" +
+                recordatorio_menu()
+            )
+            return True
+    
+    # Caso 2: Crear ticket y asignar
+    if intent == "crear_y_asignar":
+        habitacion = intent_data["habitacion"]
+        detalle = intent_data["detalle"]
+        prioridad = intent_data["prioridad"]
+        mucama_nombre = intent_data["mucama"]
+        
+        mucama = get_mucama_by_nombre(mucama_nombre)
+        if not mucama:
+            send_whatsapp(
+                from_phone,
+                f"❌ No encontré a la mucama '{mucama_nombre}'" +
+                recordatorio_menu()
+            )
+            return True
+        
+        # Simular creación de ticket (en producción sería en BD)
+        import random
+        ticket_id = random.randint(2000, 2999)
+        
+        send_whatsapp(
+            from_phone,
+            f"✅ Ticket #{ticket_id} creado\n"
+            f"📋 Hab. {habitacion} - {detalle}\n"
+            f"Prioridad: {prioridad}\n\n"
+            f"Asignando a {mucama['nombre']}..."
+        )
+        
+        # Asignar
+        from .ui import mensaje_ticket_asignado
+        mensaje = mensaje_ticket_asignado(ticket_id, mucama["nombre"])
+        mensaje += "\n\n💡 En producción: ticket guardado en BD"
+        mensaje += recordatorio_menu()
+        send_whatsapp(from_phone, mensaje)
+        
+        return True
+    
+    # Caso 3: Solo crear ticket
+    if intent == "crear_ticket":
+        habitacion = intent_data["habitacion"]
+        detalle = intent_data["detalle"]
+        prioridad = intent_data["prioridad"]
+        
+        import random
+        ticket_id = random.randint(2000, 2999)
+        
+        send_whatsapp(
+            from_phone,
+            f"✅ Ticket #{ticket_id} creado\n"
+            f"📋 Hab. {habitacion} - {detalle}\n"
+            f"Prioridad: {prioridad}\n\n"
+            f"¿Asignar ahora?\n"
+            f"• Escribe 'asignar' para elegir mucama\n"
+            f"• O di: 'asignar a [nombre]'" +
+            recordatorio_menu()
+        )
+        
+        # Guardar ticket en estado para asignación rápida
+        state = get_supervisor_state(from_phone)
+        state["ticket_seleccionado"] = ticket_id
+        
+        return True
+    
+    # Caso 4: Asignar sin especificar ticket (usar el de mayor prioridad)
+    if intent == "asignar_sin_ticket":
+        mucama_nombre = intent_data["mucama"]
+        mucama = get_mucama_by_nombre(mucama_nombre)
+        
+        if not mucama:
+            send_whatsapp(
+                from_phone,
+                f"❌ No encontré a la mucama '{mucama_nombre}'" +
+                recordatorio_menu()
+            )
+            return True
+        
+        # Buscar ticket de mayor prioridad
+        tickets = get_demo_tickets_pendientes()
+        if tickets:
+            prioridad_order = {"ALTA": 0, "MEDIA": 1, "BAJA": 2}
+            tickets_sorted = sorted(
+                tickets,
+                key=lambda t: prioridad_order.get(t.get("prioridad", "MEDIA"), 1)
+            )
+            ticket_id = tickets_sorted[0]["id"]
+            
+            confirmar_asignacion(from_phone, ticket_id, mucama)
+            return True
+        else:
+            send_whatsapp(
+                from_phone,
+                "❌ No hay tickets pendientes" + recordatorio_menu()
+            )
+            return True
+    
+    # Caso 5: Ver estado
+    if intent in ["ver_pendientes", "ver_progreso", "ver_mucamas"]:
+        from .monitoring import (
+            mostrar_tickets_pendientes,
+            mostrar_tickets_en_progreso,
+            mostrar_estado_mucamas
+        )
+        
+        state = get_supervisor_state(from_phone)
+        
+        if intent == "ver_pendientes":
+            mostrar_tickets_pendientes(from_phone)
+            state["menu_state"] = VER_PENDIENTES
+        elif intent == "ver_progreso":
+            mostrar_tickets_en_progreso(from_phone)
+            state["menu_state"] = VER_EN_PROGRESO
+        elif intent == "ver_mucamas":
+            mostrar_estado_mucamas(from_phone)
+            state["menu_state"] = VER_MUCAMAS
+        
+        return True
+    
+    # No se reconoció comando de audio
+    return False
+
+
 def handle_supervisor_message(from_phone: str, text: str) -> None:
     """
     Punto de entrada principal para mensajes del supervisor.
@@ -108,6 +266,10 @@ def handle_supervisor_message(from_phone: str, text: str) -> None:
     
     # 2) Comandos globales de navegación directa
     if maybe_handle_global_navigation(from_phone, raw):
+        return
+    
+    # 2.5) Detectar comandos de audio (asignar, crear con voz)
+    if maybe_handle_audio_command(from_phone, text):
         return
     
     # 3) Saludo inicial del día

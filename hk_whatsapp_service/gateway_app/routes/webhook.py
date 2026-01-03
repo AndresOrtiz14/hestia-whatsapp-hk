@@ -26,7 +26,7 @@ from gateway_app.flows.supervision import handle_supervisor_message
 # Configuración: Detectar rol por número de teléfono
 # TODO: Mover a base de datos o config
 SUPERVISOR_PHONES = [
-    "56956326272",  # Número del supervisor (número andres para testing)
+    "56987654321",  # Número del supervisor
     # Agregar más supervisores si es necesario
 ]
 
@@ -124,16 +124,28 @@ def inbound():
 
         # ROUTING POR ROL
         if user_role == "supervisor":
-            # Supervisor: Solo texto por ahora (audio opcional para Fase 3)
+            # Supervisor: Texto + Audio
             if msg_type == "text":
                 handle_supervisor_message(from_phone, message_data["text"])
-            else:
-                # Audio para supervisor en desarrollo
-                send_whatsapp_text(
-                    to=from_phone,
-                    body="🎤 Soporte de audio para supervisor en desarrollo.\n"
-                         "Por ahora, usa texto."
-                )
+            elif msg_type in ["audio", "voice"]:
+                # Transcribir audio
+                from gateway_app.flows.housekeeping.audio_integration import transcribe_hk_audio
+                
+                result = transcribe_hk_audio(message_data["media_id"])
+                
+                if result["success"]:
+                    # Mostrar transcripción
+                    send_whatsapp_text(
+                        to=from_phone,
+                        body=f"🎤 Escuché: \"{result['text']}\""
+                    )
+                    # Procesar como texto
+                    handle_supervisor_message(from_phone, result["text"])
+                else:
+                    send_whatsapp_text(
+                        to=from_phone,
+                        body="❌ No pude transcribir el audio. Intenta de nuevo."
+                    )
         
         else:  # housekeeper
             # Mucama: Texto + Audio
