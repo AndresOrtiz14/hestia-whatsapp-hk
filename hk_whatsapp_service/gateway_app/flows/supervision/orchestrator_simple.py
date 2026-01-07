@@ -30,37 +30,42 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
         send_whatsapp(from_phone, texto_saludo_supervisor())
         return
     
-    # 2) Comandos de audio (asignar, crear)
+    # 2) Si está esperando asignación, manejar respuesta
+    if state.get("esperando_asignacion"):
+        if handle_respuesta_asignacion(from_phone, text):
+            return
+    
+    # 3) Comandos de audio (asignar, crear)
     if maybe_handle_audio_command_simple(from_phone, text):
         return
     
-    # 3) Comando: Ver pendientes
+    # 4) Comando: Ver pendientes
     if raw in ["pendientes", "pendiente", "ver", "lista"]:
         mostrar_pendientes_simple(from_phone)
         return
     
-    # 4) Comando: Asignar urgente / más urgente / siguiente
+    # 5) Comando: Asignar urgente / más urgente / siguiente
     if raw in ["siguiente", "next", "proximo", "urgente", "asignar urgente", "mas urgente", "más urgente"]:
         asignar_siguiente(from_phone)
         return
     
-    # 5) Comando: Urgente
+    # 6) Comando: Urgente
     if raw in ["urgente", "urgentes", "critico"]:
         mostrar_urgentes(from_phone)
         return
     
-    # 6) Comando: Retrasados
+    # 7) Comando: Retrasados
     if raw in ["retrasados", "retrasado", "atrasados"]:
         mostrar_retrasados(from_phone)
         return
     
-    # 7) Comando: Reasignar
+    # 8) Comando: Reasignar
     if "reasignar" in raw or "cambiar" in raw:
         # TODO: Implementar reasignación
         send_whatsapp(from_phone, "🔄 Reasignación en desarrollo...")
         return
     
-    # 8) No entendí - dar sugerencias
+    # 9) No entendí - dar sugerencias
     send_whatsapp(
         from_phone,
         "🤔 No entendí.\n\n"
@@ -71,6 +76,63 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
         "• 'asignar [#] a [nombre]'\n"
         "• 'hab [#] [detalle]'"
     )
+
+
+def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
+    """
+    Maneja la respuesta cuando está esperando asignación.
+    
+    Args:
+        from_phone: Número del supervisor
+        text: Respuesta (nombre o número)
+    
+    Returns:
+        True si se manejó la asignación
+    """
+    from .demo_data import DEMO_MUCAMAS, get_mucama_by_nombre
+    from .ticket_assignment import calcular_score_mucama, confirmar_asignacion
+    
+    state = get_supervisor_state(from_phone)
+    ticket_id = state.get("ticket_seleccionado")
+    
+    if not ticket_id:
+        # No hay ticket seleccionado, cancelar
+        state["esperando_asignacion"] = False
+        return False
+    
+    raw = text.strip().lower()
+    mucama = None
+    
+    # Opción 1: Respuesta por número (1, 2, 3)
+    if raw.isdigit():
+        index = int(raw) - 1
+        
+        # Ordenar mucamas por score igual que en recomendaciones
+        mucamas_con_score = []
+        for m in DEMO_MUCAMAS:
+            score = calcular_score_mucama(m)
+            mucamas_con_score.append({**m, "score": score})
+        
+        mucamas_con_score.sort(key=lambda m: m["score"], reverse=True)
+        
+        if 0 <= index < len(mucamas_con_score):
+            mucama = mucamas_con_score[index]
+    
+    # Opción 2: Respuesta por nombre
+    else:
+        mucama = get_mucama_by_nombre(raw)
+    
+    # Verificar que se encontró
+    if mucama:
+        confirmar_asignacion(from_phone, ticket_id, mucama)
+        return True
+    else:
+        send_whatsapp(
+            from_phone,
+            f"❌ No encontré a '{text}'\n\n"
+            "💡 Di el nombre o número (1, 2, 3)"
+        )
+        return True
 
 
 def mostrar_pendientes_simple(from_phone: str) -> None:
