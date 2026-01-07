@@ -39,8 +39,8 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
         mostrar_pendientes_simple(from_phone)
         return
     
-    # 4) Comando: Siguiente (asignar el más urgente)
-    if raw in ["siguiente", "next", "proximo"]:
+    # 4) Comando: Asignar urgente / más urgente / siguiente
+    if raw in ["siguiente", "next", "proximo", "urgente", "asignar urgente", "mas urgente", "más urgente"]:
         asignar_siguiente(from_phone)
         return
     
@@ -65,9 +65,9 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
         from_phone,
         "🤔 No entendí.\n\n"
         "💡 Puedes decir:\n"
-        "• 'pendientes'\n"
-        "• 'siguiente'\n"
-        "• 'urgente'\n"
+        "• 'pendientes' - ver todos\n"
+        "• 'más urgente' - asignar el más importante\n"
+        "• 'urgente' - ver solo urgentes\n"
         "• 'asignar [#] a [nombre]'\n"
         "• 'hab [#] [detalle]'"
     )
@@ -95,8 +95,9 @@ def mostrar_pendientes_simple(from_phone: str) -> None:
 
 def asignar_siguiente(from_phone: str) -> None:
     """Asigna el ticket de mayor prioridad."""
-    from .demo_data import get_demo_tickets_pendientes
-    from .ticket_assignment import mostrar_recomendaciones_mucamas
+    from .demo_data import get_demo_tickets_pendientes, DEMO_MUCAMAS
+    from .ticket_assignment import calcular_score_mucama
+    from .ui_simple import texto_recomendaciones_simple
     
     tickets = get_demo_tickets_pendientes()
     
@@ -134,30 +135,18 @@ def asignar_siguiente(from_phone: str) -> None:
         f"{ticket['tiempo_sin_resolver_mins']} min esperando"
     )
     
-    # Mostrar recomendaciones compactas
-    mostrar_recomendaciones_simples(from_phone, ticket_id)
-
-
-def mostrar_recomendaciones_simples(from_phone: str, ticket_id: int) -> None:
-    """Muestra recomendaciones compactas."""
-    from .demo_data import DEMO_MUCAMAS
-    from .ticket_assignment import calcular_score_mucama
-    from .ui_simple import texto_recomendaciones_simple
-    
-    # Calcular scores
+    # Mostrar recomendaciones compactas (inline, no función externa)
     mucamas_con_score = []
     for mucama in DEMO_MUCAMAS:
         score = calcular_score_mucama(mucama)
         mucamas_con_score.append({**mucama, "score": score})
     
-    # Ordenar por score
     mucamas_con_score.sort(key=lambda m: m["score"], reverse=True)
     
     mensaje = texto_recomendaciones_simple(mucamas_con_score)
     send_whatsapp(from_phone, mensaje)
     
     # Guardar estado de asignación
-    state = get_supervisor_state(from_phone)
     state["esperando_asignacion"] = True
 
 
@@ -291,8 +280,21 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         state["ticket_seleccionado"] = ticket_id
         state["esperando_asignacion"] = True
         
-        # Mostrar recomendaciones
-        mostrar_recomendaciones_simples(from_phone, ticket_id)
+        # Mostrar recomendaciones inline
+        from .demo_data import DEMO_MUCAMAS
+        from .ticket_assignment import calcular_score_mucama
+        from .ui_simple import texto_recomendaciones_simple
+        
+        mucamas_con_score = []
+        for mucama in DEMO_MUCAMAS:
+            score = calcular_score_mucama(mucama)
+            mucamas_con_score.append({**mucama, "score": score})
+        
+        mucamas_con_score.sort(key=lambda m: m["score"], reverse=True)
+        
+        mensaje_rec = texto_recomendaciones_simple(mucamas_con_score)
+        send_whatsapp(from_phone, mensaje_rec)
+        
         return True
     
     # Caso 4: Asignar sin ticket (usar el de mayor prioridad)

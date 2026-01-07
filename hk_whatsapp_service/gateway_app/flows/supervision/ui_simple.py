@@ -15,8 +15,8 @@ def texto_saludo_supervisor() -> str:
 
 📋 ASIGNAR:
 • "asignar 1503 a María"
-• "siguiente" (asigno el más urgente)
-• "pendientes" (muestro todos)
+• "más urgente" (te muestro el más importante)
+• "pendientes" (lista completa)
 
 ➕ CREAR:
 • "hab 420 limpieza urgente"
@@ -59,7 +59,7 @@ def texto_tickets_pendientes_simple(tickets: list) -> str:
     if len(tickets) > 5:
         lineas.append(f"\n... y {len(tickets) - 5} más")
     
-    lineas.append("\n💡 Di: 'asignar [#] a [nombre]' o 'siguiente'")
+    lineas.append("\n💡 Di: 'asignar [#] a [nombre]' o 'más urgente'")
     
     return "\n".join(lineas)
 
@@ -121,7 +121,7 @@ def texto_ticket_creado_simple(ticket_id: int, habitacion: str, prioridad: str) 
     return f"""✅ Ticket #{ticket_id} creado
 {prioridad_emoji} Hab. {habitacion}
 
-💡 Di: 'asignar a [nombre]' o 'siguiente'"""
+💡 Di: 'asignar a [nombre]' o 'más urgente'"""
 
 
 def texto_urgentes(pendientes_urgentes: list, retrasados: list) -> str:
