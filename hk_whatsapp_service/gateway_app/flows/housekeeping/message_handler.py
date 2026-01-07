@@ -4,7 +4,7 @@ Punto de entrada unificado que maneja texto y audio.
 """
 
 from typing import Dict, Any
-from .orchestrator import handle_hk_message as _handle_hk_message_text
+from .orchestrator_simple import handle_hk_message_simple as _handle_hk_message_text
 from .audio_integration import (
     transcribe_hk_audio,
     format_transcription_confirmation,
