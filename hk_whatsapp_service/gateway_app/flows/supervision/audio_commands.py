@@ -21,12 +21,18 @@ def extract_ticket_id(text: str) -> Optional[int]:
         "ticket 1503" -> 1503
         "el 1504" -> 1504
         "número 1505" -> 1505
+        "asignar el 1503" -> 1503
     """
-    # Buscar patrones como "ticket 1503", "1503", "el 1503"
+    # Buscar patrones como "ticket 1503", "1503", "el 1503", "asignar el 1503"
     patterns = [
         r'ticket\s*#?\s*(\d+)',
-        r'número\s*(\d+)',
-        r'el\s+(\d+)',
+        r'número\s*#?\s*(\d+)',
+        r'el\s+#?(\d+)',
+        r'la\s+#?(\d+)',
+        r'asignar\s+(?:el\s+|la\s+)?#?(\d{3,4})',
+        r'derivar\s+(?:el\s+|la\s+)?#?(\d{3,4})',
+        r'mandar\s+(?:el\s+|la\s+)?#?(\d{3,4})',
+        r'#(\d{3,4})',  # Solo #1503
         r'\b(\d{4})\b',  # 4 dígitos solos
     ]
     
@@ -51,12 +57,34 @@ def extract_mucama_name(text: str) -> Optional[str]:
         Nombre de la mucama o None
     """
     # Nombres comunes (expandir según tus mucamas)
-    nombres = ['maría', 'maria', 'pedro', 'ana', 'juan', 'carmen', 'rosa', 'luis']
+    nombres = [
+        'maría', 'maria', 
+        'pedro', 
+        'ana', 
+        'daniela',
+        'carlos',
+        'juan', 
+        'carmen', 
+        'rosa', 
+        'luis',
+        'carla',
+        'diego',
+        'sofia', 'sofía',
+        'fernando',
+        'patricia',
+        'jorge',
+        'valeria',
+        'gabriel',
+        'camila',
+        'ricardo'
+    ]
     
     text_lower = text.lower()
     
     for nombre in nombres:
-        if nombre in text_lower:
+        # Buscar palabra completa (evitar "maría" en "mariano")
+        if re.search(r'\b' + re.escape(nombre) + r'\b', text_lower):
+            # Retornar capitalizado
             return nombre.capitalize()
     
     return None

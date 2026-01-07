@@ -33,6 +33,22 @@ DEMO_MUCAMAS = [
         "tickets_completados_hoy": 7,
         "promedio_tiempo_resolucion": 10.5
     },
+    {
+        "phone": "56912345674",
+        "nombre": "Daniela",
+        "estado": "disponible",
+        "ticket_activo": None,
+        "tickets_completados_hoy": 4,
+        "promedio_tiempo_resolucion": 13.0
+    },
+    {
+        "phone": "56912345675",
+        "nombre": "Carlos",
+        "estado": "disponible",
+        "ticket_activo": None,
+        "tickets_completados_hoy": 6,
+        "promedio_tiempo_resolucion": 11.0
+    },
 ]
 
 
