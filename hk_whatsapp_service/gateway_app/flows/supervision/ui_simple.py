@@ -95,7 +95,7 @@ def texto_recomendaciones_simple(workers_con_score: list) -> str:
             "disponible": "✅",
             "ocupada": "🔴",
             "en_pausa": "⏸️"
-        }.get(mucama.get("estado"), "❓")
+        }.get(worker.get("estado"), "❓")
         
         lineas.append(f"{i}. {estado_emoji} {worker['nombre']}")
     
