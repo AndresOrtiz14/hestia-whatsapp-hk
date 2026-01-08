@@ -24,11 +24,22 @@ from gateway_app.flows.supervision import handle_supervisor_message
 
 
 # Configuración: Detectar rol por número de teléfono
-# TODO: Mover a base de datos o config
+# Lee desde variable de entorno SUPERVISOR_PHONES
+import os
+
+# Leer y parsear números de supervisores desde environment
+supervisor_phones_str = os.getenv("SUPERVISOR_PHONES", "")
 SUPERVISOR_PHONES = [
-    "56987654321",  # Número del supervisor
-    # Agregar más supervisores si es necesario
+    phone.strip() 
+    for phone in supervisor_phones_str.split(",") 
+    if phone.strip()
 ]
+
+# Logging para debug
+if not SUPERVISOR_PHONES:
+    logger.warning("⚠️ SUPERVISOR_PHONES no configurado en environment variables")
+else:
+    logger.info(f"✅ {len(SUPERVISOR_PHONES)} supervisor(es) configurado(s)")
 
 
 def get_user_role(phone: str) -> str:
@@ -41,9 +52,15 @@ def get_user_role(phone: str) -> str:
     Returns:
         "supervisor" o "housekeeper"
     """
-    # TODO: Consultar base de datos en lugar de lista hardcodeada
+    # Logging para debug
+    logger.info(f"🔍 Detectando rol para: {phone}")
+    logger.info(f"📋 Supervisores configurados: {SUPERVISOR_PHONES}")
+    
     if phone in SUPERVISOR_PHONES:
+        logger.info(f"✅ {phone} reconocido como SUPERVISOR")
         return "supervisor"
+    
+    logger.info(f"👷 {phone} reconocido como HOUSEKEEPER")
     return "housekeeper"
 
 
