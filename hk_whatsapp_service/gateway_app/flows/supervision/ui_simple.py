@@ -9,7 +9,7 @@ def texto_saludo_supervisor() -> str:
     Returns:
         Texto del saludo
     """
-    return """👋 Hola, soy el asistente de Supervisión de Hestia.
+    return """👋 Hola,aaaaaaaaaaaaa soy el asistente de Supervisión de Hestia.
 
 💬 Puedes decirme (texto o audio):
 
