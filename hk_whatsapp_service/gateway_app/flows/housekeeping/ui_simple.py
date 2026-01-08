@@ -10,14 +10,14 @@ def texto_menu_simple() -> str:
     Returns:
         Texto del menú
     """
-    return """🧹 Menú Housekeeping
+    return """🏨 Menú de Operaciones
 
-1. 📋 Ver mis tickets
+1. 📋 Ver mis tareas
 2. ➕ Reportar problema
 3. ❓ Ayuda
 
 💡 O escribe:
-• 'tomar' - Tomar ticket
+• 'tomar' - Tomar tarea
 • 'fin' - Finalizar
 • 'pausar' - Pausar"""
 
@@ -32,16 +32,16 @@ def texto_ayuda() -> str:
     return """❓ Ayuda
 
 📋 TRABAJAR:
-• 'tomar' - Tomar el más urgente
-• 'fin' - Finalizar ticket
+• 'tomar' - Tomar la más urgente
+• 'fin' - Finalizar tarea
 • 'pausar' / 'reanudar'
 
 ➕ REPORTAR:
-• 'reportar' - Crear ticket
+• 'reportar' - Crear reporte
 • O di: "hab 305 fuga de agua"
 
 🔍 VER:
-• 'tickets' - Ver mis tickets
+• 'tareas' - Ver mis tareas
 • 'M' - Volver al menú"""
 
 
@@ -52,16 +52,16 @@ def texto_saludo_dia() -> str:
     Returns:
         Texto de saludo
     """
-    return """👋 Hola, soy el asistente de Housekeeping de Hestia.
-Te ayudo a gestionar tus tickets del día."""
+    return """👋 Hola, soy el asistente de operaciones de Hestia.
+Te ayudo a gestionar tus tareas del día."""
 
 
 def texto_ticket_asignado(ticket: dict) -> str:
     """
-    Notificación de ticket asignado.
+    Notificación de tarea asignada.
     
     Args:
-        ticket: Datos del ticket
+        ticket: Datos de la tarea
     
     Returns:
         Texto formateado
@@ -72,7 +72,7 @@ def texto_ticket_asignado(ticket: dict) -> str:
         "BAJA": "🟢"
     }.get(ticket.get("prioridad", "MEDIA"), "🟡")
     
-    return f"""🔔 Nuevo ticket asignado
+    return f"""🔔 Nueva tarea asignada
 
 {prioridad_emoji} #{ticket['id']} · Hab. {ticket['habitacion']}
 {ticket['detalle']}
@@ -143,18 +143,18 @@ def texto_ticket_reanudado(ticket: dict) -> str:
 
 def texto_lista_tickets(tickets: list) -> str:
     """
-    Lista de tickets disponibles.
+    Lista de tareas disponibles.
     
     Args:
-        tickets: Lista de tickets
+        tickets: Lista de tareas
     
     Returns:
         Texto formateado
     """
     if not tickets:
-        return "✅ No tienes tickets pendientes"
+        return "✅ No tienes tareas pendientes"
     
-    lineas = [f"📋 {len(tickets)} ticket(s):\n"]
+    lineas = [f"📋 {len(tickets)} tarea(s):\n"]
     
     for ticket in tickets[:5]:  # Máximo 5
         prioridad_emoji = {
@@ -178,10 +178,10 @@ def texto_lista_tickets(tickets: list) -> str:
 
 def texto_ticket_creado(ticket_id: int, habitacion: str, prioridad: str) -> str:
     """
-    Confirmación de ticket creado.
+    Confirmación de reporte creado.
     
     Args:
-        ticket_id: ID del ticket
+        ticket_id: ID del reporte
         habitacion: Número de habitación
         prioridad: Prioridad detectada
     
@@ -194,10 +194,10 @@ def texto_ticket_creado(ticket_id: int, habitacion: str, prioridad: str) -> str:
         "BAJA": "🟢"
     }.get(prioridad, "🟡")
     
-    return f"""✅ Ticket #{ticket_id} creado
+    return f"""✅ Reporte #{ticket_id} creado
 {prioridad_emoji} Hab. {habitacion}
 
-Notificado a supervisión ✓"""
+Notificado a operaciones ✓"""
 
 
 def texto_pedir_habitacion() -> str:

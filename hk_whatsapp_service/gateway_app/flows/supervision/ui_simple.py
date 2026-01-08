@@ -9,13 +9,13 @@ def texto_saludo_supervisor() -> str:
     Returns:
         Texto del saludo
     """
-    return """👋 Hola,aaaaaaaaaaaaa soy el asistente de Supervisión de Hestia.
+    return """👋 Hola, soy el asistente de Operaciones de Hestia.
 
 💬 Puedes decirme (texto o audio):
 
 📋 ASIGNAR:
 • "asignar 1503 a María"
-• "más urgente" (te muestro el más importante)
+• "más urgente" (te muestro la más importante)
 • "pendientes" (lista completa)
 
 ➕ CREAR:
@@ -23,7 +23,7 @@ def texto_saludo_supervisor() -> str:
 • "crear hab 305 toallas"
 
 ⚠️ VER URGENTES:
-• "urgente" (solo los importantes)
+• "urgente" (solo las importantes)
 • "retrasados" (>10 min sin resolver)
 
 🔄 REASIGNAR:
@@ -34,7 +34,7 @@ def texto_saludo_supervisor() -> str:
 
 def texto_tickets_pendientes_simple(tickets: list) -> str:
     """
-    Muestra tickets pendientes de forma simple.
+    Muestra tareas pendientes de forma simple.
     
     Args:
         tickets: Lista de tickets
@@ -43,9 +43,9 @@ def texto_tickets_pendientes_simple(tickets: list) -> str:
         Texto formateado
     """
     if not tickets:
-        return "✅ No hay tickets pendientes"
+        return "✅ No hay tareas pendientes"
     
-    lineas = [f"📋 {len(tickets)} tickets pendientes:\n"]
+    lineas = [f"📋 {len(tickets)} tareas pendientes:\n"]
     
     for ticket in tickets[:5]:  # Máximo 5
         prioridad = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(
@@ -118,7 +118,7 @@ def texto_ticket_creado_simple(ticket_id: int, habitacion: str, prioridad: str) 
     """
     prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
     
-    return f"""✅ Ticket #{ticket_id} creado
+    return f"""✅ Tarea #{ticket_id} creado
 {prioridad_emoji} Hab. {habitacion}
 
 💡 Di: 'asignar a [nombre]' o 'más urgente'"""
