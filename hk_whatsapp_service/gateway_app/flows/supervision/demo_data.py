@@ -126,6 +126,19 @@ DEMO_WORKERS = [
         "tickets_completados_hoy": 6,
         "promedio_tiempo_resolucion": 11.5
     },
+    {
+        "phone": "56912345680",
+        "nombre": "Diego",
+        "apellido": "Vargas",
+        "nombre_completo": "Diego Vargas",
+        "apodos": [],
+        "rol": "housekeeping",
+        "departamento": "Limpieza",
+        "estado": "disponible",
+        "ticket_activo": None,
+        "tickets_completados_hoy": 4,
+        "promedio_tiempo_resolucion": 13.0
+    },
 ]
 
 # Alias para retrocompatibilidad
@@ -292,7 +305,20 @@ def get_worker_by_nombre(nombre: str, rol: str = None) -> Dict[str, Any] | None:
     Returns:
         Datos del worker o None
     """
-    nombre_lower = nombre.lower().strip()
+    import unicodedata
+    
+    def normalizar(texto: str) -> str:
+        """Normaliza texto: minúsculas y sin acentos."""
+        # Convertir a minúsculas
+        texto = texto.lower().strip()
+        # Quitar acentos
+        texto = ''.join(
+            c for c in unicodedata.normalize('NFD', texto)
+            if unicodedata.category(c) != 'Mn'
+        )
+        return texto
+    
+    nombre_norm = normalizar(nombre)
     
     workers = DEMO_WORKERS
     if rol:
@@ -300,19 +326,19 @@ def get_worker_by_nombre(nombre: str, rol: str = None) -> Dict[str, Any] | None:
     
     for worker in workers:
         # Buscar en nombre
-        if worker["nombre"].lower() == nombre_lower:
+        if normalizar(worker["nombre"]) == nombre_norm:
             return worker
         
         # Buscar en apellido
-        if worker.get("apellido", "").lower() == nombre_lower:
+        if normalizar(worker.get("apellido", "")) == nombre_norm:
             return worker
         
         # Buscar en nombre completo
-        if nombre_lower in worker.get("nombre_completo", "").lower():
+        if nombre_norm in normalizar(worker.get("nombre_completo", "")):
             return worker
         
         # Buscar en apodos
-        if any(apodo.lower() == nombre_lower for apodo in worker.get("apodos", [])):
+        if any(normalizar(apodo) == nombre_norm for apodo in worker.get("apodos", [])):
             return worker
     
     return None

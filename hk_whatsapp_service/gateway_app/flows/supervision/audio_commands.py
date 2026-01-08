@@ -193,7 +193,21 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
         'mandar', 'manda',
         'enviar', 'envia'
     ])
+    es_reasignar = any(word in text_lower for word in [
+        'reasignar', 'reasigna',
+        'cambiar', 'cambia',
+        'mover', 'mueve'
+    ])
     es_crear = any(word in text_lower for word in ['crear', 'nuevo', 'generar', 'registrar'])
+    
+    # Patrón 0: "Reasignar ticket 1503 a María" (NUEVO)
+    if es_reasignar and ticket_id and worker:
+        return {
+            "intent": "reasignar_ticket",
+            "ticket_id": ticket_id,
+            "worker": worker,
+            "text": text
+        }
     
     # Patrón 1: "Asignar ticket 1503 a María"
     if es_asignar and ticket_id and worker:

@@ -70,13 +70,28 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
         )
         return
     
-    # 8) Comando: Reasignar
-    if "reasignar" in raw or "cambiar" in raw:
-        # TODO: Implementar reasignación
-        send_whatsapp(from_phone, "🔄 Reasignación en desarrollo...")
+    # 8) Comando: Ver tickets en proceso
+    if raw in ["en proceso", "progreso", "trabajando", "en curso", "activos"]:
+        mostrar_en_proceso(from_phone)
         return
     
-    # 8) Comando: Cancelar (cuando no hay nada que cancelar)
+    # 9) Comando: Reasignar (ahora usa audio_commands)
+    # Esto se maneja en maybe_handle_audio_command_simple
+    if "reasignar" in raw or "cambiar" in raw:
+        # Intentar detectar con audio_commands
+        if maybe_handle_audio_command_simple(from_phone, text):
+            return
+        # Si no se detectó, pedir formato correcto
+        send_whatsapp(
+            from_phone,
+            "💡 Para reasignar, di:\n"
+            "• 'reasignar [#] a [nombre]'\n"
+            "• 'cambiar [#] a [nombre]'\n\n"
+            "Ejemplo: 'reasignar 1503 a María'"
+        )
+        return
+    
+    # 10) Comando: Cancelar (cuando no hay nada que cancelar)
     if raw in ["cancelar", "cancel", "salir", "atras", "atrás"]:
         send_whatsapp(from_phone, "✅ No hay nada que cancelar ahora")
         return
@@ -276,6 +291,41 @@ def mostrar_urgentes(from_phone: str) -> None:
     send_whatsapp(from_phone, mensaje)
 
 
+def mostrar_en_proceso(from_phone: str) -> None:
+    """Muestra todos los tickets en proceso."""
+    from .demo_data import get_demo_tickets_en_progreso
+    
+    tickets = get_demo_tickets_en_progreso()
+    
+    if not tickets:
+        send_whatsapp(from_phone, "✅ No hay tareas en proceso")
+        return
+    
+    lineas = [f"🔄 {len(tickets)} tarea(s) en proceso:\n"]
+    
+    for ticket in tickets[:10]:  # Máximo 10
+        prioridad_emoji = {
+            "ALTA": "🔴",
+            "MEDIA": "🟡",
+            "BAJA": "🟢"
+        }.get(ticket.get("prioridad", "MEDIA"), "🟡")
+        
+        trabajador = ticket.get("asignado_a_nombre", "?")
+        tiempo = ticket.get("tiempo_sin_resolver_mins", 0)
+        
+        lineas.append(
+            f"{prioridad_emoji} #{ticket['id']} · {trabajador} · "
+            f"Hab. {ticket['habitacion']} · {tiempo} min"
+        )
+    
+    if len(tickets) > 10:
+        lineas.append(f"\n... y {len(tickets) - 10} más")
+    
+    lineas.append("\n💡 Di 'reasignar [#] a [nombre]'")
+    
+    send_whatsapp(from_phone, "\n".join(lineas))
+
+
 def mostrar_retrasados(from_phone: str) -> None:
     """Muestra solo tickets retrasados (>10 min)."""
     from .demo_data import get_demo_tickets_en_progreso
@@ -453,6 +503,44 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             # Múltiples: pedir que elija
             state["seleccion_mucamas"] = {
                 "tipo": "asignar",
+                "ticket_id": ticket_id,
+                "candidatas": candidatas
+            }
+            mensaje = formato_lista_workers(candidatas)
+            send_whatsapp(from_phone, mensaje)
+            return True
+    
+    # Caso 1.5: Reasignar ticket existente (NUEVO)
+    if intent == "reasignar_ticket":
+        ticket_id = intent_data["ticket_id"]
+        worker_nombre = intent_data["worker"]
+        worker_nombre = normalizar_nombre(worker_nombre)
+        
+        # Buscar con sistema inteligente
+        candidatas = buscar_workers(worker_nombre, DEMO_WORKERS)
+        
+        if not candidatas:
+            send_whatsapp(
+                from_phone,
+                f"❌ No encontré a '{worker_nombre}'\n\n"
+                "💡 Verifica el nombre"
+            )
+            return True
+        
+        if len(candidatas) == 1:
+            # Solo una: confirmar reasignación
+            worker = candidatas[0]
+            worker_nombre_completo = worker.get("nombre_completo", worker.get("nombre"))
+            send_whatsapp(
+                from_phone,
+                f"🔄 Tarea #{ticket_id} reasignada → {worker_nombre_completo}\n\n"
+                "💡 En producción: se notificaría al nuevo trabajador"
+            )
+            return True
+        else:
+            # Múltiples: pedir que elija
+            state["seleccion_mucamas"] = {
+                "tipo": "reasignar",
                 "ticket_id": ticket_id,
                 "candidatas": candidatas
             }
