@@ -7,14 +7,16 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any
 
 
-# Demo: Mucamas registradas
-DEMO_MUCAMAS = [
+# Demo: Workers registrados (todos los roles del hotel)
+DEMO_WORKERS = [
     {
         "phone": "56912345671",
         "nombre": "María",
         "apellido": "González",
         "nombre_completo": "María González",
         "apodos": ["Mari", "Marita"],
+        "rol": "housekeeping",
+        "departamento": "Limpieza",
         "estado": "disponible",
         "ticket_activo": None,
         "tickets_completados_hoy": 5,
@@ -26,6 +28,8 @@ DEMO_MUCAMAS = [
         "apellido": "Ramírez",
         "nombre_completo": "Pedro Ramírez",
         "apodos": ["Pedrito"],
+        "rol": "mantenimiento",
+        "departamento": "Mantención",
         "estado": "en_pausa",
         "ticket_activo": None,
         "tickets_completados_hoy": 3,
@@ -37,6 +41,8 @@ DEMO_MUCAMAS = [
         "apellido": "Torres",
         "nombre_completo": "Ana Torres",
         "apodos": ["Anita"],
+        "rol": "housekeeping",
+        "departamento": "Limpieza",
         "estado": "ocupada",
         "ticket_activo": 1502,
         "tickets_completados_hoy": 7,
@@ -48,6 +54,8 @@ DEMO_MUCAMAS = [
         "apellido": "Silva",
         "nombre_completo": "Daniela Silva",
         "apodos": ["Dani"],
+        "rol": "housekeeping",
+        "departamento": "Limpieza",
         "estado": "disponible",
         "ticket_activo": None,
         "tickets_completados_hoy": 4,
@@ -59,6 +67,8 @@ DEMO_MUCAMAS = [
         "apellido": "Muñoz",
         "nombre_completo": "Carlos Muñoz",
         "apodos": ["Carlitos"],
+        "rol": "mantenimiento",
+        "departamento": "Mantención",
         "estado": "disponible",
         "ticket_activo": None,
         "tickets_completados_hoy": 6,
@@ -70,6 +80,8 @@ DEMO_MUCAMAS = [
         "apellido": "Pérez",
         "nombre_completo": "José Pérez",
         "apodos": ["Pepe", "Chepe"],
+        "rol": "housekeeping",
+        "departamento": "Limpieza",
         "estado": "disponible",
         "ticket_activo": None,
         "tickets_completados_hoy": 8,
@@ -81,12 +93,43 @@ DEMO_MUCAMAS = [
         "apellido": "López",
         "nombre_completo": "María López",
         "apodos": [],
+        "rol": "housekeeping",
+        "departamento": "Limpieza",
         "estado": "disponible",
         "ticket_activo": None,
         "tickets_completados_hoy": 2,
         "promedio_tiempo_resolucion": 14.0
     },
+    {
+        "phone": "56912345678",
+        "nombre": "Roberto",
+        "apellido": "Soto",
+        "nombre_completo": "Roberto Soto",
+        "apodos": ["Beto"],
+        "rol": "mantenimiento",
+        "departamento": "Mantención",
+        "estado": "disponible",
+        "ticket_activo": None,
+        "tickets_completados_hoy": 4,
+        "promedio_tiempo_resolucion": 18.0
+    },
+    {
+        "phone": "56912345679",
+        "nombre": "Carmen",
+        "apellido": "Díaz",
+        "nombre_completo": "Carmen Díaz",
+        "apodos": ["Menchita"],
+        "rol": "housekeeping",
+        "departamento": "Limpieza",
+        "estado": "disponible",
+        "ticket_activo": None,
+        "tickets_completados_hoy": 6,
+        "promedio_tiempo_resolucion": 11.5
+    },
 ]
+
+# Alias para retrocompatibilidad
+DEMO_MUCAMAS = DEMO_WORKERS
 
 
 # Demo: Tickets pendientes (sin asignar)
@@ -224,34 +267,68 @@ def get_mucama_by_phone(phone: str) -> Dict[str, Any] | None:
 
 def get_mucama_by_nombre(nombre: str) -> Dict[str, Any] | None:
     """
-    Busca una mucama por nombre, apellido o apodo.
+    Busca un worker (mucama u otro trabajador) por nombre, apellido o apodo.
+    
+    NOTA: Nombre mantenido para retrocompatibilidad. 
+    Usa get_worker_by_nombre() para nuevo código.
     
     Args:
         nombre: Nombre, apellido o apodo (case insensitive)
     
     Returns:
-        Datos de la mucama o None
+        Datos del worker o None
+    """
+    return get_worker_by_nombre(nombre)
+
+
+def get_worker_by_nombre(nombre: str, rol: str = None) -> Dict[str, Any] | None:
+    """
+    Busca un worker por nombre, apellido o apodo, opcionalmente filtrando por rol.
+    
+    Args:
+        nombre: Nombre, apellido o apodo (case insensitive)
+        rol: Rol opcional para filtrar (ej: "housekeeping", "mantenimiento")
+    
+    Returns:
+        Datos del worker o None
     """
     nombre_lower = nombre.lower().strip()
     
-    for mucama in DEMO_MUCAMAS:
+    workers = DEMO_WORKERS
+    if rol:
+        workers = [w for w in DEMO_WORKERS if w.get("rol") == rol]
+    
+    for worker in workers:
         # Buscar en nombre
-        if mucama["nombre"].lower() == nombre_lower:
-            return mucama
+        if worker["nombre"].lower() == nombre_lower:
+            return worker
         
         # Buscar en apellido
-        if mucama.get("apellido", "").lower() == nombre_lower:
-            return mucama
+        if worker.get("apellido", "").lower() == nombre_lower:
+            return worker
         
         # Buscar en nombre completo
-        if nombre_lower in mucama.get("nombre_completo", "").lower():
-            return mucama
+        if nombre_lower in worker.get("nombre_completo", "").lower():
+            return worker
         
         # Buscar en apodos
-        if any(apodo.lower() == nombre_lower for apodo in mucama.get("apodos", [])):
-            return mucama
+        if any(apodo.lower() == nombre_lower for apodo in worker.get("apodos", [])):
+            return worker
     
     return None
+
+
+def get_workers_by_rol(rol: str) -> List[Dict[str, Any]]:
+    """
+    Obtiene todos los workers de un rol específico.
+    
+    Args:
+        rol: Rol a filtrar (ej: "housekeeping", "mantenimiento")
+    
+    Returns:
+        Lista de workers del rol especificado
+    """
+    return [w for w in DEMO_WORKERS if w.get("rol") == rol]
 
 
 def get_ticket_by_id(ticket_id: int) -> Dict[str, Any] | None:

@@ -46,17 +46,17 @@ def extract_ticket_id(text: str) -> Optional[int]:
     return None
 
 
-def extract_mucama_name(text: str) -> Optional[str]:
+def extract_worker_name(text: str) -> Optional[str]:
     """
-    Extrae nombre de mucama del texto.
+    Extrae nombre de worker del texto.
     
     Args:
         text: Texto transcrito
     
     Returns:
-        Nombre de la mucama o None
+        Nombre de la worker o None
     """
-    # Nombres comunes (expandir según tus mucamas)
+    # Nombres comunes (expandir según tus trabajadores)
     nombres = [
         'maría', 'maria', 
         'pedro', 
@@ -175,14 +175,14 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
         - "asignar_ticket": Asignar ticket existente
         - "crear_ticket": Crear nuevo ticket
         - "crear_y_asignar": Crear y asignar en un solo comando
-        - "ver_estado": Ver tickets o mucamas
+        - "ver_estado": Ver tickets o workers
         - "unknown": No se detectó intención clara
     """
     text_lower = text.lower()
     
     # Extraer componentes
     ticket_id = extract_ticket_id(text)
-    mucama = extract_mucama_name(text)
+    worker = extract_worker_name(text)
     habitacion = extract_habitacion(text)
     prioridad = detect_priority(text)
     
@@ -196,16 +196,16 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
     es_crear = any(word in text_lower for word in ['crear', 'nuevo', 'generar', 'registrar'])
     
     # Patrón 1: "Asignar ticket 1503 a María"
-    if es_asignar and ticket_id and mucama:
+    if es_asignar and ticket_id and worker:
         return {
             "intent": "asignar_ticket",
             "ticket_id": ticket_id,
-            "mucama": mucama,
+            "worker": worker,
             "text": text
         }
     
     # Patrón 2: "Habitación 420 limpieza urgente asignar a Pedro"
-    if habitacion and es_asignar and mucama:
+    if habitacion and es_asignar and worker:
         # Extraer detalle (todo excepto habitación, asignar y nombre)
         detalle = text_lower
         detalle = re.sub(r'habitación\s*\d+', '', detalle)
@@ -219,7 +219,7 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
             "habitacion": habitacion,
             "detalle": detalle if detalle else "Solicitud de housekeeping",
             "prioridad": prioridad,
-            "mucama": mucama,
+            "worker": worker,
             "text": text
         }
     
@@ -239,10 +239,10 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
         }
     
     # Patrón 4: Solo asignar (sin especificar ticket)
-    if es_asignar and mucama and not ticket_id:
+    if es_asignar and worker and not ticket_id:
         return {
             "intent": "asignar_sin_ticket",
-            "mucama": mucama,
+            "worker": worker,
             "text": text
         }
     
@@ -252,8 +252,8 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
             return {"intent": "ver_pendientes", "text": text}
         if 'progreso' in text_lower:
             return {"intent": "ver_progreso", "text": text}
-        if 'mucama' in text_lower:
-            return {"intent": "ver_mucamas", "text": text}
+        if 'worker' in text_lower:
+            return {"intent": "ver_workers", "text": text}
     
     # No se detectó intención clara
     return {
@@ -261,7 +261,7 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
         "text": text,
         "components": {
             "ticket_id": ticket_id,
-            "mucama": mucama,
+            "worker": worker,
             "habitacion": habitacion,
             "prioridad": prioridad
         }

@@ -89,7 +89,7 @@ def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
     Returns:
         True si se manejó la asignación
     """
-    from .demo_data import DEMO_MUCAMAS, get_mucama_by_nombre
+    from .demo_data import DEMO_WORKERS, get_mucama_by_nombre
     from .ticket_assignment import calcular_score_mucama, confirmar_asignacion
     
     state = get_supervisor_state(from_phone)
@@ -109,7 +109,7 @@ def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
         
         # Ordenar mucamas por score igual que en recomendaciones
         mucamas_con_score = []
-        for m in DEMO_MUCAMAS:
+        for m in DEMO_WORKERS:
             score = calcular_score_mucama(m)
             mucamas_con_score.append({**m, "score": score})
         
@@ -157,7 +157,7 @@ def mostrar_pendientes_simple(from_phone: str) -> None:
 
 def asignar_siguiente(from_phone: str) -> None:
     """Asigna el ticket de mayor prioridad."""
-    from .demo_data import get_demo_tickets_pendientes, DEMO_MUCAMAS
+    from .demo_data import get_demo_tickets_pendientes, DEMO_WORKERS
     from .ticket_assignment import calcular_score_mucama
     from .ui_simple import texto_recomendaciones_simple
     
@@ -199,7 +199,7 @@ def asignar_siguiente(from_phone: str) -> None:
     
     # Mostrar recomendaciones compactas (inline, no función externa)
     mucamas_con_score = []
-    for mucama in DEMO_MUCAMAS:
+    for mucama in DEMO_WORKERS:
         score = calcular_score_mucama(mucama)
         mucamas_con_score.append({**mucama, "score": score})
     
@@ -274,12 +274,12 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
     """
     from .audio_commands import detect_audio_intent
     from .ticket_assignment import confirmar_asignacion
-    from .demo_data import get_mucama_by_nombre, get_demo_tickets_pendientes, DEMO_MUCAMAS
+    from .demo_data import get_worker_by_nombre, get_demo_tickets_pendientes, DEMO_WORKERS
     from .worker_search import (
-        buscar_mucamas,
-        formato_lista_mucamas,
+        buscar_workers,
+        formato_lista_workers,
         normalizar_nombre,
-        manejar_seleccion_mucama
+        manejar_seleccion_worker
     )
     from .ui_simple import texto_ticket_asignado_simple, texto_ticket_creado_simple
     
@@ -292,22 +292,34 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
     if state.get("seleccion_mucamas"):
         seleccion_info = state["seleccion_mucamas"]
         candidatas = seleccion_info["candidatas"]
+        ticket_id = seleccion_info["ticket_id"]
         
-        mucama_seleccionada = manejar_seleccion_mucama(text, candidatas)
+        mucama_seleccionada = manejar_seleccion_worker(text, candidatas)
         
-        if mucama_seleccionada:
-            # Confirmar asignación
-            ticket_id = seleccion_info["ticket_id"]
+        # Caso 1: Selección válida
+        if mucama_seleccionada and mucama_seleccionada != "CANCEL":
             send_whatsapp(from_phone, texto_ticket_asignado_simple(ticket_id, mucama_seleccionada["nombre_completo"]))
-            
-            # Limpiar estado
             state.pop("seleccion_mucamas", None)
             return True
+        
+        # Caso 2: Cancelar
+        elif mucama_seleccionada == "CANCEL":
+            send_whatsapp(from_phone, "❌ Asignación cancelada")
+            state.pop("seleccion_mucamas", None)
+            return True
+        
+        # Caso 3: Selección inválida
         else:
+            # Mensaje de error claro
+            max_num = len(candidatas)
             send_whatsapp(
                 from_phone,
-                "❌ No entendí la selección\n\n" +
-                formato_lista_mucamas(candidatas)
+                f"❌ Selección no válida\n\n"
+                f"Por favor escribe:\n"
+                f"• Un número del 1 al {max_num}\n"
+                f"• O el apellido completo\n"
+                f"• O 'cancelar' para abortar\n\n"
+                f"Ejemplo: '1' o 'González'"
             )
             return True
     
@@ -334,7 +346,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         mucama_nombre = intent_data.get("components", {}).get("mucama") or text.strip()
         mucama_nombre = normalizar_nombre(mucama_nombre)
         
-        candidatas = buscar_mucamas(mucama_nombre, DEMO_MUCAMAS)
+        candidatas = buscar_workers(mucama_nombre, DEMO_WORKERS)
         
         if not candidatas:
             send_whatsapp(
@@ -363,7 +375,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 "ticket_id": ticket_id,
                 "candidatas": candidatas
             }
-            mensaje = formato_lista_mucamas(candidatas)
+            mensaje = formato_lista_workers(candidatas)
             send_whatsapp(from_phone, mensaje)
             return True
     
@@ -374,7 +386,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         mucama_nombre = normalizar_nombre(mucama_nombre)
         
         # Buscar con sistema inteligente
-        candidatas = buscar_mucamas(mucama_nombre, DEMO_MUCAMAS)
+        candidatas = buscar_workers(mucama_nombre, DEMO_WORKERS)
         
         if not candidatas:
             send_whatsapp(
@@ -392,7 +404,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 "ticket_id": ticket_id,
                 "mucama": mucama
             }
-            mensaje = formato_lista_mucamas([mucama])
+            mensaje = formato_lista_workers([mucama])
             send_whatsapp(from_phone, mensaje)
             return True
         else:
@@ -402,7 +414,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 "ticket_id": ticket_id,
                 "candidatas": candidatas
             }
-            mensaje = formato_lista_mucamas(candidatas)
+            mensaje = formato_lista_workers(candidatas)
             send_whatsapp(from_phone, mensaje)
             return True
     
@@ -442,12 +454,12 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         state["esperando_asignacion"] = True
         
         # Mostrar recomendaciones inline
-        from .demo_data import DEMO_MUCAMAS
+        from .demo_data import DEMO_WORKERS
         from .ticket_assignment import calcular_score_mucama
         from .ui_simple import texto_recomendaciones_simple
         
         mucamas_con_score = []
-        for mucama in DEMO_MUCAMAS:
+        for mucama in DEMO_WORKERS:
             score = calcular_score_mucama(mucama)
             mucamas_con_score.append({**mucama, "score": score})
         

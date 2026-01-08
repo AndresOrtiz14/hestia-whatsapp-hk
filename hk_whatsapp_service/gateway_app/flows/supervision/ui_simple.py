@@ -9,7 +9,7 @@ def texto_saludo_supervisor() -> str:
     Returns:
         Texto del saludo
     """
-    return """👋 Hola, Andrés soy el asistente de Supervisión de Hestia.
+    return """👋 Hola, soy el asistente de Supervisión de Hestia.
 
 💬 Puedes decirme (texto o audio):
 
@@ -64,40 +64,40 @@ def texto_tickets_pendientes_simple(tickets: list) -> str:
     return "\n".join(lineas)
 
 
-def texto_ticket_asignado_simple(ticket_id: int, mucama_nombre: str) -> str:
+def texto_ticket_asignado_simple(ticket_id: int, worker_nombre: str) -> str:
     """
     Confirmación simple de asignación.
     
     Args:
         ticket_id: ID del ticket
-        mucama_nombre: Nombre de la mucama
+        worker_nombre: Nombre del trabajador
     
     Returns:
         Texto formateado
     """
-    return f"✅ #{ticket_id} → {mucama_nombre}"
+    return f"✅ #{ticket_id} → {worker_nombre}"
 
 
-def texto_recomendaciones_simple(mucamas_con_score: list) -> str:
+def texto_recomendaciones_simple(workers_con_score: list) -> str:
     """
     Recomendaciones compactas.
     
     Args:
-        mucamas_con_score: Lista de mucamas con scores
+        workers_con_score: Lista de workers con scores
     
     Returns:
         Texto formateado
     """
     lineas = ["🎯 ¿A quién?\n"]
     
-    for i, mucama in enumerate(mucamas_con_score[:3], 1):  # Top 3
+    for i, worker in enumerate(workers_con_score[:3], 1):  # Top 3
         estado_emoji = {
             "disponible": "✅",
             "ocupada": "🔴",
             "en_pausa": "⏸️"
         }.get(mucama.get("estado"), "❓")
         
-        lineas.append(f"{i}. {estado_emoji} {mucama['nombre']}")
+        lineas.append(f"{i}. {estado_emoji} {worker['nombre']}")
     
     lineas.append("\n💡 Di el nombre o número")
     

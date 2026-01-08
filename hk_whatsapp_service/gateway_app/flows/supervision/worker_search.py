@@ -1,6 +1,8 @@
 """
-Sistema de búsqueda inteligente de mucamas con fuzzy matching.
+Sistema de búsqueda inteligente de workers (trabajadores del hotel) con fuzzy matching.
 Maneja nombres duplicados, apodos, typos y confirmaciones.
+
+Soporta múltiples roles: housekeeping, mantenimiento, conserjería, etc.
 """
 
 from typing import List, Dict, Any, Optional
@@ -21,62 +23,63 @@ def similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, a.lower(), b.lower()).ratio()
 
 
-def buscar_mucamas(nombre_query: str, mucamas: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def buscar_workers(nombre_query: str, workers: List[Dict[str, Any]], rol: str = None) -> List[Dict[str, Any]]:
     """
-    Busca mucamas por nombre con tolerancia a errores.
+    Busca workers por nombre con tolerancia a errores.
     
     Args:
         nombre_query: Nombre a buscar (puede tener typos)
-        mucamas: Lista de mucamas disponibles
+        workers: Lista de workers disponibles
+        rol: Rol opcional para filtrar (ej: "housekeeping", "mantenimiento")
     
     Returns:
-        Lista de mucamas encontradas, ordenadas por relevancia
+        Lista de workers encontrados, ordenados por relevancia
     
     Ejemplos:
-        >>> buscar_mucamas("María", mucamas)
-        [María González, María López, María Pérez]
+        >>> buscar_workers("María", workers)
+        [María González (Housekeeping), María López (Housekeeping)]
         
-        >>> buscar_mucamas("Mria", mucamas)  # typo
-        [María González, María López]
-        
-        >>> buscar_mucamas("Mari", mucamas)  # apodo
-        [María González]
-        
-        >>> buscar_mucamas("González", mucamas)  # apellido
-        [María González]
+        >>> buscar_workers("Pedro", workers, rol="mantenimiento")
+        [Pedro Ramírez (Mantención)]
     """
     nombre_query = nombre_query.lower().strip()
+    
+    # Filtrar por rol si se especifica
+    workers_filtrados = workers
+    if rol:
+        workers_filtrados = [w for w in workers if w.get("rol") == rol]
+    
     candidatos = []
     
-    for mucama in mucamas:
+    for worker in workers_filtrados:
         score = 0.0
         match_type = None
         
         # 1. Búsqueda exacta en nombre
-        if mucama.get("nombre", "").lower() == nombre_query:
+        if worker.get("nombre", "").lower() == nombre_query:
             score = 1.0
             match_type = "exact_name"
         
         # 2. Búsqueda exacta en apellido
-        elif mucama.get("apellido", "").lower() == nombre_query:
+        elif worker.get("apellido", "").lower() == nombre_query:
             score = 1.0
             match_type = "exact_surname"
         
         # 3. Búsqueda en nombre completo
-        elif nombre_query in mucama.get("nombre_completo", "").lower():
+        elif nombre_query in worker.get("nombre_completo", "").lower():
             score = 0.95
             match_type = "contains"
         
         # 4. Búsqueda en apodos
-        elif any(nombre_query == apodo.lower() for apodo in mucama.get("apodos", [])):
+        elif any(nombre_query == apodo.lower() for apodo in worker.get("apodos", [])):
             score = 0.95
             match_type = "nickname"
         
         # 5. Fuzzy matching en nombre (tolerancia a typos)
         else:
-            nombre_sim = similarity(nombre_query, mucama.get("nombre", ""))
-            apellido_sim = similarity(nombre_query, mucama.get("apellido", ""))
-            completo_sim = similarity(nombre_query, mucama.get("nombre_completo", ""))
+            nombre_sim = similarity(nombre_query, worker.get("nombre", ""))
+            apellido_sim = similarity(nombre_query, worker.get("apellido", ""))
+            completo_sim = similarity(nombre_query, worker.get("nombre_completo", ""))
             
             # Tomar la mejor similitud
             score = max(nombre_sim, apellido_sim, completo_sim)
@@ -87,7 +90,7 @@ def buscar_mucamas(nombre_query: str, mucamas: List[Dict[str, Any]]) -> List[Dic
         
         if score > 0:
             candidatos.append({
-                **mucama,
+                **worker,
                 "match_score": score,
                 "match_type": match_type
             })
@@ -98,96 +101,116 @@ def buscar_mucamas(nombre_query: str, mucamas: List[Dict[str, Any]]) -> List[Dic
     return candidatos
 
 
-def formato_lista_mucamas(mucamas: List[Dict[str, Any]], max_mostrar: int = 5) -> str:
+def formato_lista_workers(workers: List[Dict[str, Any]], max_mostrar: int = 5) -> str:
     """
-    Formatea lista de mucamas para mostrar al supervisor.
+    Formatea lista de workers para mostrar al supervisor.
     
     Args:
-        mucamas: Lista de mucamas encontradas
+        workers: Lista de workers encontradas
         max_mostrar: Máximo número a mostrar
     
     Returns:
         Texto formateado
     """
-    if not mucamas:
+    if not workers:
         return "❌ No encontré a nadie con ese nombre"
     
-    if len(mucamas) == 1:
+    if len(workers) == 1:
         # Solo una: confirmar directamente
-        mucama = mucamas[0]
+        worker = workers[0]
         estado_emoji = {
             "disponible": "✅",
             "ocupada": "🔴",
             "en_pausa": "⏸️"
-        }.get(mucama.get("estado"), "❓")
+        }.get(worker.get("estado"), "❓")
         
         return f"""📋 Encontré a:
-{estado_emoji} {mucama['nombre_completo']}
+{estado_emoji} {worker['nombre_completo']}
 
 💡 Escribe 'sí' para confirmar o 'no' para cancelar"""
     
     # Múltiples resultados
-    lineas = [f"📋 Encontré {len(mucamas)} personas:\n"]
+    lineas = [f"📋 Encontré {len(workers)} personas:\n"]
     
-    for i, mucama in enumerate(mucamas[:max_mostrar], 1):
+    for i, worker in enumerate(workers[:max_mostrar], 1):
         estado_emoji = {
             "disponible": "✅",
             "ocupada": "🔴",
             "en_pausa": "⏸️"
-        }.get(mucama.get("estado"), "❓")
+        }.get(worker.get("estado"), "❓")
         
         # Info adicional según estado
         info_extra = ""
-        if mucama.get("estado") == "ocupada" and mucama.get("ticket_activo"):
-            info_extra = f" (en ticket #{mucama['ticket_activo']})"
-        elif mucama.get("promedio_tiempo_resolucion"):
-            info_extra = f" ({mucama['promedio_tiempo_resolucion']:.0f} min promedio)"
+        if worker.get("estado") == "ocupada" and worker.get("ticket_activo"):
+            info_extra = f" (en ticket #{worker['ticket_activo']})"
+        elif worker.get("promedio_tiempo_resolucion"):
+            info_extra = f" ({worker['promedio_tiempo_resolucion']:.0f} min promedio)"
         
         lineas.append(
-            f"{i}. {estado_emoji} {mucama['nombre_completo']}{info_extra}"
+            f"{i}. {estado_emoji} {worker['nombre_completo']}{info_extra}"
         )
     
-    if len(mucamas) > max_mostrar:
-        lineas.append(f"\n... y {len(mucamas) - max_mostrar} más")
+    if len(workers) > max_mostrar:
+        lineas.append(f"\n... y {len(workers) - max_mostrar} más")
     
-    lineas.append("\n💡 Di el número (1, 2, 3...) o apellido")
+    lineas.append(f"\n💡 Escribe:")
+    lineas.append(f"• Número (1-{min(len(workers), max_mostrar)})")
+    lineas.append(f"• Apellido completo")
+    lineas.append(f"• 'Cancelar' para abortar")
     
     return "\n".join(lineas)
 
 
-def manejar_seleccion_mucama(
+def manejar_seleccion_worker(
     texto: str,
-    mucamas_disponibles: List[Dict[str, Any]]
+    workers_disponibles: List[Dict[str, Any]]
 ) -> Optional[Dict[str, Any]]:
     """
-    Maneja la selección de mucama cuando hay múltiples opciones.
+    Maneja la selección de worker cuando hay múltiples opciones.
     
     Args:
         texto: Texto del supervisor (número o apellido)
-        mucamas_disponibles: Lista de mucamas entre las que elegir
+        workers_disponibles: Lista de workers entre las que elegir
     
     Returns:
-        Mucama seleccionada o None
+        Mucama seleccionada, None si no válido, o "CANCEL" si cancelar
     """
-    texto = texto.strip().lower()
+    texto_original = texto.strip()
+    texto = texto_original.lower()
     
-    # Caso 1: Selección por número
+    # Caso especial: Cancelar
+    if texto in ['cancelar', 'cancel', 'salir', 'no', 'nada']:
+        return "CANCEL"
+    
+    # Caso especial: Comandos globales (bloquear para evitar confusión)
+    if texto in ['m', 'menu', 'menú', 'pendientes', 'urgente', 'help', 'ayuda']:
+        return "CANCEL"
+    
+    # Caso 1: Selección por número (SOLO números 1-5)
     if texto.isdigit():
-        index = int(texto) - 1
-        if 0 <= index < len(mucamas_disponibles):
-            return mucamas_disponibles[index]
-        return None
+        numero = int(texto)
+        # Validar que esté en rango
+        if 1 <= numero <= len(workers_disponibles):
+            index = numero - 1
+            return workers_disponibles[index]
+        else:
+            # Número fuera de rango
+            return None
     
-    # Caso 2: Selección por apellido
-    for mucama in mucamas_disponibles:
-        if texto in mucama.get("apellido", "").lower():
-            return mucama
+    # Caso 2: Selección por apellido (debe tener al menos 3 letras)
+    if len(texto) >= 3:
+        # Buscar por apellido exacto o parcial
+        for worker in workers_disponibles:
+            apellido = worker.get("apellido", "").lower()
+            if texto in apellido or apellido in texto:
+                return worker
+        
+        # No encontró por apellido, intentar fuzzy match
+        resultados = buscar_workers(texto_original, workers_disponibles)
+        if resultados and resultados[0]["match_score"] > 0.8:
+            return resultados[0]
     
-    # Caso 3: Búsqueda fuzzy entre las disponibles
-    resultados = buscar_mucamas(texto, mucamas_disponibles)
-    if resultados and resultados[0]["match_score"] > 0.8:
-        return resultados[0]
-    
+    # No válido
     return None
 
 
@@ -241,3 +264,22 @@ def normalizar_nombre(nombre: str) -> str:
         return APODOS_COMUNES[nombre_lower].capitalize()
     
     return nombre.capitalize()
+
+
+# ==========================================
+# ALIASES PARA RETROCOMPATIBILIDAD
+# ==========================================
+
+def buscar_mucamas(nombre_query: str, mucamas: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Alias para buscar_workers. Mantenido para retrocompatibilidad."""
+    return buscar_workers(nombre_query, mucamas)
+
+
+def formato_lista_mucamas(mucamas: List[Dict[str, Any]], max_mostrar: int = 5) -> str:
+    """Alias para formato_lista_workers. Mantenido para retrocompatibilidad."""
+    return formato_lista_workers(mucamas, max_mostrar)
+
+
+def manejar_seleccion_mucama(texto: str, mucamas_disponibles: List[Dict[str, Any]]):
+    """Alias para manejar_seleccion_worker. Mantenido para retrocompatibilidad."""
+    return manejar_seleccion_worker(texto, mucamas_disponibles)
