@@ -12,6 +12,9 @@ DEMO_MUCAMAS = [
     {
         "phone": "56912345671",
         "nombre": "María",
+        "apellido": "González",
+        "nombre_completo": "María González",
+        "apodos": ["Mari", "Marita"],
         "estado": "disponible",
         "ticket_activo": None,
         "tickets_completados_hoy": 5,
@@ -20,6 +23,9 @@ DEMO_MUCAMAS = [
     {
         "phone": "56912345672",
         "nombre": "Pedro",
+        "apellido": "Ramírez",
+        "nombre_completo": "Pedro Ramírez",
+        "apodos": ["Pedrito"],
         "estado": "en_pausa",
         "ticket_activo": None,
         "tickets_completados_hoy": 3,
@@ -28,6 +34,9 @@ DEMO_MUCAMAS = [
     {
         "phone": "56912345673",
         "nombre": "Ana",
+        "apellido": "Torres",
+        "nombre_completo": "Ana Torres",
+        "apodos": ["Anita"],
         "estado": "ocupada",
         "ticket_activo": 1502,
         "tickets_completados_hoy": 7,
@@ -36,6 +45,9 @@ DEMO_MUCAMAS = [
     {
         "phone": "56912345674",
         "nombre": "Daniela",
+        "apellido": "Silva",
+        "nombre_completo": "Daniela Silva",
+        "apodos": ["Dani"],
         "estado": "disponible",
         "ticket_activo": None,
         "tickets_completados_hoy": 4,
@@ -44,10 +56,35 @@ DEMO_MUCAMAS = [
     {
         "phone": "56912345675",
         "nombre": "Carlos",
+        "apellido": "Muñoz",
+        "nombre_completo": "Carlos Muñoz",
+        "apodos": ["Carlitos"],
         "estado": "disponible",
         "ticket_activo": None,
         "tickets_completados_hoy": 6,
         "promedio_tiempo_resolucion": 11.0
+    },
+    {
+        "phone": "56912345676",
+        "nombre": "José",
+        "apellido": "Pérez",
+        "nombre_completo": "José Pérez",
+        "apodos": ["Pepe", "Chepe"],
+        "estado": "disponible",
+        "ticket_activo": None,
+        "tickets_completados_hoy": 8,
+        "promedio_tiempo_resolucion": 9.5
+    },
+    {
+        "phone": "56912345677",
+        "nombre": "María",
+        "apellido": "López",
+        "nombre_completo": "María López",
+        "apodos": [],
+        "estado": "disponible",
+        "ticket_activo": None,
+        "tickets_completados_hoy": 2,
+        "promedio_tiempo_resolucion": 14.0
     },
 ]
 
@@ -187,18 +224,33 @@ def get_mucama_by_phone(phone: str) -> Dict[str, Any] | None:
 
 def get_mucama_by_nombre(nombre: str) -> Dict[str, Any] | None:
     """
-    Busca una mucama por nombre.
+    Busca una mucama por nombre, apellido o apodo.
     
     Args:
-        nombre: Nombre de la mucama (case insensitive)
+        nombre: Nombre, apellido o apodo (case insensitive)
     
     Returns:
         Datos de la mucama o None
     """
     nombre_lower = nombre.lower().strip()
+    
     for mucama in DEMO_MUCAMAS:
+        # Buscar en nombre
         if mucama["nombre"].lower() == nombre_lower:
             return mucama
+        
+        # Buscar en apellido
+        if mucama.get("apellido", "").lower() == nombre_lower:
+            return mucama
+        
+        # Buscar en nombre completo
+        if nombre_lower in mucama.get("nombre_completo", "").lower():
+            return mucama
+        
+        # Buscar en apodos
+        if any(apodo.lower() == nombre_lower for apodo in mucama.get("apodos", [])):
+            return mucama
+    
     return None
 
 

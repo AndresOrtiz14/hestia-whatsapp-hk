@@ -274,7 +274,13 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
     """
     from .audio_commands import detect_audio_intent
     from .ticket_assignment import confirmar_asignacion
-    from .demo_data import get_mucama_by_nombre, get_demo_tickets_pendientes
+    from .demo_data import get_mucama_by_nombre, get_demo_tickets_pendientes, DEMO_MUCAMAS
+    from .worker_search import (
+        buscar_mucamas,
+        formato_lista_mucamas,
+        normalizar_nombre,
+        manejar_seleccion_mucama
+    )
     from .ui_simple import texto_ticket_asignado_simple, texto_ticket_creado_simple
     
     # Detectar intención
@@ -282,29 +288,122 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
     intent = intent_data.get("intent")
     state = get_supervisor_state(from_phone)
     
+    # PRIMERO: Manejar selección pendiente (si hay confirmación esperando)
+    if state.get("seleccion_mucamas"):
+        seleccion_info = state["seleccion_mucamas"]
+        candidatas = seleccion_info["candidatas"]
+        
+        mucama_seleccionada = manejar_seleccion_mucama(text, candidatas)
+        
+        if mucama_seleccionada:
+            # Confirmar asignación
+            ticket_id = seleccion_info["ticket_id"]
+            send_whatsapp(from_phone, texto_ticket_asignado_simple(ticket_id, mucama_seleccionada["nombre_completo"]))
+            
+            # Limpiar estado
+            state.pop("seleccion_mucamas", None)
+            return True
+        else:
+            send_whatsapp(
+                from_phone,
+                "❌ No entendí la selección\n\n" +
+                formato_lista_mucamas(candidatas)
+            )
+            return True
+    
+    # Si está esperando confirmación (sí/no)
+    if state.get("confirmacion_pendiente"):
+        conf = state["confirmacion_pendiente"]
+        
+        if text.lower().strip() in ['sí', 'si', 'yes', 'ok', 'confirmar', 'dale']:
+            # Confirmar
+            ticket_id = conf["ticket_id"]
+            mucama = conf["mucama"]
+            send_whatsapp(from_phone, texto_ticket_asignado_simple(ticket_id, mucama["nombre_completo"]))
+            state.pop("confirmacion_pendiente", None)
+            return True
+        elif text.lower().strip() in ['no', 'cancelar', 'nope']:
+            send_whatsapp(from_phone, "❌ Asignación cancelada")
+            state.pop("confirmacion_pendiente", None)
+            return True
+        # Si no es sí/no, procesar como nuevo comando
+        state.pop("confirmacion_pendiente", None)
+    
     # Si está esperando asignación y dice un nombre
     if state.get("esperando_asignacion"):
         mucama_nombre = intent_data.get("components", {}).get("mucama") or text.strip()
-        mucama = get_mucama_by_nombre(mucama_nombre)
+        mucama_nombre = normalizar_nombre(mucama_nombre)
         
-        if mucama:
-            ticket_id = state.get("ticket_seleccionado")
-            if ticket_id:
-                # Asignar
-                send_whatsapp(from_phone, texto_ticket_asignado_simple(ticket_id, mucama["nombre"]))
-                # Limpiar estado
-                state["esperando_asignacion"] = False
-                state["ticket_seleccionado"] = None
-                return True
+        candidatas = buscar_mucamas(mucama_nombre, DEMO_MUCAMAS)
+        
+        if not candidatas:
+            send_whatsapp(
+                from_phone,
+                f"❌ No encontré a '{mucama_nombre}'\n\n"
+                "💡 Di otro nombre o 'cancelar'"
+            )
+            return True
+        
+        ticket_id = state.get("ticket_seleccionado")
+        if not ticket_id:
+            state["esperando_asignacion"] = False
+            return False
+        
+        if len(candidatas) == 1:
+            # Solo una: asignar directamente
+            mucama = candidatas[0]
+            send_whatsapp(from_phone, texto_ticket_asignado_simple(ticket_id, mucama["nombre_completo"]))
+            state["esperando_asignacion"] = False
+            state["ticket_seleccionado"] = None
+            return True
+        else:
+            # Múltiples: pedir que elija
+            state["seleccion_mucamas"] = {
+                "tipo": "asignar",
+                "ticket_id": ticket_id,
+                "candidatas": candidatas
+            }
+            mensaje = formato_lista_mucamas(candidatas)
+            send_whatsapp(from_phone, mensaje)
+            return True
     
     # Caso 1: Asignar ticket existente
     if intent == "asignar_ticket":
         ticket_id = intent_data["ticket_id"]
         mucama_nombre = intent_data["mucama"]
-        mucama = get_mucama_by_nombre(mucama_nombre)
+        mucama_nombre = normalizar_nombre(mucama_nombre)
         
-        if mucama:
-            send_whatsapp(from_phone, texto_ticket_asignado_simple(ticket_id, mucama["nombre"]))
+        # Buscar con sistema inteligente
+        candidatas = buscar_mucamas(mucama_nombre, DEMO_MUCAMAS)
+        
+        if not candidatas:
+            send_whatsapp(
+                from_phone,
+                f"❌ No encontré a '{mucama_nombre}'\n\n"
+                "💡 Verifica el nombre"
+            )
+            return True
+        
+        if len(candidatas) == 1:
+            # Solo una: confirmar
+            mucama = candidatas[0]
+            state["confirmacion_pendiente"] = {
+                "tipo": "asignar",
+                "ticket_id": ticket_id,
+                "mucama": mucama
+            }
+            mensaje = formato_lista_mucamas([mucama])
+            send_whatsapp(from_phone, mensaje)
+            return True
+        else:
+            # Múltiples: pedir que elija
+            state["seleccion_mucamas"] = {
+                "tipo": "asignar",
+                "ticket_id": ticket_id,
+                "candidatas": candidatas
+            }
+            mensaje = formato_lista_mucamas(candidatas)
+            send_whatsapp(from_phone, mensaje)
             return True
     
     # Caso 2: Crear y asignar
