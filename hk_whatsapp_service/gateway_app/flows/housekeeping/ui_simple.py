@@ -1,27 +1,220 @@
-from typing import Dict, Any
+"""
+UI simplificada para bot de Housekeeping.
+Mensajes cortos y claros.
+"""
 
-# =========================
-#   HELPERS DE TEXTO
-# =========================
-
-def recordatorio_menu() -> str:
+def texto_menu_simple() -> str:
     """
-    Recordatorio consistente para volver al menú.
-    Se agrega al final de todos los mensajes no-menú.
+    Menú principal simplificado.
+    
+    Returns:
+        Texto del menú
     """
-    return "\n\n💡 Escribe 'M' para ver el menú."
+    return """🧹 Menú Housekeeping
+
+1. 📋 Ver mis tickets
+2. ➕ Reportar problema
+3. ❓ Ayuda
+
+💡 O escribe:
+• 'tomar' - Tomar ticket
+• 'fin' - Finalizar
+• 'pausar' - Pausar"""
 
 
-def texto_menu_principal(state: Dict[str, Any]) -> str:
-    linea_turno = "🟢 Turno ACTIVO" if state["turno_activo"] else "⚪️ Sin turno activo"
-    opcion_turno = "1) Iniciar turno" if not state["turno_activo"] else "1) Finalizar turno"
+def texto_ayuda() -> str:
+    """
+    Texto de ayuda.
+    
+    Returns:
+        Texto de ayuda
+    """
+    return """❓ Ayuda
 
-    return (
-        f"{linea_turno}\n\n"
-        "🏨 Menú Housekeeping\n"
-        f"{opcion_turno}\n"
-        "2) Tickets por resolver\n"
-        "3) Crear ticket / reportar problema\n"
-        "4) Ayuda / contactar supervisor\n\n"
-        "Escribe el número de opción o 'M' para ver este menú de nuevo."
-    )
+📋 TRABAJAR:
+• 'tomar' - Tomar el más urgente
+• 'fin' - Finalizar ticket
+• 'pausar' / 'reanudar'
+
+➕ REPORTAR:
+• 'reportar' - Crear ticket
+• O di: "hab 305 fuga de agua"
+
+🔍 VER:
+• 'tickets' - Ver mis tickets
+• 'M' - Volver al menú"""
+
+
+def texto_saludo_dia() -> str:
+    """
+    Saludo del día.
+    
+    Returns:
+        Texto de saludo
+    """
+    return """👋 Hola, soy el asistente de Housekeeping de Hestia.
+Te ayudo a gestionar tus tickets del día."""
+
+
+def texto_ticket_asignado(ticket: dict) -> str:
+    """
+    Notificación de ticket asignado.
+    
+    Args:
+        ticket: Datos del ticket
+    
+    Returns:
+        Texto formateado
+    """
+    prioridad_emoji = {
+        "ALTA": "🔴",
+        "MEDIA": "🟡",
+        "BAJA": "🟢"
+    }.get(ticket.get("prioridad", "MEDIA"), "🟡")
+    
+    return f"""🔔 Nuevo ticket asignado
+
+{prioridad_emoji} #{ticket['id']} · Hab. {ticket['habitacion']}
+{ticket['detalle']}
+
+💡 Di 'tomar' para empezar"""
+
+
+def texto_ticket_en_progreso(ticket: dict) -> str:
+    """
+    Confirmación de ticket en progreso.
+    
+    Args:
+        ticket: Datos del ticket
+    
+    Returns:
+        Texto formateado
+    """
+    return f"""✅ #{ticket['id']} en progreso
+📋 Hab. {ticket['habitacion']} · {ticket['detalle']}
+
+💡 'fin' cuando termines"""
+
+
+def texto_ticket_completado(ticket: dict, tiempo_mins: int) -> str:
+    """
+    Confirmación de ticket completado.
+    
+    Args:
+        ticket: Datos del ticket
+        tiempo_mins: Tiempo que tomó
+    
+    Returns:
+        Texto formateado
+    """
+    return f"""✅ #{ticket['id']} completado
+⏱️ Tiempo: {tiempo_mins} min
+
+¡Buen trabajo! 🎉"""
+
+
+def texto_ticket_pausado(ticket: dict) -> str:
+    """
+    Confirmación de pausa.
+    
+    Args:
+        ticket: Datos del ticket
+    
+    Returns:
+        Texto formateado
+    """
+    return f"""⏸️ #{ticket['id']} pausado
+
+💡 'reanudar' para continuar"""
+
+
+def texto_ticket_reanudado(ticket: dict) -> str:
+    """
+    Confirmación de reanudación.
+    
+    Args:
+        ticket: Datos del ticket
+    
+    Returns:
+        Texto formateado
+    """
+    return f"""▶️ #{ticket['id']} reanudado"""
+
+
+def texto_lista_tickets(tickets: list) -> str:
+    """
+    Lista de tickets disponibles.
+    
+    Args:
+        tickets: Lista de tickets
+    
+    Returns:
+        Texto formateado
+    """
+    if not tickets:
+        return "✅ No tienes tickets pendientes"
+    
+    lineas = [f"📋 {len(tickets)} ticket(s):\n"]
+    
+    for ticket in tickets[:5]:  # Máximo 5
+        prioridad_emoji = {
+            "ALTA": "🔴",
+            "MEDIA": "🟡",
+            "BAJA": "🟢"
+        }.get(ticket.get("prioridad", "MEDIA"), "🟡")
+        
+        lineas.append(
+            f"{prioridad_emoji} #{ticket['id']} · Hab. {ticket['habitacion']} · "
+            f"{ticket['detalle'][:30]}"
+        )
+    
+    if len(tickets) > 5:
+        lineas.append(f"\n... y {len(tickets) - 5} más")
+    
+    lineas.append("\n💡 Di 'tomar' o el #")
+    
+    return "\n".join(lineas)
+
+
+def texto_ticket_creado(ticket_id: int, habitacion: str, prioridad: str) -> str:
+    """
+    Confirmación de ticket creado.
+    
+    Args:
+        ticket_id: ID del ticket
+        habitacion: Número de habitación
+        prioridad: Prioridad detectada
+    
+    Returns:
+        Texto formateado
+    """
+    prioridad_emoji = {
+        "ALTA": "🔴",
+        "MEDIA": "🟡",
+        "BAJA": "🟢"
+    }.get(prioridad, "🟡")
+    
+    return f"""✅ Ticket #{ticket_id} creado
+{prioridad_emoji} Hab. {habitacion}
+
+Notificado a supervisión ✓"""
+
+
+def texto_pedir_habitacion() -> str:
+    """
+    Solicita número de habitación.
+    
+    Returns:
+        Texto de solicitud
+    """
+    return "➕ ¿Qué habitación?\n(ej: 305)"
+
+
+def texto_pedir_detalle() -> str:
+    """
+    Solicita detalle del problema.
+    
+    Returns:
+        Texto de solicitud
+    """
+    return "📝 ¿Qué pasó?\n(texto o audio)"

@@ -63,6 +63,6 @@ def hk_check_reminder(from_phone: str) -> None:
     """
     Para scheduler/cron en producción.
     """
-    from .state import get_user_state
+    from .state_simple import get_user_state
     state = get_user_state(from_phone)
     maybe_send_recordatorio_pendientes(from_phone, state)
