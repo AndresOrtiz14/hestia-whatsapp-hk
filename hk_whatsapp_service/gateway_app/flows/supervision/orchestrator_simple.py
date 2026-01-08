@@ -84,13 +84,13 @@ def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
     
     Args:
         from_phone: Número del supervisor
-        text: Respuesta (nombre o número)
+        text: Respuesta (nombre, número, o cancelar)
     
     Returns:
         True si se manejó la asignación
     """
-    from .demo_data import DEMO_WORKERS, get_mucama_by_nombre
-    from .ticket_assignment import calcular_score_mucama, confirmar_asignacion
+    from .demo_data import DEMO_WORKERS, get_worker_by_nombre
+    from .ticket_assignment import calcular_score_worker, confirmar_asignacion
     
     state = get_supervisor_state(from_phone)
     ticket_id = state.get("ticket_seleccionado")
@@ -101,36 +101,62 @@ def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
         return False
     
     raw = text.strip().lower()
-    mucama = None
+    
+    # NUEVO: Permitir cancelar
+    if raw in ["cancelar", "cancel", "salir", "atras", "atrás", "volver"]:
+        state["esperando_asignacion"] = False
+        state["ticket_seleccionado"] = None
+        send_whatsapp(from_phone, "❌ Asignación cancelada")
+        return True
+    
+    # NUEVO: Permitir comandos globales
+    if raw in ["pendientes", "urgente", "urgentes", "retrasados", "help", "ayuda"]:
+        # Cancelar selección y dejar que otros comandos se ejecuten
+        state["esperando_asignacion"] = False
+        state["ticket_seleccionado"] = None
+        return False  # Devolver False para que se procese el comando
+    
+    worker = None
     
     # Opción 1: Respuesta por número (1, 2, 3)
     if raw.isdigit():
         index = int(raw) - 1
         
-        # Ordenar mucamas por score igual que en recomendaciones
-        mucamas_con_score = []
-        for m in DEMO_WORKERS:
-            score = calcular_score_mucama(m)
-            mucamas_con_score.append({**m, "score": score})
+        # Ordenar workers por score igual que en recomendaciones
+        workers_con_score = []
+        for w in DEMO_WORKERS:
+            score = calcular_score_worker(w)
+            workers_con_score.append({**w, "score": score})
         
-        mucamas_con_score.sort(key=lambda m: m["score"], reverse=True)
+        workers_con_score.sort(key=lambda w: w["score"], reverse=True)
         
-        if 0 <= index < len(mucamas_con_score):
-            mucama = mucamas_con_score[index]
+        if 0 <= index < len(workers_con_score):
+            worker = workers_con_score[index]
+        else:
+            send_whatsapp(
+                from_phone,
+                f"❌ Número inválido (1-{len(workers_con_score)})\n\n"
+                "💡 Di el nombre o número (1, 2, 3)\n"
+                "O escribe 'cancelar' para abortar"
+            )
+            return True
     
     # Opción 2: Respuesta por nombre
     else:
-        mucama = get_mucama_by_nombre(raw)
+        worker = get_worker_by_nombre(raw)
     
     # Verificar que se encontró
-    if mucama:
-        confirmar_asignacion(from_phone, ticket_id, mucama)
+    if worker:
+        confirmar_asignacion(from_phone, ticket_id, worker)
+        state["esperando_asignacion"] = False
+        state["ticket_seleccionado"] = None
         return True
     else:
         send_whatsapp(
             from_phone,
             f"❌ No encontré a '{text}'\n\n"
-            "💡 Di el nombre o número (1, 2, 3)"
+            "💡 Di el nombre o número (1, 2, 3)\n"
+            "O escribe 'cancelar' para abortar"
         )
         return True
 

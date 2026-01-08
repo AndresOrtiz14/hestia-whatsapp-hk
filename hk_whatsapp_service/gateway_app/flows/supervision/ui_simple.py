@@ -100,6 +100,7 @@ def texto_recomendaciones_simple(workers_con_score: list) -> str:
         lineas.append(f"{i}. {estado_emoji} {worker['nombre']}")
     
     lineas.append("\n💡 Di el nombre o número")
+    lineas.append("O escribe 'cancelar'")
     
     return "\n".join(lineas)
 
