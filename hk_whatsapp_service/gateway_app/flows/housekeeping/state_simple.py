@@ -17,7 +17,7 @@ USER_STATE: Dict[str, Dict[str, Any]] = {}
 
 def get_user_state(phone: str) -> Dict[str, Any]:
     """
-    Obtiene o inicializa el estado de una mucama.
+    Obtiene o inicializa el estado de un worker (trabajador).
     
     Args:
         phone: Número de teléfono

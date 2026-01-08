@@ -45,7 +45,7 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
     Orquestador SIMPLE para housekeeping.
     
     Args:
-        from_phone: Número de teléfono de la mucama
+        from_phone: Número de teléfono del trabajador
         text: Texto del mensaje (puede venir de audio)
     """
     state = get_user_state(from_phone)
@@ -216,7 +216,7 @@ def mostrar_tickets(from_phone: str) -> None:
     """
     state = get_user_state(from_phone)
     
-    # Filtrar tickets de esta mucama
+    # Filtrar tickets de este trabajador
     mis_tickets = [t for t in DEMO_TICKETS if t.get("asignado_a") == from_phone]
     
     mensaje = texto_lista_tickets(mis_tickets)

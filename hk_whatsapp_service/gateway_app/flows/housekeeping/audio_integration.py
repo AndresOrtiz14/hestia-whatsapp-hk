@@ -1,6 +1,6 @@
 """
 Integración de audio para Housekeeping.
-Wrapper sobre gateway_app.services.audio para el flujo de mucamas.
+Wrapper sobre gateway_app.services.audio para el flujo de trabajadores.
 """
 
 import logging
