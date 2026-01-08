@@ -63,6 +63,7 @@ def extract_mucama_name(text: str) -> Optional[str]:
         'ana', 
         'daniela',
         'carlos',
+        'josé', 'jose',  # ← NUEVO
         'juan', 
         'carmen', 
         'rosa', 
@@ -81,11 +82,23 @@ def extract_mucama_name(text: str) -> Optional[str]:
     
     text_lower = text.lower()
     
+    # Buscar nombre completo como palabra
     for nombre in nombres:
         # Buscar palabra completa (evitar "maría" en "mariano")
         if re.search(r'\b' + re.escape(nombre) + r'\b', text_lower):
             # Retornar capitalizado
             return nombre.capitalize()
+    
+    # Fallback: buscar cualquier palabra que parezca nombre (>=3 letras, capitalizada en original)
+    # Útil para nombres no en la lista
+    palabras = text.split()
+    for palabra in palabras:
+        # Si la palabra original estaba capitalizada y tiene >=3 letras
+        if palabra and len(palabra) >= 3 and palabra[0].isupper():
+            # Verificar que no sea una palabra común
+            palabras_comunes = ['Hab', 'Habitación', 'Cuarto', 'Ticket', 'El', 'La', 'Un', 'Una']
+            if palabra not in palabras_comunes:
+                return palabra
     
     return None
 
@@ -173,8 +186,13 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
     habitacion = extract_habitacion(text)
     prioridad = detect_priority(text)
     
-    # Detectar verbos de acción
-    es_asignar = any(word in text_lower for word in ['asignar', 'asigna', 'derivar', 'deriva', 'mandar', 'enviar'])
+    # Detectar verbos de acción (con tolerancia a errores de transcripción)
+    es_asignar = any(word in text_lower for word in [
+        'asignar', 'asigna', 'asina',  # ← typo común de Whisper
+        'derivar', 'deriva', 
+        'mandar', 'manda',
+        'enviar', 'envia'
+    ])
     es_crear = any(word in text_lower for word in ['crear', 'nuevo', 'generar', 'registrar'])
     
     # Patrón 1: "Asignar ticket 1503 a María"
