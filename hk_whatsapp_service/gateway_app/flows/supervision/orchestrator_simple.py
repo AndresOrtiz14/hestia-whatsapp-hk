@@ -59,10 +59,26 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
         mostrar_retrasados(from_phone)
         return
     
+    # 7.5) Comando: "asignar" solo (sin detalles)
+    if raw in ["asignar", "derivar", "enviar"]:
+        send_whatsapp(
+            from_phone,
+            "💡 Para asignar, di:\n"
+            "• 'más urgente' - asigna la más importante\n"
+            "• 'asignar [#] a [nombre]' - asigna específica\n"
+            "• 'pendientes' - ve todas primero"
+        )
+        return
+    
     # 8) Comando: Reasignar
     if "reasignar" in raw or "cambiar" in raw:
         # TODO: Implementar reasignación
         send_whatsapp(from_phone, "🔄 Reasignación en desarrollo...")
+        return
+    
+    # 8) Comando: Cancelar (cuando no hay nada que cancelar)
+    if raw in ["cancelar", "cancel", "salir", "atras", "atrás"]:
+        send_whatsapp(from_phone, "✅ No hay nada que cancelar ahora")
         return
     
     # 9) No entendí - dar sugerencias
@@ -71,7 +87,7 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
         "🤔 No entendí.\n\n"
         "💡 Puedes decir:\n"
         "• 'pendientes' - ver todos\n"
-        "• 'más urgente' - asignar el más importante\n"
+        "• 'más urgente' - asignar la más importante\n"
         "• 'urgente' - ver solo urgentes\n"
         "• 'asignar [#] a [nombre]'\n"
         "• 'hab [#] [detalle]'"
@@ -356,8 +372,8 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         if text.lower().strip() in ['sí', 'si', 'yes', 'ok', 'confirmar', 'dale']:
             # Confirmar
             ticket_id = conf["ticket_id"]
-            mucama = conf["mucama"]
-            send_whatsapp(from_phone, texto_ticket_asignado_simple(ticket_id, mucama["nombre_completo"]))
+            worker = conf["mucama"]
+            send_whatsapp(from_phone, texto_ticket_asignado_simple(ticket_id, worker["nombre_completo"]))
             state.pop("confirmacion_pendiente", None)
             return True
         elif text.lower().strip() in ['no', 'cancelar', 'nope']:
@@ -369,8 +385,8 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
     
     # Si está esperando asignación y dice un nombre
     if state.get("esperando_asignacion"):
-        mucama_nombre = intent_data.get("components", {}).get("mucama") or text.strip()
-        mucama_nombre = normalizar_nombre(mucama_nombre)
+        worker_nombre = intent_data.get("components", {}).get("mucama") or text.strip()
+        worker_nombre = normalizar_nombre(mucama_nombre)
         
         candidatas = buscar_workers(mucama_nombre, DEMO_WORKERS)
         
@@ -389,8 +405,8 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         
         if len(candidatas) == 1:
             # Solo una: asignar directamente
-            mucama = candidatas[0]
-            send_whatsapp(from_phone, texto_ticket_asignado_simple(ticket_id, mucama["nombre_completo"]))
+            worker = candidatas[0]
+            send_whatsapp(from_phone, texto_ticket_asignado_simple(ticket_id, worker["nombre_completo"]))
             state["esperando_asignacion"] = False
             state["ticket_seleccionado"] = None
             return True
@@ -408,8 +424,8 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
     # Caso 1: Asignar ticket existente
     if intent == "asignar_ticket":
         ticket_id = intent_data["ticket_id"]
-        mucama_nombre = intent_data["mucama"]
-        mucama_nombre = normalizar_nombre(mucama_nombre)
+        worker_nombre = intent_data["mucama"]
+        worker_nombre = normalizar_nombre(mucama_nombre)
         
         # Buscar con sistema inteligente
         candidatas = buscar_workers(mucama_nombre, DEMO_WORKERS)
@@ -424,7 +440,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         
         if len(candidatas) == 1:
             # Solo una: confirmar
-            mucama = candidatas[0]
+            worker = candidatas[0]
             state["confirmacion_pendiente"] = {
                 "tipo": "asignar",
                 "ticket_id": ticket_id,
@@ -449,8 +465,8 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         habitacion = intent_data["habitacion"]
         detalle = intent_data["detalle"]
         prioridad = intent_data["prioridad"]
-        mucama_nombre = intent_data["mucama"]
-        mucama = get_mucama_by_nombre(mucama_nombre)
+        worker_nombre = intent_data["mucama"]
+        worker = get_worker_by_nombre(mucama_nombre)
         
         if mucama:
             import random
@@ -458,7 +474,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             
             send_whatsapp(
                 from_phone,
-                f"✅ #{ticket_id} creado y asignado a {mucama['nombre']}\n"
+                f"✅ #{ticket_id} creado y asignado a {worker['nombre']}\n"
                 f"📋 Hab. {habitacion} · {detalle}"
             )
             return True
@@ -498,10 +514,15 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
     
     # Caso 4: Asignar sin ticket (usar el de mayor prioridad)
     if intent == "asignar_sin_ticket":
-        mucama_nombre = intent_data["mucama"]
-        mucama = get_mucama_by_nombre(mucama_nombre)
+        worker_nombre = intent_data.get("worker")
         
-        if mucama:
+        if not worker_nombre:
+            send_whatsapp(from_phone, "❌ No entendí el nombre del trabajador")
+            return True
+        
+        worker = get_worker_by_nombre(worker_nombre)
+        
+        if worker:
             tickets = get_demo_tickets_pendientes()
             if tickets:
                 prioridad_order = {"ALTA": 0, "MEDIA": 1, "BAJA": 2}
@@ -510,7 +531,11 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                     key=lambda t: prioridad_order.get(t.get("prioridad", "MEDIA"), 1)
                 )
                 ticket_id = tickets_sorted[0]["id"]
-                send_whatsapp(from_phone, texto_ticket_asignado_simple(ticket_id, mucama["nombre"]))
+                worker_nombre_completo = worker.get("nombre_completo", worker.get("nombre"))
+                send_whatsapp(from_phone, texto_ticket_asignado_simple(ticket_id, worker_nombre_completo))
                 return True
+        else:
+            send_whatsapp(from_phone, f"❌ No encontré a '{worker_nombre}'")
+            return True
     
     return False
