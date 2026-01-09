@@ -408,14 +408,35 @@ def iniciar_reporte(from_phone: str) -> None:
 def handle_reportando_habitacion(from_phone: str, text: str) -> None:
     """
     Maneja la respuesta cuando está pidiendo habitación.
+    MEJORA: Si el mensaje incluye habitación + detalle, crear ticket directo.
     
     Args:
         from_phone: Número de teléfono
-        text: Texto con la habitación
+        text: Texto con la habitación (y posiblemente detalle)
     """
     state = get_user_state(from_phone)
     
-    # Extraer habitación
+    # NUEVO: Intentar detectar reporte completo (ej: "302 tiene mancha de humedad")
+    from .intents import detectar_reporte_directo
+    reporte_completo = detectar_reporte_directo(text)
+    
+    if reporte_completo:
+        # Tiene habitación + detalle: crear directo con confirmación
+        state["ticket_draft"]["habitacion"] = reporte_completo["habitacion"]
+        state["ticket_draft"]["detalle"] = reporte_completo["detalle"]
+        state["ticket_draft"]["prioridad"] = reporte_completo["prioridad"]
+        state["state"] = CONFIRMANDO_REPORTE
+        
+        # Mostrar confirmación
+        mensaje = texto_confirmar_reporte(
+            reporte_completo["habitacion"],
+            reporte_completo["detalle"],
+            reporte_completo["prioridad"]
+        )
+        send_whatsapp(from_phone, mensaje)
+        return
+    
+    # Solo habitación: continuar flujo normal
     from .intents import extraer_habitacion
     habitacion = extraer_habitacion(text)
     
