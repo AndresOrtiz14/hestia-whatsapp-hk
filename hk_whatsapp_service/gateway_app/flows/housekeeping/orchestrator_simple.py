@@ -70,7 +70,7 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
     
     # 2.5) NUEVO: Navegación directa de menú (desde cualquier estado)
     # Permite escribir 1, 2, 3 para navegar sin volver al menú
-    if raw in ['1', '2', '3'] and state.get("state") not in [REPORTANDO_HAB, REPORTANDO_DETALLE]:
+    if raw in ['1', '2', '3'] and state.get("state") not in [REPORTANDO_HAB, REPORTANDO_DETALLE, CONFIRMANDO_REPORTE]:
         # Solo si NO está en medio de un reporte
         if raw == '1':
             mostrar_tickets(from_phone)
@@ -89,10 +89,13 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
             return
     
     # 4) Detectar reporte directo (ej: "hab 305 fuga de agua")
-    reporte = detectar_reporte_directo(text)
-    if reporte:
-        crear_ticket_directo(from_phone, reporte)
-        return
+    # IMPORTANTE: Solo si NO está en flujo de reporte manual
+    current_state = state.get("state")
+    if current_state not in [REPORTANDO_HAB, REPORTANDO_DETALLE, CONFIRMANDO_REPORTE]:
+        reporte = detectar_reporte_directo(text)
+        if reporte:
+            crear_ticket_directo(from_phone, reporte)
+            return
     
     # 5) Comandos globales
     if es_comando_tomar(raw):
@@ -536,12 +539,20 @@ def crear_ticket_directo(from_phone: str, reporte: dict) -> None:
 def crear_ticket_desde_draft(from_phone: str) -> None:
     """
     Crea ticket desde el borrador.
+    VALIDACIÓN: Solo crea si hay habitación Y detalle.
     
     Args:
         from_phone: Número de teléfono
     """
     state = get_user_state(from_phone)
     draft = state["ticket_draft"]
+    
+    # VALIDACIÓN: Verificar que hay datos completos
+    if not draft.get("habitacion") or not draft.get("detalle"):
+        send_whatsapp(from_phone, "❌ Error: Falta información del reporte")
+        reset_ticket_draft(from_phone)
+        state["state"] = MENU
+        return
     
     import random
     ticket_id = random.randint(2000, 2999)

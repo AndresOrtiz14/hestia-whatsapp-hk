@@ -54,6 +54,15 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
         mostrar_urgentes(from_phone)
         return
     
+    # 6.5) Comando: Ver info de ticket específico
+    if any(word in raw for word in ["ticket", "tarea", "cual es", "cuál es", "ver el", "info"]):
+        import re
+        match = re.search(r'\b(\d{3,4})\b', raw)
+        if match:
+            ticket_id = int(match.group(1))
+            mostrar_info_ticket(from_phone, ticket_id)
+            return
+    
     # 7) Comando: Retrasados
     if raw in ["retrasados", "retrasado", "atrasados"]:
         mostrar_retrasados(from_phone)
@@ -215,7 +224,7 @@ def mostrar_pendientes_simple(from_phone: str) -> None:
 def asignar_siguiente(from_phone: str) -> None:
     """Asigna el ticket de mayor prioridad."""
     from .demo_data import get_demo_tickets_pendientes, DEMO_WORKERS
-    from .ticket_assignment import calcular_score_mucama
+    from .ticket_assignment import calcular_score_worker
     from .ui_simple import texto_recomendaciones_simple
     
     tickets = get_demo_tickets_pendientes()
@@ -255,14 +264,14 @@ def asignar_siguiente(from_phone: str) -> None:
     )
     
     # Mostrar recomendaciones compactas (inline, no función externa)
-    mucamas_con_score = []
-    for mucama in DEMO_WORKERS:
-        score = calcular_score_mucama(mucama)
-        mucamas_con_score.append({**mucama, "score": score})
+    workers_con_score = []
+    for worker in DEMO_WORKERS:
+        score = calcular_score_worker(worker)
+        workers_con_score.append({**worker, "score": score})
     
-    mucamas_con_score.sort(key=lambda m: m["score"], reverse=True)
+    workers_con_score.sort(key=lambda m: m["score"], reverse=True)
     
-    mensaje = texto_recomendaciones_simple(mucamas_con_score)
+    mensaje = texto_recomendaciones_simple(workers_con_score)
     send_whatsapp(from_phone, mensaje)
     
     # Guardar estado de asignación
@@ -353,6 +362,79 @@ def mostrar_retrasados(from_phone: str) -> None:
     send_whatsapp(from_phone, "\n".join(lineas))
 
 
+def mostrar_info_ticket(from_phone: str, ticket_id: int) -> None:
+    """
+    Muestra información detallada de un ticket específico.
+    
+    Args:
+        from_phone: Número del supervisor
+        ticket_id: ID del ticket
+    """
+    from .demo_data import (
+        get_demo_tickets_pendientes,
+        get_demo_tickets_en_progreso
+    )
+    
+    # Buscar en todos los estados
+    ticket = None
+    estado_actual = "?"
+    
+    for t in get_demo_tickets_pendientes():
+        if t["id"] == ticket_id:
+            ticket = t
+            estado_actual = "Pendiente"
+            break
+    
+    if not ticket:
+        for t in get_demo_tickets_en_progreso():
+            if t["id"] == ticket_id:
+                ticket = t
+                estado_actual = "En progreso"
+                break
+    
+    # No hay tickets completados en demo_data, solo pendientes y en progreso
+    
+    if not ticket:
+        send_whatsapp(from_phone, f"❌ No encontré la tarea #{ticket_id}")
+        return
+    
+    # Formatear información
+    prioridad_emoji = {
+        "ALTA": "🔴",
+        "MEDIA": "🟡",
+        "BAJA": "🟢"
+    }.get(ticket.get("prioridad", "MEDIA"), "🟡")
+    
+    estado_emoji = {
+        "Pendiente": "⏳",
+        "En progreso": "🔄",
+        "Completado": "✅"
+    }.get(estado_actual, "❓")
+    
+    lineas = [
+        f"{estado_emoji} Tarea #{ticket_id}\n",
+        f"🏨 Habitación: {ticket['habitacion']}",
+        f"📝 Detalle: {ticket['detalle']}",
+        f"{prioridad_emoji} Prioridad: {ticket.get('prioridad', 'MEDIA')}",
+        f"📊 Estado: {estado_actual}"
+    ]
+    
+    # Info adicional según estado
+    if estado_actual == "En progreso":
+        asignado = ticket.get("asignado_a_nombre", "?")
+        tiempo = ticket.get("tiempo_sin_resolver_mins", 0)
+        lineas.append(f"👤 Trabajador: {asignado}")
+        lineas.append(f"⏱️ Tiempo: {tiempo} min")
+    elif estado_actual == "Completado":
+        asignado = ticket.get("asignado_a_nombre", "?")
+        lineas.append(f"👤 Trabajador: {asignado}")
+    elif estado_actual == "Pendiente":
+        tiempo = ticket.get("tiempo_sin_resolver_mins", 0)
+        lineas.append(f"⏱️ Esperando: {tiempo} min")
+    
+    send_whatsapp(from_phone, "\n".join(lineas))
+
+
 def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
     """
     Detecta y maneja comandos de audio de forma simple.
@@ -422,7 +504,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         if text.lower().strip() in ['sí', 'si', 'yes', 'ok', 'confirmar', 'dale']:
             # Confirmar
             ticket_id = conf["ticket_id"]
-            worker = conf["mucama"]
+            worker = conf["worker"]
             send_whatsapp(from_phone, texto_ticket_asignado_simple(ticket_id, worker["nombre_completo"]))
             state.pop("confirmacion_pendiente", None)
             return True
@@ -435,15 +517,15 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
     
     # Si está esperando asignación y dice un nombre
     if state.get("esperando_asignacion"):
-        worker_nombre = intent_data.get("components", {}).get("mucama") or text.strip()
-        worker_nombre = normalizar_nombre(mucama_nombre)
+        worker_nombre = intent_data.get("components", {}).get("worker") or text.strip()
+        worker_nombre = normalizar_nombre(worker_nombre)
         
-        candidatas = buscar_workers(mucama_nombre, DEMO_WORKERS)
+        candidatas = buscar_workers(worker_nombre, DEMO_WORKERS)
         
         if not candidatas:
             send_whatsapp(
                 from_phone,
-                f"❌ No encontré a '{mucama_nombre}'\n\n"
+                f"❌ No encontré a '{worker_nombre}'\n\n"
                 "💡 Di otro nombre o 'cancelar'"
             )
             return True
@@ -474,16 +556,16 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
     # Caso 1: Asignar ticket existente
     if intent == "asignar_ticket":
         ticket_id = intent_data["ticket_id"]
-        worker_nombre = intent_data["mucama"]
-        worker_nombre = normalizar_nombre(mucama_nombre)
+        worker_nombre = intent_data["worker"]
+        worker_nombre = normalizar_nombre(worker_nombre)
         
         # Buscar con sistema inteligente
-        candidatas = buscar_workers(mucama_nombre, DEMO_WORKERS)
+        candidatas = buscar_workers(worker_nombre, DEMO_WORKERS)
         
         if not candidatas:
             send_whatsapp(
                 from_phone,
-                f"❌ No encontré a '{mucama_nombre}'\n\n"
+                f"❌ No encontré a '{worker_nombre}'\n\n"
                 "💡 Verifica el nombre"
             )
             return True
@@ -494,9 +576,9 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             state["confirmacion_pendiente"] = {
                 "tipo": "asignar",
                 "ticket_id": ticket_id,
-                "mucama": mucama
+                "worker": worker
             }
-            mensaje = formato_lista_workers([mucama])
+            mensaje = formato_lista_workers([worker])
             send_whatsapp(from_phone, mensaje)
             return True
         else:
@@ -598,21 +680,21 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         
         # Guardar para asignación rápida
         state["ticket_seleccionado"] = ticket_id
-        state["esperando_asignacion"] = False  # No forzar asignación inmediata
+        state["esperando_asignacion"] = True  # Activar para responder a selección
         
         # Mostrar recomendaciones inline
         from .demo_data import DEMO_WORKERS
-        from .ticket_assignment import calcular_score_mucama
+        from .ticket_assignment import calcular_score_worker
         from .ui_simple import texto_recomendaciones_simple
         
-        mucamas_con_score = []
-        for mucama in DEMO_WORKERS:
-            score = calcular_score_mucama(mucama)
-            mucamas_con_score.append({**mucama, "score": score})
+        workers_con_score = []
+        for worker in DEMO_WORKERS:
+            score = calcular_score_worker(worker)
+            workers_con_score.append({**worker, "score": score})
         
-        mucamas_con_score.sort(key=lambda m: m["score"], reverse=True)
+        workers_con_score.sort(key=lambda w: w["score"], reverse=True)
         
-        mensaje_rec = texto_recomendaciones_simple(mucamas_con_score)
+        mensaje_rec = texto_recomendaciones_simple(workers_con_score)
         send_whatsapp(from_phone, mensaje_rec)
         
         return True
