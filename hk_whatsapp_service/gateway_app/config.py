@@ -14,6 +14,9 @@ class Config:
     
     # Alias para audio.py
     WHATSAPP_CLOUD_TOKEN = os.getenv("WHATSAPP_TOKEN", "")
+        # Database
+    DATABASE_URL = os.getenv("DATABASE_URL", "")
+
 
 
 cfg = Config()

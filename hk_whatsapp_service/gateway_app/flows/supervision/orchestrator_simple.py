@@ -21,101 +21,106 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
         text: Texto del mensaje (puede venir de audio)
     """
     state = get_supervisor_state(from_phone)
-    raw = (text or "").strip().lower()
+    try:
+        raw = (text or "").strip().lower()
     
-    # 1) Saludo inicial del día (solo una vez)
-    today_str = date.today().isoformat()
-    if state.get("last_greet_date") != today_str:
-        state["last_greet_date"] = today_str
-        send_whatsapp(from_phone, texto_saludo_supervisor())
-        return
-    
-    # 2) Si está esperando asignación, manejar respuesta
-    if state.get("esperando_asignacion"):
-        if handle_respuesta_asignacion(from_phone, text):
+        
+        # 1) Saludo inicial del día (solo una vez)
+        today_str = date.today().isoformat()
+        if state.get("last_greet_date") != today_str:
+            state["last_greet_date"] = today_str
+            send_whatsapp(from_phone, texto_saludo_supervisor())
             return
-    
-    # 3) Comandos de audio (asignar, crear)
-    if maybe_handle_audio_command_simple(from_phone, text):
-        return
-    
-    # 4) Comando: Ver pendientes
-    if raw in ["pendientes", "pendiente", "ver", "lista"]:
-        mostrar_pendientes_simple(from_phone)
-        return
-    
-    # 5) Comando: Asignar urgente / más urgente / siguiente
-    if raw in ["siguiente", "next", "proximo", "urgente", "asignar urgente", "mas urgente", "más urgente"]:
-        asignar_siguiente(from_phone)
-        return
-    
-    # 6) Comando: Urgente
-    if raw in ["urgente", "urgentes", "critico"]:
-        mostrar_urgentes(from_phone)
-        return
-    
-    # 6.5) Comando: Ver info de ticket específico
-    if any(word in raw for word in ["ticket", "tarea", "cual es", "cuál es", "ver el", "info"]):
-        import re
-        match = re.search(r'\b(\d{3,4})\b', raw)
-        if match:
-            ticket_id = int(match.group(1))
-            mostrar_info_ticket(from_phone, ticket_id)
-            return
-    
-    # 7) Comando: Retrasados
-    if raw in ["retrasados", "retrasado", "atrasados"]:
-        mostrar_retrasados(from_phone)
-        return
-    
-    # 7.5) Comando: "asignar" solo (sin detalles)
-    if raw in ["asignar", "derivar", "enviar"]:
-        send_whatsapp(
-            from_phone,
-            "💡 Para asignar, di:\n"
-            "• 'más urgente' - asigna la más importante\n"
-            "• 'asignar [#] a [nombre]' - asigna específica\n"
-            "• 'pendientes' - ve todas primero"
-        )
-        return
-    
-    # 8) Comando: Ver tickets en proceso
-    if raw in ["en proceso", "progreso", "trabajando", "en curso", "activos"]:
-        mostrar_en_proceso(from_phone)
-        return
-    
-    # 9) Comando: Reasignar (ahora usa audio_commands)
-    # Esto se maneja en maybe_handle_audio_command_simple
-    if "reasignar" in raw or "cambiar" in raw:
-        # Intentar detectar con audio_commands
+        
+        # 2) Si está esperando asignación, manejar respuesta
+        if state.get("esperando_asignacion"):
+            if handle_respuesta_asignacion(from_phone, text):
+                return
+        
+        # 3) Comandos de audio (asignar, crear)
         if maybe_handle_audio_command_simple(from_phone, text):
             return
-        # Si no se detectó, pedir formato correcto
+        
+        # 4) Comando: Ver pendientes
+        if raw in ["pendientes", "pendiente", "ver", "lista"]:
+            mostrar_pendientes_simple(from_phone)
+            return
+        
+        # 5) Comando: Asignar urgente / más urgente / siguiente
+        if raw in ["siguiente", "next", "proximo", "urgente", "asignar urgente", "mas urgente", "más urgente"]:
+            asignar_siguiente(from_phone)
+            return
+        
+        # 6) Comando: Urgente
+        if raw in ["urgente", "urgentes", "critico"]:
+            mostrar_urgentes(from_phone)
+            return
+        
+        # 6.5) Comando: Ver info de ticket específico
+        if any(word in raw for word in ["ticket", "tarea", "cual es", "cuál es", "ver el", "info"]):
+            import re
+            match = re.search(r'\b(\d{3,4})\b', raw)
+            if match:
+                ticket_id = int(match.group(1))
+                mostrar_info_ticket(from_phone, ticket_id)
+                return
+        
+        # 7) Comando: Retrasados
+        if raw in ["retrasados", "retrasado", "atrasados"]:
+            mostrar_retrasados(from_phone)
+            return
+        
+        # 7.5) Comando: "asignar" solo (sin detalles)
+        if raw in ["asignar", "derivar", "enviar"]:
+            send_whatsapp(
+                from_phone,
+                "💡 Para asignar, di:\n"
+                "• 'más urgente' - asigna la más importante\n"
+                "• 'asignar [#] a [nombre]' - asigna específica\n"
+                "• 'pendientes' - ve todas primero"
+            )
+            return
+        
+        # 8) Comando: Ver tickets en proceso
+        if raw in ["en proceso", "progreso", "trabajando", "en curso", "activos"]:
+            mostrar_en_proceso(from_phone)
+            return
+        
+        # 9) Comando: Reasignar (ahora usa audio_commands)
+        # Esto se maneja en maybe_handle_audio_command_simple
+        if "reasignar" in raw or "cambiar" in raw:
+            # Intentar detectar con audio_commands
+            if maybe_handle_audio_command_simple(from_phone, text):
+                return
+            # Si no se detectó, pedir formato correcto
+            send_whatsapp(
+                from_phone,
+                "💡 Para reasignar, di:\n"
+                "• 'reasignar [#] a [nombre]'\n"
+                "• 'cambiar [#] a [nombre]'\n\n"
+                "Ejemplo: 'reasignar 1503 a María'"
+            )
+            return
+        
+        # 10) Comando: Cancelar (cuando no hay nada que cancelar)
+        if raw in ["cancelar", "cancel", "salir", "atras", "atrás"]:
+            send_whatsapp(from_phone, "✅ No hay nada que cancelar ahora")
+            return
+        
+        # 9) No entendí - dar sugerencias
         send_whatsapp(
             from_phone,
-            "💡 Para reasignar, di:\n"
-            "• 'reasignar [#] a [nombre]'\n"
-            "• 'cambiar [#] a [nombre]'\n\n"
-            "Ejemplo: 'reasignar 1503 a María'"
+            "🤔 No entendí.\n\n"
+            "💡 Puedes decir:\n"
+            "• 'pendientes' - ver todos\n"
+            "• 'más urgente' - asignar la más importante\n"
+            "• 'urgente' - ver solo urgentes\n"
+            "• 'asignar [#] a [nombre]'\n"
+            "• 'hab [#] [detalle]'"
         )
-        return
-    
-    # 10) Comando: Cancelar (cuando no hay nada que cancelar)
-    if raw in ["cancelar", "cancel", "salir", "atras", "atrás"]:
-        send_whatsapp(from_phone, "✅ No hay nada que cancelar ahora")
-        return
-    
-    # 9) No entendí - dar sugerencias
-    send_whatsapp(
-        from_phone,
-        "🤔 No entendí.\n\n"
-        "💡 Puedes decir:\n"
-        "• 'pendientes' - ver todos\n"
-        "• 'más urgente' - asignar la más importante\n"
-        "• 'urgente' - ver solo urgentes\n"
-        "• 'asignar [#] a [nombre]'\n"
-        "• 'hab [#] [detalle]'"
-    )
+    finally:
+        from .state import persist_supervisor_state
+        persist_supervisor_state(from_phone, state)
 
 
 def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:

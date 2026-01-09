@@ -1,8 +1,15 @@
+# gateway_app/flows/housekeeping/state_simple.py
 """
-Estados simplificados para bot de Housekeeping.
+Housekeeping runtime state.
+
+Now persisted in DB (public.runtime_sessions) to survive multi-worker gunicorn and restarts.
 """
 
-from typing import Dict, Any
+from __future__ import annotations
+
+from typing import Any, Dict
+
+from gateway_app.services.runtime_state import load_runtime_session, save_runtime_session
 
 # Estados principales
 MENU = "MENU"
@@ -10,53 +17,64 @@ VIENDO_TICKETS = "VIENDO_TICKETS"
 TRABAJANDO = "TRABAJANDO"
 REPORTANDO_HAB = "REPORTANDO_HAB"
 REPORTANDO_DETALLE = "REPORTANDO_DETALLE"
-CONFIRMANDO_REPORTE = "CONFIRMANDO_REPORTE"  # NUEVO
+CONFIRMANDO_REPORTE = "CONFIRMANDO_REPORTE"
 
-# Estado en memoria
-USER_STATE: Dict[str, Dict[str, Any]] = {}
+# Cache in-process (best-effort). Source of truth is DB.
+_STATE_CACHE: Dict[str, Dict[str, Any]] = {}
+
+
+def _default_state() -> Dict[str, Any]:
+    return {
+        "state": MENU,
+        "ticket_activo": None,
+        "ticket_draft": {
+            "habitacion": None,
+            "detalle": None,
+            "prioridad": None,
+        },
+        "last_greet_date": None,
+    }
 
 
 def get_user_state(phone: str) -> Dict[str, Any]:
     """
-    Obtiene o inicializa el estado de un worker (trabajador).
-    
-    Args:
-        phone: Número de teléfono
-    
-    Returns:
-        Estado del usuario
+    Load state from cache -> DB -> default.
     """
-    if phone not in USER_STATE:
-        USER_STATE[phone] = {
-            # Estado actual
-            "state": MENU,
-            
-            # Ticket activo
-            "ticket_activo": None,  # dict con datos del ticket
-            
-            # Creación de ticket
-            "ticket_draft": {
-                "habitacion": None,
-                "detalle": None,
-                "prioridad": None
-            },
-            
-            # Saludos
-            "last_greet_date": None,  # str ISO fecha
-        }
-    return USER_STATE[phone]
+    if phone in _STATE_CACHE:
+        return _STATE_CACHE[phone]
+
+    state = load_runtime_session(phone)
+    base = _default_state()
+
+    if isinstance(state, dict):
+        # Merge loaded into defaults (keeps compatibility when schema/state evolves)
+        base.update(state)
+
+        # Ensure nested structures exist
+        if not isinstance(base.get("ticket_draft"), dict):
+            base["ticket_draft"] = _default_state()["ticket_draft"]
+
+    _STATE_CACHE[phone] = base
+
+    # If DB had no state, persist the default immediately
+    if state is None:
+        save_runtime_session(phone, base)
+
+    return base
+
+
+def persist_user_state(phone: str, state: Dict[str, Any]) -> None:
+    """
+    Save full state to DB.
+    """
+    _STATE_CACHE[phone] = state
+    save_runtime_session(phone, state)
 
 
 def reset_ticket_draft(phone: str) -> None:
-    """
-    Limpia el borrador de ticket.
-    
-    Args:
-        phone: Número de teléfono
-    """
     state = get_user_state(phone)
     state["ticket_draft"] = {
         "habitacion": None,
         "detalle": None,
-        "prioridad": None
+        "prioridad": None,
     }

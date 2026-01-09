@@ -1,96 +1,88 @@
+# gateway_app/flows/supervision/state.py
 """
-Manejo de estado para el bot de Supervisión.
-Similar a housekeeping/state.py pero con estados específicos de supervisor.
+Supervisor runtime state.
+
+Now persisted in DB (public.runtime_sessions) to survive multi-worker gunicorn and restarts.
 """
 
-from typing import Dict, Any, Optional
+from __future__ import annotations
 
-# Estado global en memoria (compartido entre requests)
-SUPERVISOR_STATE: Dict[str, Dict[str, Any]] = {}
+from typing import Any, Dict
+
+from gateway_app.services.runtime_state import load_runtime_session, save_runtime_session
+
+# Cache in-process (best-effort). Source of truth is DB.
+_STATE_CACHE: Dict[str, Dict[str, Any]] = {}
+
+
+def _default_supervisor_state(phone: str) -> Dict[str, Any]:
+    return {
+        "phone": phone,
+        "nombre": None,
+        "rol": "supervisor",
+
+        # Menu / selection fields (legacy + simple orchestrator fields)
+        "menu_state": None,
+        "ticket_seleccionado": None,
+        "mucama_seleccionada": None,
+
+        # Simple orchestrator flags/objects used in your current code
+        "esperando_asignacion": False,
+        "confirmacion_pendiente": None,
+        "seleccion_mucamas": None,
+
+        # Ticket creation draft (if used later)
+        "ticket_en_creacion": {
+            "habitacion": None,
+            "detalle": None,
+            "prioridad": None,
+        },
+
+        "last_greet_date": None,
+    }
 
 
 def get_supervisor_state(phone: str) -> Dict[str, Any]:
-    """
-    Obtiene o inicializa el estado de un supervisor.
-    
-    Args:
-        phone: Número de teléfono del supervisor
-    
-    Returns:
-        Estado del supervisor
-    """
-    if phone not in SUPERVISOR_STATE:
-        SUPERVISOR_STATE[phone] = {
-            "phone": phone,
-            "nombre": None,  # Se puede cargar de BD
-            "rol": "supervisor",
-            
-            # Estado del menú
-            "menu_state": None,  # M0, M1, M2, etc.
-            
-            # Selección actual
-            "ticket_seleccionado": None,  # ID del ticket
-            "mucama_seleccionada": None,  # Teléfono de mucama
-            
-            # Creación de ticket
-            "ticket_en_creacion": {
-                "habitacion": None,
-                "detalle": None,
-                "prioridad": None
-            },
-            
-            # Saludo
-            "last_greet_date": None,
-        }
-    
-    return SUPERVISOR_STATE[phone]
+    if phone in _STATE_CACHE:
+        return _STATE_CACHE[phone]
+
+    loaded = load_runtime_session(phone)
+    base = _default_supervisor_state(phone)
+
+    if isinstance(loaded, dict):
+        base.update(loaded)
+        if not isinstance(base.get("ticket_en_creacion"), dict):
+            base["ticket_en_creacion"] = _default_supervisor_state(phone)["ticket_en_creacion"]
+
+    _STATE_CACHE[phone] = base
+
+    if loaded is None:
+        save_runtime_session(phone, base)
+
+    return base
+
+
+def persist_supervisor_state(phone: str, state: Dict[str, Any]) -> None:
+    _STATE_CACHE[phone] = state
+    save_runtime_session(phone, state)
 
 
 def reset_supervisor_selection(phone: str) -> None:
-    """
-    Limpia la selección actual (ticket y mucama).
-    """
     state = get_supervisor_state(phone)
     state["ticket_seleccionado"] = None
     state["mucama_seleccionada"] = None
 
 
 def reset_ticket_creation(phone: str) -> None:
-    """
-    Limpia el ticket en creación.
-    """
     state = get_supervisor_state(phone)
     state["ticket_en_creacion"] = {
         "habitacion": None,
         "detalle": None,
-        "prioridad": None
+        "prioridad": None,
     }
 
 
 def clear_supervisor_state(phone: str) -> None:
-    """
-    Limpia completamente el estado de un supervisor.
-    Útil para testing o reset manual.
-    """
-    if phone in SUPERVISOR_STATE:
-        del SUPERVISOR_STATE[phone]
-
-
-# Estados del menú (M)
-MENU_PRINCIPAL = "M0"
-VER_PENDIENTES = "M1"
-VER_EN_PROGRESO = "M2"
-VER_MUCAMAS = "M3"
-CREAR_TICKET = "M4"
-ESTADISTICAS = "M5"
-
-# Estados de asignación (A)
-ASIGNAR_ELIGIENDO_TICKET = "A0"
-ASIGNAR_ELIGIENDO_MUCAMA = "A1"
-ASIGNAR_CONFIRMANDO = "A2"
-
-# Estados de creación (C)
-CREAR_INGRESANDO_DETALLE = "C0"
-CREAR_CONFIRMANDO = "C1"
-CREAR_ELIGIENDO_PRIORIDAD = "C2"
-CREAR_ELIGIENDO_ASIGNACION = "C3"
+    if phone in _STATE_CACHE:
+        del _STATE_CACHE[phone]
+    # Optional: if you need a DB delete later, add it explicitly when required.

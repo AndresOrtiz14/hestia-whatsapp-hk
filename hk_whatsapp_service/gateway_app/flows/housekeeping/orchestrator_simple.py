@@ -43,107 +43,106 @@ from .demo_tickets import DEMO_TICKETS, elegir_mejor_ticket
 
 
 def handle_hk_message_simple(from_phone: str, text: str) -> None:
-    """
-    Orquestador SIMPLE para housekeeping.
-    
-    Args:
-        from_phone: Número de teléfono del trabajador
-        text: Texto del mensaje (puede venir de audio)
-    """
     state = get_user_state(from_phone)
-    raw = (text or "").strip().lower()
+    try:
+        raw = (text or "").strip().lower()
     
-    # 1) Saludo inicial del día
-    today_str = date.today().isoformat()
-    if state.get("last_greet_date") != today_str:
-        state["last_greet_date"] = today_str
-        send_whatsapp(from_phone, texto_saludo_dia())
-        send_whatsapp(from_phone, texto_menu_simple())
-        state["state"] = MENU
-        return
-    
-    # 2) Comando global: Menú
-    if raw in ['m', 'menu', 'menú', 'volver']:
-        reset_ticket_draft(from_phone)  # NUEVO: Limpiar draft al volver
-        send_whatsapp(from_phone, texto_menu_simple())
-        state["state"] = MENU
-        return
-    
-    # 2.5) NUEVO: Navegación directa de menú (desde cualquier estado)
-    # Permite escribir 1, 2, 3 para navegar sin volver al menú
-    if raw in ['1', '2', '3'] and state.get("state") not in [REPORTANDO_HAB, REPORTANDO_DETALLE, CONFIRMANDO_REPORTE]:
-        # Solo si NO está en medio de un reporte
-        if raw == '1':
-            mostrar_tickets(from_phone)
-            return
-        elif raw == '2':
-            iniciar_reporte(from_phone)
-            return
-        elif raw == '3':
-            send_whatsapp(from_phone, texto_ayuda())
+        # 1) Saludo inicial del día
+        today_str = date.today().isoformat()
+        if state.get("last_greet_date") != today_str:
+            state["last_greet_date"] = today_str
+            send_whatsapp(from_phone, texto_saludo_dia())
+            send_whatsapp(from_phone, texto_menu_simple())
             state["state"] = MENU
             return
-    
-    # 3) Si tiene ticket activo, priorizar comandos de trabajo
-    if state.get("ticket_activo"):
-        if handle_comandos_ticket_activo(from_phone, text):
+
+        
+        # 2) Comando global: Menú
+        if raw in ['m', 'menu', 'menú', 'volver']:
+            reset_ticket_draft(from_phone)  # NUEVO: Limpiar draft al volver
+            send_whatsapp(from_phone, texto_menu_simple())
+            state["state"] = MENU
             return
-    
-    # 4) Detectar reporte directo (ej: "hab 305 fuga de agua")
-    # IMPORTANTE: Solo si NO está en flujo de reporte manual
-    current_state = state.get("state")
-    if current_state not in [REPORTANDO_HAB, REPORTANDO_DETALLE, CONFIRMANDO_REPORTE]:
-        reporte = detectar_reporte_directo(text)
-        if reporte:
-            crear_ticket_directo(from_phone, reporte)
+        
+        # 2.5) NUEVO: Navegación directa de menú (desde cualquier estado)
+        # Permite escribir 1, 2, 3 para navegar sin volver al menú
+        if raw in ['1', '2', '3'] and state.get("state") not in [REPORTANDO_HAB, REPORTANDO_DETALLE, CONFIRMANDO_REPORTE]:
+            # Solo si NO está en medio de un reporte
+            if raw == '1':
+                mostrar_tickets(from_phone)
+                return
+            elif raw == '2':
+                iniciar_reporte(from_phone)
+                return
+            elif raw == '3':
+                send_whatsapp(from_phone, texto_ayuda())
+                state["state"] = MENU
+                return
+        
+        # 3) Si tiene ticket activo, priorizar comandos de trabajo
+        if state.get("ticket_activo"):
+            if handle_comandos_ticket_activo(from_phone, text):
+                return
+        
+        # 4) Detectar reporte directo (ej: "hab 305 fuga de agua")
+        # IMPORTANTE: Solo si NO está en flujo de reporte manual
+        current_state = state.get("state")
+        if current_state not in [REPORTANDO_HAB, REPORTANDO_DETALLE, CONFIRMANDO_REPORTE]:
+            reporte = detectar_reporte_directo(text)
+            if reporte:
+                crear_ticket_directo(from_phone, reporte)
+                return
+        
+        # 5) Comandos globales
+        if es_comando_tomar(raw):
+            tomar_ticket(from_phone)
             return
-    
-    # 5) Comandos globales
-    if es_comando_tomar(raw):
-        tomar_ticket(from_phone)
-        return
-    
-    if es_comando_reportar(raw):
-        iniciar_reporte(from_phone)
-        return
-    
-    if raw in ['tickets', 'ver tickets', 'mis tickets']:
-        mostrar_tickets(from_phone)
-        return
-    
-    # 6) Routing por estado
-    current_state = state.get("state")
-    
-    if current_state == MENU:
-        handle_menu(from_phone, raw)
-        return
-    
-    if current_state == VIENDO_TICKETS:
-        handle_viendo_tickets(from_phone, raw)
-        return
-    
-    if current_state == REPORTANDO_HAB:
-        handle_reportando_habitacion(from_phone, text)
-        return
-    
-    if current_state == REPORTANDO_DETALLE:
-        handle_reportando_detalle(from_phone, text)
-        return
-    
-    if current_state == CONFIRMANDO_REPORTE:
-        handle_confirmando_reporte(from_phone, raw)
-        return
-    
-    # 7) No entendí
-    send_whatsapp(
-        from_phone,
-        "🤔 No entendí.\n\n"
-        "💡 Puedes decir:\n"
-        "• 'tomar' - Tomar ticket\n"
-        "• 'tickets' - Ver mis tickets\n"
-        "• 'reportar' - Reportar problema\n"
-        "• 'M' - Menú"
+        
+        if es_comando_reportar(raw):
+            iniciar_reporte(from_phone)
+            return
+        
+        if raw in ['tickets', 'ver tickets', 'mis tickets']:
+            mostrar_tickets(from_phone)
+            return
+        
+        # 6) Routing por estado
+        current_state = state.get("state")
+        
+        if current_state == MENU:
+            handle_menu(from_phone, raw)
+            return
+        
+        if current_state == VIENDO_TICKETS:
+            handle_viendo_tickets(from_phone, raw)
+            return
+        
+        if current_state == REPORTANDO_HAB:
+            handle_reportando_habitacion(from_phone, text)
+            return
+        
+        if current_state == REPORTANDO_DETALLE:
+            handle_reportando_detalle(from_phone, text)
+            return
+        
+        if current_state == CONFIRMANDO_REPORTE:
+            handle_confirmando_reporte(from_phone, raw)
+            return
+        
+        # 7) No entendí
+        send_whatsapp(
+            from_phone,
+            "🤔 No entendí.\n\n"
+            "💡 Puedes decir:\n"
+            "• 'tomar' - Tomar ticket\n"
+            "• 'tickets' - Ver mis tickets\n"
+            "• 'reportar' - Reportar problema\n"
+            "• 'M' - Menú"
     )
+    finally:
+        # Persist full state at end of processing
+        from .state_simple import persist_user_state
+        persist_user_state(from_phone, state)
 
 
 def handle_menu(from_phone: str, raw: str) -> None:
