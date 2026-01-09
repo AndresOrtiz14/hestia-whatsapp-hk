@@ -49,6 +49,7 @@ def extract_ticket_id(text: str) -> Optional[int]:
 def extract_worker_name(text: str) -> Optional[str]:
     """
     Extrae nombre de worker del texto.
+    Detecta patrones: "a María", "para Pedro", nombres sueltos
     
     Args:
         text: Texto transcrito
@@ -63,7 +64,7 @@ def extract_worker_name(text: str) -> Optional[str]:
         'ana', 
         'daniela',
         'carlos',
-        'josé', 'jose',  # ← NUEVO
+        'josé', 'jose',
         'juan', 
         'carmen', 
         'rosa', 
@@ -77,10 +78,31 @@ def extract_worker_name(text: str) -> Optional[str]:
         'valeria',
         'gabriel',
         'camila',
-        'ricardo'
+        'ricardo',
+        'roberto',
+        'beto'
     ]
     
     text_lower = text.lower()
+    
+    # NUEVO: Detectar múltiples patrones de asignación
+    patrones = [
+        r'\b(?:a|para)\s+(\w+)',                    # "a María", "para Pedro"
+        r'que\s+lo\s+(?:resuelva|haga|vea)\s+(\w+)', # "que lo resuelva María"
+        r'que\s+la\s+(?:resuelva|haga|vea)\s+(\w+)', # "que la resuelva María"
+        r'(?:encarga|delega)(?:le)?\s+a\s+(\w+)',   # "encargale a Pedro"
+    ]
+    
+    for patron in patrones:
+        match = re.search(patron, text_lower)
+        if match:
+            posible_nombre = match.group(1)
+            if posible_nombre in nombres:
+                return posible_nombre.capitalize()
+            # Buscar en texto original (capitalizado)
+            for palabra in text.split():
+                if palabra.lower() == posible_nombre and len(palabra) >= 3:
+                    return palabra
     
     # Buscar nombre completo como palabra
     for nombre in nombres:
@@ -96,7 +118,7 @@ def extract_worker_name(text: str) -> Optional[str]:
         # Si la palabra original estaba capitalizada y tiene >=3 letras
         if palabra and len(palabra) >= 3 and palabra[0].isupper():
             # Verificar que no sea una palabra común
-            palabras_comunes = ['Hab', 'Habitación', 'Cuarto', 'Ticket', 'El', 'La', 'Un', 'Una']
+            palabras_comunes = ['Hab', 'Habitación', 'Cuarto', 'Ticket', 'El', 'La', 'Un', 'Una', 'Pieza']
             if palabra not in palabras_comunes:
                 return palabra
     
@@ -191,7 +213,11 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
         'asignar', 'asigna', 'asina',  # ← typo común de Whisper
         'derivar', 'deriva', 
         'mandar', 'manda',
-        'enviar', 'envia'
+        'enviar', 'envia',
+        'encargar', 'encarga', 'encargale', 'encárgale',  # NUEVO
+        'delegar', 'delega', 'delegale', 'delégale',      # NUEVO
+        'que lo resuelva', 'que lo haga', 'que lo vea',   # NUEVO
+        'que la resuelva', 'que la haga', 'que la vea'    # NUEVO
     ])
     es_reasignar = any(word in text_lower for word in [
         'reasignar', 'reasigna',
@@ -237,20 +263,61 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
             "text": text
         }
     
-    # Patrón 3: "Habitación 305 necesita toallas" (solo crear)
-    if habitacion and not es_asignar:
+    # Patrón 3: "Habitación 305 necesita toallas" o "Hab 1302 faltan toallas. A Daniela"
+    if habitacion:
+        # Extraer detalle limpiando la habitación y comandos
         detalle = text_lower
         detalle = re.sub(r'habitación\s*\d+', '', detalle)
         detalle = re.sub(r'cuarto\s*\d+', '', detalle)
-        detalle = detalle.strip()
+        detalle = re.sub(r'pieza\s*\d+', '', detalle)
+        detalle = re.sub(r'hab\s*\d+', '', detalle)
         
-        return {
-            "intent": "crear_ticket",
-            "habitacion": habitacion,
-            "detalle": detalle if detalle else "Solicitud de housekeeping",
-            "prioridad": prioridad,
-            "text": text
-        }
+        # Si hay nombre después de "a [nombre]", extraerlo y limpiar
+        if worker:
+            # Limpiar el nombre del detalle
+            detalle = re.sub(r'\s*\.?\s*a\s+\w+\s*$', '', detalle, flags=re.IGNORECASE)
+            detalle = re.sub(r'\s*para\s+\w+\s*$', '', detalle, flags=re.IGNORECASE)
+            detalle = re.sub(r'\s*\.?\s*que\s+lo\s+(?:resuelva|haga|vea)\s+\w+\s*$', '', detalle, flags=re.IGNORECASE)
+            detalle = re.sub(r'\s*\.?\s*que\s+la\s+(?:resuelva|haga|vea)\s+\w+\s*$', '', detalle, flags=re.IGNORECASE)
+            detalle = re.sub(r'\s*\.?\s*(?:encarga|delega)(?:le)?\s+a\s+\w+\s*$', '', detalle, flags=re.IGNORECASE)
+            detalle = re.sub(r'\s*\.?\s*(?:encárgale|delégale)\s+a\s+\w+\s*$', '', detalle, flags=re.IGNORECASE)
+            
+            # Si hay "asignar" o similar, es crear_y_asignar
+            if es_asignar or es_reasignar:
+                detalle = re.sub(r'asignar.*', '', detalle)
+                detalle = re.sub(r'derivar.*', '', detalle)
+                detalle = re.sub(r'cambiar.*', '', detalle)
+                detalle = detalle.strip()
+                
+                return {
+                    "intent": "crear_y_asignar",
+                    "habitacion": habitacion,
+                    "detalle": detalle if detalle else "Solicitud de operaciones",
+                    "prioridad": prioridad,
+                    "worker": worker,
+                    "text": text
+                }
+            else:
+                # No hay verbo explícito pero hay "a [nombre]" → crear_y_asignar
+                detalle = detalle.strip()
+                return {
+                    "intent": "crear_y_asignar",
+                    "habitacion": habitacion,
+                    "detalle": detalle if detalle else "Solicitud de operaciones",
+                    "prioridad": prioridad,
+                    "worker": worker,
+                    "text": text
+                }
+        else:
+            # No hay nombre: solo crear ticket
+            detalle = detalle.strip()
+            return {
+                "intent": "crear_ticket",
+                "habitacion": habitacion,
+                "detalle": detalle if detalle else "Solicitud de operaciones",
+                "prioridad": prioridad,
+                "text": text
+            }
     
     # Patrón 4: Solo asignar (sin especificar ticket)
     if es_asignar and worker and not ticket_id:
