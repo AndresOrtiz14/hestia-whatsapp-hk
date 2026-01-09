@@ -1,11 +1,24 @@
+# app.py
 from flask import Flask
 from gateway_app.routes.webhook import bp as whatsapp_bp
 from gateway_app.config import Config
 
+
 def create_app() -> Flask:
     app = Flask(__name__)
+
+    # Render health probes hit "/" (GET/HEAD). Return 200 to avoid noisy 404 logs.
+    @app.get("/")
+    def root():
+        return "ok", 200
+
+    @app.head("/")
+    def root_head():
+        return "", 200
+
     app.register_blueprint(whatsapp_bp)
     return app
+
 
 app = create_app()
 
