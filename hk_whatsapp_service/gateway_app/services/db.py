@@ -28,11 +28,18 @@ from gateway_app.config import cfg
 
 logger = logging.getLogger(__name__)
 
+# psycopg2 is optional; if missing we fall back to SQLite even for postgres-like URLs.
+psycopg2 = None  # type: ignore[assignment]
+_psycopg2_import_error: Exception | None = None
+
 try:
-    import psycopg2
-    import psycopg2.extras
-except Exception:
+    import psycopg2  # type: ignore[assignment]
+    import psycopg2.extras  # type: ignore[import-not-found]
+except Exception as e:  # keep broad, but do NOT hide the reason
+    _psycopg2_import_error = e
+    logger.exception("psycopg2 import failed (package may be installed but import crashed): %s", e)
     psycopg2 = None  # type: ignore[assignment]
+# type: ignore[assignment]
 
 
 # ---------- URL helpers ----------
@@ -135,7 +142,10 @@ def _adapt_sql(sql: str, *, use_postgres: bool) -> str:
 
 def _connect_postgres(dsn: str):
     if psycopg2 is None:
-        raise RuntimeError("psycopg2 is not installed; cannot use Postgres.")
+        # Show the real reason instead of the misleading "not installed"
+        raise RuntimeError(
+            f"psycopg2 import failed; cannot use Postgres. Root cause: {_psycopg2_import_error!r}"
+        )
     return psycopg2.connect(dsn, cursor_factory=psycopg2.extras.DictCursor)
 
 
@@ -150,7 +160,10 @@ def _get_connection():
 
     # If URL looks like Postgres but psycopg2 isn't available, fail loudly (prod safety)
     if _is_postgres_url(url) and psycopg2 is None:
-        raise RuntimeError("DATABASE_URL is Postgres but psycopg2 is not installed. Install psycopg2-binary.")
+        raise RuntimeError(
+        f"DATABASE_URL looks like Postgres but psycopg2 is unavailable. Root cause: {_psycopg2_import_error!r}"
+    )
+
 
     if _is_postgres_url(url) and psycopg2 is not None:
         logger.debug("DB: using Postgres")
