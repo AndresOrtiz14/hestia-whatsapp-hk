@@ -36,17 +36,12 @@ def _decode_json_maybe(value: Any) -> Any:
 
 
 def load_runtime_session(phone: str) -> Optional[Dict[str, Any]]:
+    table = "public.runtime_sessions" if using_pg() else "runtime_sessions"
     row = fetchone(
-        "SELECT data FROM public.runtime_sessions WHERE phone = ?",
+        f"SELECT data FROM {table} WHERE phone = ?",
         [phone],
     )
-    if not row:
-        return None
 
-    data = _decode_json_maybe(row.get("data"))
-    if isinstance(data, dict):
-        return data
-    return None
 
 
 def save_runtime_session(phone: str, data: Dict[str, Any]) -> None:

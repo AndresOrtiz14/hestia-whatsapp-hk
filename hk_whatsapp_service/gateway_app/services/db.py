@@ -147,14 +147,21 @@ def _connect_sqlite(path: str):
 
 def _get_connection():
     url = (cfg.DATABASE_URL or "").strip()
+
+    # If URL looks like Postgres but psycopg2 isn't available, fail loudly (prod safety)
+    if _is_postgres_url(url) and psycopg2 is None:
+        raise RuntimeError("DATABASE_URL is Postgres but psycopg2 is not installed. Install psycopg2-binary.")
+
     if _is_postgres_url(url) and psycopg2 is not None:
         logger.debug("DB: using Postgres")
         return _connect_postgres(url)
 
+    # SQLite fallback (intended for local dev)
     sqlite_path = _sqlite_path_from_url(url or "./gateway.db")
     os.makedirs(os.path.dirname(sqlite_path) or ".", exist_ok=True)
     logger.debug("DB: using SQLite at %s", sqlite_path)
     return _connect_sqlite(sqlite_path)
+
 
 
 @contextmanager
