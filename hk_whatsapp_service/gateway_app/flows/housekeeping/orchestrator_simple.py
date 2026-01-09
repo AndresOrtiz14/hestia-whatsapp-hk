@@ -64,6 +64,7 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
     
     # 2) Comando global: Menú
     if raw in ['m', 'menu', 'menú', 'volver']:
+        reset_ticket_draft(from_phone)  # NUEVO: Limpiar draft al volver
         send_whatsapp(from_phone, texto_menu_simple())
         state["state"] = MENU
         return
