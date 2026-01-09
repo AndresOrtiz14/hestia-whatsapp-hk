@@ -46,6 +46,7 @@ def detectar_prioridad(text: str) -> str:
 def extraer_habitacion(text: str) -> Optional[str]:
     """
     Extrae número de habitación del texto.
+    VALIDACIÓN: Solo acepta 3-4 dígitos para evitar confusión con opciones de menú (1, 2, 3)
     
     Args:
         text: Texto
@@ -53,22 +54,31 @@ def extraer_habitacion(text: str) -> Optional[str]:
     Returns:
         Número de habitación o None
     """
-    # Patrones: "hab 305", "habitación 420", "cuarto 210", "la 305"
-    patterns = [
+    text_lower = text.lower()
+    text_stripped = text.strip()
+    
+    # Patrones con contexto (hab, habitación, cuarto, etc)
+    patterns_con_contexto = [
         r'hab(?:itación)?\s*(\d{3,4})',
         r'cuarto\s*(\d{3,4})',
         r'pieza\s*(\d{3,4})',
         r'la\s+(\d{3,4})',
         r'el\s+(\d{3,4})',
-        r'\b(\d{3,4})\b'  # 3-4 dígitos solos
     ]
     
-    text_lower = text.lower()
-    
-    for pattern in patterns:
+    for pattern in patterns_con_contexto:
         match = re.search(pattern, text_lower)
         if match:
             return match.group(1)
+    
+    # Solo número: DEBE ser 3-4 dígitos (no 1-2 para evitar confusión con menú)
+    if text_stripped.isdigit() and 3 <= len(text_stripped) <= 4:
+        return text_stripped
+    
+    # Buscar número de 3-4 dígitos en el texto (sin contexto pero más seguro)
+    match = re.search(r'\b(\d{3,4})\b', text_lower)
+    if match:
+        return match.group(1)
     
     return None
 

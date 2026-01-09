@@ -553,17 +553,25 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         habitacion = intent_data["habitacion"]
         detalle = intent_data["detalle"]
         prioridad = intent_data["prioridad"]
-        worker_nombre = intent_data["mucama"]
-        worker = get_worker_by_nombre(mucama_nombre)
+        worker_nombre = intent_data["worker"]
+        worker = get_worker_by_nombre(worker_nombre)
         
-        if mucama:
+        if worker:
             import random
             ticket_id = random.randint(2000, 2999)
             
+            # Mostrar confirmación con todos los datos
+            prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
+            worker_nombre_completo = worker.get("nombre_completo", worker.get("nombre"))
+            
             send_whatsapp(
                 from_phone,
-                f"✅ #{ticket_id} creado y asignado a {worker['nombre']}\n"
-                f"📋 Hab. {habitacion} · {detalle}"
+                f"✅ Tarea #{ticket_id} creada\n\n"
+                f"🏨 Habitación: {habitacion}\n"
+                f"📝 Problema: {detalle}\n"
+                f"{prioridad_emoji} Prioridad: {prioridad}\n"
+                f"👤 Asignado: {worker_nombre_completo}\n\n"
+                f"💡 Notificado a operaciones ✓"
             )
             return True
     
@@ -576,12 +584,21 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         import random
         ticket_id = random.randint(2000, 2999)
         
-        mensaje = texto_ticket_creado_simple(ticket_id, habitacion, prioridad)
-        send_whatsapp(from_phone, mensaje)
+        # Mostrar confirmación con resumen
+        prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
+        
+        send_whatsapp(
+            from_phone,
+            f"✅ Tarea #{ticket_id} creada\n\n"
+            f"🏨 Habitación: {habitacion}\n"
+            f"📝 Problema: {detalle}\n"
+            f"{prioridad_emoji} Prioridad: {prioridad}\n\n"
+            f"💡 Di 'asignar {ticket_id} a [nombre]'"
+        )
         
         # Guardar para asignación rápida
         state["ticket_seleccionado"] = ticket_id
-        state["esperando_asignacion"] = True
+        state["esperando_asignacion"] = False  # No forzar asignación inmediata
         
         # Mostrar recomendaciones inline
         from .demo_data import DEMO_WORKERS

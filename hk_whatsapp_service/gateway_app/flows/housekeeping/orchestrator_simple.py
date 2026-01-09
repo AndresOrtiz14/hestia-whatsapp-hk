@@ -11,7 +11,8 @@ from .state_simple import (
     VIENDO_TICKETS,
     TRABAJANDO,
     REPORTANDO_HAB,
-    REPORTANDO_DETALLE
+    REPORTANDO_DETALLE,
+    CONFIRMANDO_REPORTE  # NUEVO
 )
 from .ui_simple import (
     texto_menu_simple,
@@ -24,7 +25,8 @@ from .ui_simple import (
     texto_ticket_reanudado,
     texto_pedir_habitacion,
     texto_pedir_detalle,
-    texto_ticket_creado
+    texto_ticket_creado,
+    texto_confirmar_reporte  # NUEVO
 )
 from .intents import (
     detectar_reporte_directo,
@@ -65,6 +67,21 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
         send_whatsapp(from_phone, texto_menu_simple())
         state["state"] = MENU
         return
+    
+    # 2.5) NUEVO: Navegación directa de menú (desde cualquier estado)
+    # Permite escribir 1, 2, 3 para navegar sin volver al menú
+    if raw in ['1', '2', '3'] and state.get("state") not in [REPORTANDO_HAB, REPORTANDO_DETALLE]:
+        # Solo si NO está en medio de un reporte
+        if raw == '1':
+            mostrar_tickets(from_phone)
+            return
+        elif raw == '2':
+            iniciar_reporte(from_phone)
+            return
+        elif raw == '3':
+            send_whatsapp(from_phone, texto_ayuda())
+            state["state"] = MENU
+            return
     
     # 3) Si tiene ticket activo, priorizar comandos de trabajo
     if state.get("ticket_activo"):
@@ -107,6 +124,10 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
     
     if current_state == REPORTANDO_DETALLE:
         handle_reportando_detalle(from_phone, text)
+        return
+    
+    if current_state == CONFIRMANDO_REPORTE:
+        handle_confirmando_reporte(from_phone, raw)
         return
     
     # 7) No entendí
@@ -422,8 +443,60 @@ def handle_reportando_detalle(from_phone: str, text: str) -> None:
     # Detectar prioridad automáticamente
     draft["prioridad"] = detectar_prioridad(text)
     
-    # Crear ticket
-    crear_ticket_desde_draft(from_phone)
+    # Ir a confirmación (NUEVO)
+    state["state"] = CONFIRMANDO_REPORTE
+    
+    # Mostrar resumen para confirmar
+    mensaje = texto_confirmar_reporte(
+        draft["habitacion"],
+        draft["detalle"],
+        draft["prioridad"]
+    )
+    send_whatsapp(from_phone, mensaje)
+
+
+def handle_confirmando_reporte(from_phone: str, raw: str) -> None:
+    """
+    Maneja la confirmación del reporte.
+    
+    Args:
+        from_phone: Número de teléfono
+        raw: Texto normalizado
+    """
+    state = get_user_state(from_phone)
+    draft = state["ticket_draft"]
+    
+    # Confirmar
+    if raw in ['si', 'sí', 'yes', 'ok', 'confirmar', 'confirmo', 'dale', 'correcto']:
+        crear_ticket_desde_draft(from_phone)
+        return
+    
+    # Editar habitación
+    if raw in ['editar', 'cambiar', 'modificar', 'editar habitacion', 'editar habitación']:
+        state["state"] = REPORTANDO_HAB
+        send_whatsapp(from_phone, texto_pedir_habitacion())
+        return
+    
+    # Editar detalle
+    if raw in ['editar detalle', 'cambiar detalle']:
+        state["state"] = REPORTANDO_DETALLE
+        send_whatsapp(from_phone, texto_pedir_detalle())
+        return
+    
+    # Cancelar
+    if raw in ['cancelar', 'cancel', 'no']:
+        reset_ticket_draft(from_phone)
+        state["state"] = MENU
+        send_whatsapp(from_phone, "❌ Reporte cancelado")
+        return
+    
+    # No entendió
+    mensaje = texto_confirmar_reporte(
+        draft["habitacion"],
+        draft["detalle"],
+        draft["prioridad"]
+    )
+    send_whatsapp(from_phone, "❌ No entendí\n\n" + mensaje)
 
 
 def crear_ticket_directo(from_phone: str, reporte: dict) -> None:
