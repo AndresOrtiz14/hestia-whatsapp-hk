@@ -2,6 +2,9 @@
 Orquestador simplificado para bot de Housekeeping.
 Sin menú complejo, flujo directo.
 """
+import logging
+
+logger = logging.getLogger(__name__)
 
 from datetime import date, datetime
 from .state_simple import (
@@ -43,10 +46,12 @@ from .demo_tickets import DEMO_TICKETS, elegir_mejor_ticket
 
 
 def handle_hk_message_simple(from_phone: str, text: str) -> None:
+
     state = get_user_state(from_phone)
     try:
         raw = (text or "").strip().lower()
-    
+        logger.info(f"🏨 HK | {from_phone} | Comando: '{raw[:30]}...'")
+
         # 1) Saludo inicial del día
         today_str = date.today().isoformat()
         if state.get("last_greet_date") != today_str:

@@ -1,7 +1,18 @@
 # app.py
 from flask import Flask
+import logging
+import sys
 from gateway_app.routes.webhook import bp as whatsapp_bp
 from gateway_app.config import Config
+
+# Configurar logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+
+logger = logging.getLogger(__name__)
 
 
 def create_app() -> Flask:
@@ -13,6 +24,13 @@ def create_app() -> Flask:
         return "ok", 200
 
     app.register_blueprint(whatsapp_bp)
+    
+    logger.info("=" * 60)
+    logger.info("🚀 WhatsApp Gateway iniciado correctamente")
+    logger.info(f"📡 Puerto: {Config.PORT}")
+    logger.info(f"🔧 Audio transcription: {Config.TRANSCRIBE_PROVIDER}")
+    logger.info("=" * 60)
+    
     return app
 
 

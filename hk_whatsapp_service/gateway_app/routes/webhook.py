@@ -5,6 +5,8 @@ Webhook de WhatsApp con routing por rol (Supervisor vs Mucama).
 from flask import Blueprint, request, jsonify
 import logging
 
+import logging
+
 from gateway_app.config import Config
 from gateway_app.services.whatsapp_client import send_whatsapp_text
 
@@ -105,12 +107,18 @@ def inbound():
         msg_type = msg.get("type")
 
         if not from_phone or not msg_type:
-            logger.warning("Mensaje sin from o type")
+            logger.warning("⚠️ Mensaje sin from o type")
             return jsonify(ok=True), 200
 
         # Detectar rol del usuario
         user_role = get_user_role(from_phone)
-        logger.info(f"Mensaje de {from_phone} (rol: {user_role})")
+        
+        # Log informativo
+        logger.info("=" * 60)
+        logger.info(f"📨 MENSAJE RECIBIDO")
+        logger.info(f"   📞 De: {from_phone}")
+        logger.info(f"   👤 Rol: {user_role.upper()}")
+        logger.info(f"   📝 Tipo: {msg_type}")
 
         # Preparar datos del mensaje
         message_data = {"type": msg_type}
@@ -122,6 +130,7 @@ def inbound():
                 return jsonify(ok=True), 200
             
             message_data["text"] = text
+            logger.info(f"   💬 Texto: '{text[:50]}{'...' if len(text) > 50 else ''}'")
 
         # CASO 2: Mensaje de audio/voz
         elif msg_type in ["audio", "voice"]:
@@ -129,71 +138,57 @@ def inbound():
             media_id = audio_data.get("id")
             
             if not media_id:
-                logger.warning("Audio sin media_id")
+                logger.warning("⚠️ Audio sin media_id")
                 return jsonify(ok=True), 200
             
             message_data["media_id"] = media_id
+            logger.info(f"   🎤 Audio ID: {media_id}")
 
         # CASO 3: Otros tipos (ignorar por ahora)
         else:
-            logger.info(f"Tipo de mensaje no soportado: {msg_type}")
+            logger.info(f"   ⏭️ Tipo no soportado, ignorando")
             return jsonify(ok=True), 200
 
         # ROUTING POR ROL
         if user_role == "supervisor":
+            logger.info(f"   🎯 Ruta: BOT SUPERVISIÓN")
+            
             # Supervisor: Texto + Audio
             if msg_type == "text":
                 handle_supervisor_message(from_phone, message_data["text"])
             elif msg_type in ["audio", "voice"]:
-                # Transcribir audio
+                logger.info(f"   🔄 Transcribiendo audio...")
                 from gateway_app.flows.housekeeping.audio_integration import transcribe_hk_audio
                 
                 result = transcribe_hk_audio(message_data["media_id"])
                 
                 if result["success"]:
-                    # Mostrar transcripción
+                    logger.info(f"   ✅ Transcripción: '{result['text'][:50]}{'...' if len(result['text']) > 50 else ''}'")
                     send_whatsapp_text(
                         to=from_phone,
                         body=f"🎤 Escuché: \"{result['text']}\""
                     )
-                    # Procesar como texto
                     handle_supervisor_message(from_phone, result["text"])
                 else:
+                    logger.error(f"   ❌ Error transcripción: {result.get('error')}")
                     send_whatsapp_text(
                         to=from_phone,
                         body="❌ No pude transcribir el audio. Intenta de nuevo."
                     )
         
         else:  # housekeeper
-            # Mucama: Texto + Audio
+            logger.info(f"   🎯 Ruta: BOT HOUSEKEEPING")
             handle_hk_message_with_audio(
                 from_phone,
                 message_data,
                 show_transcription=True
             )
 
+        logger.info(f"   ✅ Procesado correctamente")
+        logger.info("=" * 60)
         return jsonify(ok=True), 200
 
     except Exception as e:
-        logger.exception("Error procesando webhook")
+        logger.exception(f"❌ ERROR procesando webhook: {str(e)}")
         # Siempre retornar 200 para que WhatsApp no reintente
         return jsonify(ok=False, error=str(e)), 200
-
-
-@bp.route("/health", methods=["GET"])
-def health_check():
-    """
-    Endpoint de health check para monitoreo.
-    """
-    import os
-    
-    whatsapp_token_configured = bool(os.getenv("WHATSAPP_TOKEN"))
-    openai_key_configured = bool(os.getenv("OPENAI_API_KEY"))
-    
-    return jsonify({
-        "status": "healthy",
-        "whatsapp_configured": whatsapp_token_configured,
-        "audio_support": openai_key_configured,
-        "bots": ["housekeeping", "supervision"],
-        "message": "WhatsApp Multi-Bot is running"
-    }), 200

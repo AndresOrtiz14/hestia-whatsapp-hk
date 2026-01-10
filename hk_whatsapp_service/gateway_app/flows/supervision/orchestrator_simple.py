@@ -1,6 +1,9 @@
 """
 Orquestador SIMPLE para supervisión - Sin menú, solo comandos.
 """
+import logging
+
+logger = logging.getLogger(__name__)
 
 from datetime import date
 from .state import get_supervisor_state
@@ -20,10 +23,11 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
         from_phone: Número de teléfono del supervisor
         text: Texto del mensaje (puede venir de audio)
     """
+
     state = get_supervisor_state(from_phone)
     try:
         raw = (text or "").strip().lower()
-    
+        logger.info(f"👔 SUP | {from_phone} | Comando: '{raw[:30]}...'")
         
         # 1) Saludo inicial del día (solo una vez)
         today_str = date.today().isoformat()
