@@ -59,6 +59,16 @@ def get_cursor(commit: bool = False):
         cursor.close()
 
 
+def _convert_placeholders(sql: str) -> str:
+    """
+    Convert ? placeholders to %s for PostgreSQL.
+    For SQLite, keep ? as is.
+    """
+    if _IS_POSTGRES:
+        return sql.replace("?", "%s")
+    return sql
+
+
 def execute(sql: str, params: list = None, commit: bool = False) -> None:
     """
     Execute SQL statement (INSERT, UPDATE, DELETE).
@@ -69,6 +79,7 @@ def execute(sql: str, params: list = None, commit: bool = False) -> None:
         commit: Whether to commit after execution
     """
     params = params or []
+    sql = _convert_placeholders(sql)
     
     with get_cursor(commit=commit) as cursor:
         cursor.execute(sql, params)
@@ -86,6 +97,7 @@ def fetchone(sql: str, params: list = None) -> Optional[dict]:
         Dict with column names as keys, or None if no results
     """
     params = params or []
+    sql = _convert_placeholders(sql)
     
     with get_cursor() as cursor:
         cursor.execute(sql, params)
@@ -95,8 +107,9 @@ def fetchone(sql: str, params: list = None) -> Optional[dict]:
             return None
         
         if _IS_POSTGRES:
-            # psycopg returns Row objects - convert to dict
-            return dict(row._asdict()) if hasattr(row, '_asdict') else dict(row)
+            # psycopg returns Row-like objects - convert to dict
+            columns = [desc[0] for desc in cursor.description]
+            return dict(zip(columns, row))
         else:
             # sqlite3 with row_factory returns Row - convert to dict
             return dict(row)
@@ -114,12 +127,14 @@ def fetchall(sql: str, params: list = None) -> list[dict]:
         List of dicts
     """
     params = params or []
+    sql = _convert_placeholders(sql)
     
     with get_cursor() as cursor:
         cursor.execute(sql, params)
         rows = cursor.fetchall()
         
         if _IS_POSTGRES:
-            return [dict(row._asdict()) if hasattr(row, '_asdict') else dict(row) for row in rows]
+            columns = [desc[0] for desc in cursor.description]
+            return [dict(zip(columns, row)) for row in rows]
         else:
             return [dict(row) for row in rows]
