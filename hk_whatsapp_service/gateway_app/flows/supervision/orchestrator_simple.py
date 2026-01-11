@@ -638,34 +638,116 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             mensaje = formato_lista_workers(candidatas)
             send_whatsapp(from_phone, mensaje)
             return True
-    
-    # Caso 2: Crear y asignar
+        
+    # Caso 2.5: Crear Y asignar (comando compuesto)
     if intent == "crear_y_asignar":
         habitacion = intent_data["habitacion"]
         detalle = intent_data["detalle"]
         prioridad = intent_data["prioridad"]
-        worker_nombre = intent_data["worker"]
-        worker = get_worker_by_nombre(worker_nombre)
+        nombre_trabajador = intent_data["worker"]  # ← FIX: audio_commands usa "worker", no "nombre_trabajador"
         
-        if worker:
-            import random
-            ticket_id = random.randint(2000, 2999)
-            
-            # Mostrar confirmación con todos los datos
-            prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
-            worker_nombre_completo = worker.get("nombre_completo", worker.get("nombre"))
-            
-            send_whatsapp(
-                from_phone,
-                f"✅ Tarea #{ticket_id} creada\n\n"
-                f"🏨 Habitación: {habitacion}\n"
-                f"📝 Problema: {detalle}\n"
-                f"{prioridad_emoji} Prioridad: {prioridad}\n"
-                f"👤 Asignado: {worker_nombre_completo}\n\n"
-                f"💡 Notificado a operaciones ✓"
+        # 1. Crear el ticket
+        from gateway_app.services.tickets_db import crear_ticket
+        
+        try:
+            ticket = crear_ticket(
+                habitacion=habitacion,
+                detalle=detalle,
+                prioridad=prioridad,
+                creado_por=from_phone,
+                origen="supervisor"
             )
+            
+            if not ticket:
+                send_whatsapp(from_phone, "❌ Error creando tarea. Intenta de nuevo.")
+                return True
+            
+            ticket_id = ticket["id"]
+            prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
+            
+            # 2. Iniciar flujo de asignación
+            state["ticket_seleccionado"] = ticket_id
+            state["esperando_asignacion"] = True
+            state["nombre_parcial"] = nombre_trabajador
+            
+            # 3. Buscar trabajadores que coincidan
+            from .demo_data import DEMO_WORKERS
+            nombre_lower = nombre_trabajador.lower()
+            
+            coincidencias = [
+                w for w in DEMO_WORKERS
+                if nombre_lower in w["nombre"].lower()
+            ]
+            
+            if len(coincidencias) == 1:
+                # Solo un match → asignar directamente
+                worker = coincidencias[0]
+                state["esperando_asignacion"] = False
+                
+                send_whatsapp(
+                    from_phone,
+                    f"✅ Tarea #{ticket_id} creada y asignada\n\n"
+                    f"🏨 Habitación: {habitacion}\n"
+                    f"📝 Problema: {detalle}\n"
+                    f"{prioridad_emoji} Prioridad: {prioridad}\n"
+                    f"👤 Asignado a: {worker['nombre']}"
+                )
+                return True
+            
+            elif len(coincidencias) > 1:
+                # Múltiples matches → mostrar opciones
+                send_whatsapp(
+                    from_phone,
+                    f"✅ Tarea #{ticket_id} creada\n\n"
+                    f"🏨 Habitación: {habitacion}\n"
+                    f"📝 Problema: {detalle}\n"
+                    f"{prioridad_emoji} Prioridad: {prioridad}\n\n"
+                    f"📋 Encontré {len(coincidencias)} personas con '{nombre_trabajador}':"
+                )
+                
+                from .ticket_assignment import calcular_score_worker
+                from .ui_simple import texto_recomendaciones_simple
+                
+                workers_con_score = []
+                for worker in coincidencias:
+                    score = calcular_score_worker(worker)
+                    workers_con_score.append({**worker, "score": score})
+                
+                workers_con_score.sort(key=lambda w: w["score"], reverse=True)
+                mensaje_rec = texto_recomendaciones_simple(workers_con_score)
+                send_whatsapp(from_phone, mensaje_rec)
+                return True
+            
+            else:
+                # Sin matches → mostrar todos
+                send_whatsapp(
+                    from_phone,
+                    f"✅ Tarea #{ticket_id} creada\n\n"
+                    f"🏨 Habitación: {habitacion}\n"
+                    f"📝 Problema: {detalle}\n"
+                    f"{prioridad_emoji} Prioridad: {prioridad}\n\n"
+                    f"⚠️ No encontré a '{nombre_trabajador}'\n"
+                    f"Mostrando todas las opciones:"
+                )
+                
+                from .ticket_assignment import calcular_score_worker
+                from .ui_simple import texto_recomendaciones_simple
+                
+                workers_con_score = []
+                for worker in DEMO_WORKERS:
+                    score = calcular_score_worker(worker)
+                    workers_con_score.append({**worker, "score": score})
+                
+                workers_con_score.sort(key=lambda w: w["score"], reverse=True)
+                mensaje_rec = texto_recomendaciones_simple(workers_con_score)
+                send_whatsapp(from_phone, mensaje_rec)
+                return True
+        
+        except Exception as e:
+            logger.exception(f"❌ Error en crear_y_asignar: {e}")
+            send_whatsapp(from_phone, "❌ Error creando tarea. Intenta de nuevo.")
             return True
-    
+
     # Caso 3: Solo crear
     if intent == "crear_ticket":
         habitacion = intent_data["habitacion"]
