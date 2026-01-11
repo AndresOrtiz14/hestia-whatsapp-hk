@@ -25,13 +25,13 @@ def crear_ticket(
     ADAPTADO al schema del bot de huéspedes:
     - habitacion → ubicacion
     - origen → canal_origen
-    - Agrega campos requeridos: org_id, hotel_id, area
+    - created_by se omite (no tenemos usuarios en la tabla users)
     
     Args:
         habitacion: Número de habitación
         detalle: Descripción del problema
         prioridad: ALTA, MEDIA, BAJA
-        creado_por: Teléfono de quien creó
+        creado_por: Teléfono de quien creó (se guarda en huesped_whatsapp)
         origen: supervisor, huesped, trabajador
     
     Returns:
@@ -42,17 +42,18 @@ def crear_ticket(
     table = "public.tickets" if using_pg() else "tickets"
     
     # Mapeo de valores al schema del hotel
-    area = "HOUSEKEEPING"  # Por defecto, ajustar según necesidad
-    canal_origen = origen.upper() if origen else "WHATSAPP"
+    area = "HOUSEKEEPING"
+    canal_origen = "WHATSAPP_BOT_SUPERVISION"
     
-    # Valores por defecto para org_id y hotel_id (ajustar según tu setup)
-    org_id = 1  # ID de tu organización
-    hotel_id = 1  # ID del hotel
+    # Valores por defecto para org_id y hotel_id
+    org_id = 1
+    hotel_id = 1
     
+    # SOLUCIÓN: Guardar el teléfono en huesped_whatsapp en vez de created_by
     sql = f"""
         INSERT INTO {table}
-        (org_id, hotel_id, area, prioridad, estado, detalle, canal_origen, ubicacion, created_at, created_by)
-        VALUES (?, ?, ?, ?, 'PENDIENTE', ?, ?, ?, NOW(), ?)
+        (org_id, hotel_id, area, prioridad, estado, detalle, canal_origen, ubicacion, huesped_whatsapp, created_at)
+        VALUES (?, ?, ?, ?, 'PENDIENTE', ?, ?, ?, ?, NOW())
     """
     
     try:
@@ -64,7 +65,7 @@ def crear_ticket(
         
         # Obtener el ticket recién creado
         ticket = fetchone(
-            f"SELECT * FROM {table} WHERE created_by = ? ORDER BY created_at DESC LIMIT 1",
+            f"SELECT * FROM {table} WHERE huesped_whatsapp = ? ORDER BY created_at DESC LIMIT 1",
             [creado_por]
         )
         
@@ -78,7 +79,6 @@ def crear_ticket(
     except Exception as e:
         logger.exception(f"❌ Error creando ticket en DB: {e}")
         raise
-
 
 def asignar_ticket(
     ticket_id: int,
