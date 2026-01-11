@@ -2,14 +2,12 @@
 """
 Database connection and query helpers.
 Compatible con psycopg v3 (Python 3.13+).
-Soporta PostgreSQL (Supabase) con pooling y SQLite local.
+Versión simple sin pooling - perfecta para bots de WhatsApp.
 """
 
 import os
 import logging
-import time
 from contextlib import suppress
-from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -18,104 +16,17 @@ logger = logging.getLogger(__name__)
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 USE_PG = DATABASE_URL.startswith("postgresql://") or DATABASE_URL.startswith("postgres://")
 
-# Detectar si es Supabase Pooler (puerto 6543)
-IS_SUPABASE_POOLER = False
-if USE_PG:
-    parsed = urlparse(DATABASE_URL)
-    IS_SUPABASE_POOLER = parsed.port == 6543
-
 # Importar drivers según sea necesario
 pg = None
-pg_pool = None
 
 if USE_PG:
     try:
         import psycopg
-        from psycopg_pool import ConnectionPool
         pg = psycopg
-        pg_pool = ConnectionPool
+        logger.info("✅ psycopg v3 importado correctamente")
     except Exception as e:
-        logger.error(f"psycopg import failed: {e}")
+        logger.error(f"❌ psycopg import failed: {e}")
         raise RuntimeError("DATABASE_URL configurado pero psycopg no disponible")
-
-PG_POOL = None  # Se crea la primera vez que se usa
-
-
-# ==================== CONNECTION POOL ====================
-
-def _init_pg_pool():
-    """
-    Crea el pool de conexiones de PostgreSQL (una sola vez).
-    Usa pool pequeño para Supabase Pooler (6543).
-    """
-    global PG_POOL
-    
-    if not USE_PG:
-        return None
-    
-    if PG_POOL is not None:
-        return PG_POOL
-    
-    if pg is None or pg_pool is None:
-        raise RuntimeError("DATABASE_URL configurado pero psycopg no disponible")
-    
-    try:
-        # Pool pequeño si es Supabase Pooler, más grande si es directo
-        max_conn = 2 if IS_SUPABASE_POOLER else 5
-        max_conn = int(os.getenv("PG_POOL_MAX", str(max_conn)))
-        
-        logger.info(f"Creando pool PostgreSQL (max={max_conn}, pooler={IS_SUPABASE_POOLER})")
-        
-        PG_POOL = pg_pool(
-            DATABASE_URL,
-            min_size=1,
-            max_size=max_conn,
-            open=True
-        )
-        
-        logger.info("✅ Pool PostgreSQL creado exitosamente")
-        return PG_POOL
-        
-    except Exception as e:
-        logger.exception(f"Error creando pool PostgreSQL: {e}")
-        raise
-
-
-def _pg_conn_with_retry(tries: int = 3, backoff: float = 0.35):
-    """
-    Obtiene conexión del pool con reintentos automáticos.
-    Útil para manejar hiccups transitorios de Supabase Pooler.
-    """
-    last_error = None
-    
-    for attempt in range(tries):
-        try:
-            pool = _init_pg_pool()
-            conn = pool.getconn()
-            
-            # Ping rápido para verificar que está viva
-            with conn.cursor() as cur:
-                cur.execute("SELECT 1")
-            
-            return conn
-            
-        except Exception as e:
-            last_error = e
-            
-            # Si obtuvimos conexión pero falló el ping, cerrarla
-            with suppress(Exception):
-                if 'conn' in locals():
-                    pool.putconn(conn)
-            
-            # Esperar antes de reintentar (backoff exponencial)
-            if attempt < tries - 1:
-                wait_time = backoff * (2 ** attempt)
-                logger.warning(f"Reintento {attempt + 1}/{tries} en {wait_time:.2f}s")
-                time.sleep(wait_time)
-    
-    # Si todos los intentos fallaron
-    logger.error(f"Todos los reintentos fallaron: {last_error}")
-    raise last_error
 
 
 # ==================== FUNCIONES PÚBLICAS ====================
@@ -128,11 +39,19 @@ def using_pg() -> bool:
 def db():
     """
     Obtiene una conexión a la base de datos:
-    - PostgreSQL (con reintentos) si DATABASE_URL está configurado
+    - PostgreSQL si DATABASE_URL está configurado
     - SQLite local en caso contrario
+    
+    IMPORTANTE: Cada llamada crea una nueva conexión.
+    Para bots de WhatsApp esto es perfecto (pocas requests concurrentes).
     """
     if USE_PG:
-        return _pg_conn_with_retry(tries=3)
+        try:
+            conn = pg.connect(DATABASE_URL)
+            return conn
+        except Exception as e:
+            logger.exception(f"Error conectando a PostgreSQL: {e}")
+            raise
     
     # SQLite para desarrollo local
     import sqlite3
@@ -166,29 +85,24 @@ def fetchone(query, params=()):
     """
     conn = db()
     try:
+        cur = _execute(conn, query, params)
+        row = cur.fetchone()
+        
         if USE_PG:
-            cur = _execute(conn, query, params)
-            row = cur.fetchone()
-            cur.close()
             conn.commit()
+            cur.close()
             
-            # psycopg v3 retorna tuplas, convertir a dict usando description
+            # psycopg v3 retorna tuplas, convertir a dict
             if row:
                 columns = [desc[0] for desc in cur.description]
                 return dict(zip(columns, row))
             return None
         else:
-            with conn:
-                cur = _execute(conn, query, params)
-                row = cur.fetchone()
-                return dict(row) if row else None
+            # SQLite con row_factory retorna Row
+            return dict(row) if row else None
     finally:
-        if USE_PG:
-            with suppress(Exception):
-                PG_POOL.putconn(conn)
-        else:
-            with suppress(Exception):
-                conn.close()
+        with suppress(Exception):
+            conn.close()
 
 
 def fetchall(query, params=()):
@@ -197,9 +111,11 @@ def fetchall(query, params=()):
     """
     conn = db()
     try:
+        cur = _execute(conn, query, params)
+        rows = cur.fetchall()
+        
         if USE_PG:
-            cur = _execute(conn, query, params)
-            rows = cur.fetchall()
+            conn.commit()
             
             # psycopg v3 retorna tuplas, convertir a dicts
             if rows:
@@ -209,20 +125,13 @@ def fetchall(query, params=()):
                 result = []
             
             cur.close()
-            conn.commit()
             return result
         else:
-            with conn:
-                cur = _execute(conn, query, params)
-                rows = cur.fetchall()
-                return [dict(row) for row in rows]
+            # SQLite con row_factory retorna Rows
+            return [dict(row) for row in rows]
     finally:
-        if USE_PG:
-            with suppress(Exception):
-                PG_POOL.putconn(conn)
-        else:
-            with suppress(Exception):
-                conn.close()
+        with suppress(Exception):
+            conn.close()
 
 
 def execute(query, params=(), commit=True):
@@ -236,23 +145,16 @@ def execute(query, params=(), commit=True):
     """
     conn = db()
     try:
+        cur = _execute(conn, query, params)
+        
         if USE_PG:
-            cur = _execute(conn, query, params)
             cur.close()
-            if commit:
-                conn.commit()
-        else:
-            with conn:
-                _execute(conn, query, params)
-                if commit:
-                    conn.commit()
+        
+        if commit:
+            conn.commit()
     finally:
-        if USE_PG:
-            with suppress(Exception):
-                PG_POOL.putconn(conn)
-        else:
-            with suppress(Exception):
-                conn.close()
+        with suppress(Exception):
+            conn.close()
 
 
 def insert_and_get_id(query, params=()):
@@ -272,20 +174,15 @@ def insert_and_get_id(query, params=()):
             
             cur = _execute(conn, sql_text, params)
             row = cur.fetchone()
-            cur.close()
             conn.commit()
+            cur.close()
             
             # Retornar el ID (primera columna)
             return row[0] if row else None
         else:
-            with conn:
-                cur = _execute(conn, query, params)
-                conn.commit()
-                return cur.lastrowid
+            cur = _execute(conn, query, params)
+            conn.commit()
+            return cur.lastrowid
     finally:
-        if USE_PG:
-            with suppress(Exception):
-                PG_POOL.putconn(conn)
-        else:
-            with suppress(Exception):
-                conn.close()
+        with suppress(Exception):
+            conn.close()
