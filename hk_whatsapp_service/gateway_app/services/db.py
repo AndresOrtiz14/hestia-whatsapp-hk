@@ -1,7 +1,7 @@
 # gateway_app/services/db.py
 """
 Database connection and query helpers.
-Adaptado del bot de huéspedes del Hotel Diego de Almagro.
+Compatible con psycopg v3 (Python 3.13+).
 Soporta PostgreSQL (Supabase) con pooling y SQLite local.
 """
 
@@ -27,16 +27,16 @@ if USE_PG:
 # Importar drivers según sea necesario
 pg = None
 pg_pool = None
-pg_extras = None
 
 if USE_PG:
     try:
-        import psycopg2 as pg
-        import psycopg2.pool as pg_pool
-        import psycopg2.extras as pg_extras
+        import psycopg
+        from psycopg_pool import ConnectionPool
+        pg = psycopg
+        pg_pool = ConnectionPool
     except Exception as e:
-        logger.error(f"psycopg2 import failed: {e}")
-        raise RuntimeError("DATABASE_URL configurado pero psycopg2 no disponible")
+        logger.error(f"psycopg import failed: {e}")
+        raise RuntimeError("DATABASE_URL configurado pero psycopg no disponible")
 
 PG_POOL = None  # Se crea la primera vez que se usa
 
@@ -57,7 +57,7 @@ def _init_pg_pool():
         return PG_POOL
     
     if pg is None or pg_pool is None:
-        raise RuntimeError("DATABASE_URL configurado pero psycopg2 no disponible")
+        raise RuntimeError("DATABASE_URL configurado pero psycopg no disponible")
     
     try:
         # Pool pequeño si es Supabase Pooler, más grande si es directo
@@ -66,10 +66,11 @@ def _init_pg_pool():
         
         logger.info(f"Creando pool PostgreSQL (max={max_conn}, pooler={IS_SUPABASE_POOLER})")
         
-        PG_POOL = pg_pool.SimpleConnectionPool(
-            minconn=1,
-            maxconn=max_conn,
-            dsn=DATABASE_URL
+        PG_POOL = pg_pool(
+            DATABASE_URL,
+            min_size=1,
+            max_size=max_conn,
+            open=True
         )
         
         logger.info("✅ Pool PostgreSQL creado exitosamente")
@@ -104,7 +105,7 @@ def _pg_conn_with_retry(tries: int = 3, backoff: float = 0.35):
             # Si obtuvimos conexión pero falló el ping, cerrarla
             with suppress(Exception):
                 if 'conn' in locals():
-                    pool.putconn(conn, close=True)
+                    pool.putconn(conn)
             
             # Esperar antes de reintentar (backoff exponencial)
             if attempt < tries - 1:
@@ -150,7 +151,7 @@ def _execute(conn, query, params=()):
     if USE_PG:
         # PostgreSQL usa %s, no ?
         query_pg = query.replace('?', '%s')
-        cur = conn.cursor(cursor_factory=pg_extras.RealDictCursor)
+        cur = conn.cursor()
         cur.execute(query_pg, params)
         return cur
     else:
@@ -170,7 +171,12 @@ def fetchone(query, params=()):
             row = cur.fetchone()
             cur.close()
             conn.commit()
-            return dict(row) if row else None
+            
+            # psycopg v3 retorna tuplas, convertir a dict usando description
+            if row:
+                columns = [desc[0] for desc in cur.description]
+                return dict(zip(columns, row))
+            return None
         else:
             with conn:
                 cur = _execute(conn, query, params)
@@ -194,9 +200,17 @@ def fetchall(query, params=()):
         if USE_PG:
             cur = _execute(conn, query, params)
             rows = cur.fetchall()
+            
+            # psycopg v3 retorna tuplas, convertir a dicts
+            if rows:
+                columns = [desc[0] for desc in cur.description]
+                result = [dict(zip(columns, row)) for row in rows]
+            else:
+                result = []
+            
             cur.close()
             conn.commit()
-            return [dict(row) for row in rows]
+            return result
         else:
             with conn:
                 cur = _execute(conn, query, params)
@@ -261,8 +275,8 @@ def insert_and_get_id(query, params=()):
             cur.close()
             conn.commit()
             
-            # Retornar el ID
-            return row['id'] if isinstance(row, dict) else row[0]
+            # Retornar el ID (primera columna)
+            return row[0] if row else None
         else:
             with conn:
                 cur = _execute(conn, query, params)
