@@ -144,6 +144,40 @@ def create_trigger_updated_at():
     except Exception as e:
         logger.warning(f"⚠️ Error creando trigger: {e}")
 
+def seed_base_data():
+    """
+    Crea datos base mínimos necesarios (org y hotel).
+    Solo si no existen.
+    """
+    from gateway_app.services.db import fetchone, execute
+    
+    logger.info("🌱 Verificando datos base...")
+    
+    # Verificar si ya existe una org
+    org = fetchone("SELECT id FROM public.orgs LIMIT 1")
+    
+    if not org:
+        logger.info("📦 Creando organización base...")
+        execute(
+            "INSERT INTO public.orgs (id, name, created_at) VALUES (1, 'Hestia Operations', NOW())",
+            commit=True
+        )
+        logger.info("✅ Organización creada")
+    else:
+        logger.info(f"✅ Organización ya existe (id={org['id']})")
+    
+    # Verificar si ya existe un hotel
+    hotel = fetchone("SELECT id FROM public.hotels LIMIT 1")
+    
+    if not hotel:
+        logger.info("🏨 Creando hotel base...")
+        execute(
+            "INSERT INTO public.hotels (id, org_id, name, created_at) VALUES (1, 1, 'Hotel Principal', NOW())",
+            commit=True
+        )
+        logger.info("✅ Hotel creado")
+    else:
+        logger.info(f"✅ Hotel ya existe (id={hotel['id']})")
 
 def run_migrations():
     """
@@ -168,6 +202,10 @@ def run_migrations():
             
             logger.info(f"📊 La tabla tiene {count} registros")
             logger.info("⏭️  Saltando creación de tablas (ya existen)")
+            
+            # ✅ NUEVO: Siempre verificar y crear datos base
+            seed_base_data()
+            
             logger.info("=" * 60)
             return
         
@@ -175,6 +213,7 @@ def run_migrations():
         create_tickets_table()
         create_indices()
         create_trigger_updated_at()
+        seed_base_data()  # ✅ También crear datos base en setup inicial
         
         logger.info("🎉 Migraciones completadas exitosamente")
         logger.info("=" * 60)
