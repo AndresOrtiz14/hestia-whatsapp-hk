@@ -672,42 +672,61 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         detalle = intent_data["detalle"]
         prioridad = intent_data["prioridad"]
         
-        import random
-        ticket_id = random.randint(2000, 2999)
+        # ✅ GUARDAR EN DB REAL
+        from gateway_app.services.tickets_db import crear_ticket
         
-        # Mostrar confirmación con resumen
-        prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
+        try:
+            ticket = crear_ticket(
+                habitacion=habitacion,
+                detalle=detalle,
+                prioridad=prioridad,
+                creado_por=from_phone,
+                origen="supervisor"
+            )
+            
+            if ticket:
+                ticket_id = ticket["id"]
+                prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
+                
+                send_whatsapp(
+                    from_phone,
+                    f"✅ Tarea #{ticket_id} creada\n\n"
+                    f"🏨 Habitación: {habitacion}\n"
+                    f"📝 Problema: {detalle}\n"
+                    f"{prioridad_emoji} Prioridad: {prioridad}\n\n"
+                    f"💡 Di 'asignar {ticket_id} a [nombre]'"
+                )
+                
+                # Guardar para asignación rápida
+                state["ticket_seleccionado"] = ticket_id
+                state["esperando_asignacion"] = True
+                
+                # Mostrar recomendaciones
+                from .demo_data import DEMO_WORKERS
+                from .ticket_assignment import calcular_score_worker
+                from .ui_simple import texto_recomendaciones_simple
+                
+                workers_con_score = []
+                for worker in DEMO_WORKERS:
+                    score = calcular_score_worker(worker)
+                    workers_con_score.append({**worker, "score": score})
+                
+                workers_con_score.sort(key=lambda w: w["score"], reverse=True)
+                
+                mensaje_rec = texto_recomendaciones_simple(workers_con_score)
+                send_whatsapp(from_phone, mensaje_rec)
+                
+                return True
+            else:
+                send_whatsapp(from_phone, "❌ Error creando tarea. Intenta de nuevo.")
+                return True
         
-        send_whatsapp(
-            from_phone,
-            f"✅ Tarea #{ticket_id} creada\n\n"
-            f"🏨 Habitación: {habitacion}\n"
-            f"📝 Problema: {detalle}\n"
-            f"{prioridad_emoji} Prioridad: {prioridad}\n\n"
-            f"💡 Di 'asignar {ticket_id} a [nombre]'"
-        )
+        # ✅ AQUÍ ESTÁ EL EXCEPT QUE FALTABA
+        except Exception as e:
+            logger.exception(f"❌ Error creando ticket en DB: {e}")
+            send_whatsapp(from_phone, "❌ Error creando tarea. Intenta de nuevo.")
+            return True
         
-        # Guardar para asignación rápida
-        state["ticket_seleccionado"] = ticket_id
-        state["esperando_asignacion"] = True  # Activar para responder a selección
-        
-        # Mostrar recomendaciones inline
-        from .demo_data import DEMO_WORKERS
-        from .ticket_assignment import calcular_score_worker
-        from .ui_simple import texto_recomendaciones_simple
-        
-        workers_con_score = []
-        for worker in DEMO_WORKERS:
-            score = calcular_score_worker(worker)
-            workers_con_score.append({**worker, "score": score})
-        
-        workers_con_score.sort(key=lambda w: w["score"], reverse=True)
-        
-        mensaje_rec = texto_recomendaciones_simple(workers_con_score)
-        send_whatsapp(from_phone, mensaje_rec)
-        
-        return True
-    
     # Caso 4: Asignar sin ticket (usar el de mayor prioridad)
     if intent == "asignar_sin_ticket":
         worker_nombre = intent_data.get("worker")

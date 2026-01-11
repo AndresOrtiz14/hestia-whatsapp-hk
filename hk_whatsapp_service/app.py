@@ -2,6 +2,7 @@
 from flask import Flask
 import logging
 import sys
+import os
 from gateway_app.routes.webhook import bp as whatsapp_bp
 from gateway_app.config import Config
 
@@ -30,6 +31,20 @@ def create_app() -> Flask:
     logger.info(f"📡 Puerto: {Config.PORT}")
     logger.info(f"🔧 Audio transcription: {Config.TRANSCRIBE_PROVIDER}")
     logger.info("=" * 60)
+    
+    # ✅ EJECUTAR MIGRACIONES (con flag de seguridad)
+    # Para desactivar: agregar env var SKIP_MIGRATIONS=true
+    skip_migrations = os.getenv("SKIP_MIGRATIONS", "").lower() == "true"
+    
+    if skip_migrations:
+        logger.warning("⚠️ MIGRACIONES DESACTIVADAS (SKIP_MIGRATIONS=true)")
+    else:
+        try:
+            from gateway_app.services.migrations import run_migrations
+            run_migrations()
+        except Exception as e:
+            logger.error(f"❌ Error en migraciones: {e}")
+            logger.warning("⚠️ La app continuará, pero puede haber problemas con DB")
     
     return app
 

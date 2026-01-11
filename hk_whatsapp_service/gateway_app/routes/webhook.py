@@ -192,3 +192,126 @@ def inbound():
         logger.exception(f"❌ ERROR procesando webhook: {str(e)}")
         # Siempre retornar 200 para que WhatsApp no reintente
         return jsonify(ok=False, error=str(e)), 200
+
+@bp.route("/db-status", methods=["GET"])
+def db_status():
+    """
+    Endpoint para verificar estado de la base de datos.
+    Muestra qué tablas existen y su contenido.
+    """
+    from gateway_app.services.db import fetchall, fetchone, using_pg
+    
+    status = {
+        "database_type": "PostgreSQL (Supabase)" if using_pg() else "SQLite",
+        "tables": {},
+        "errors": []
+    }
+    
+    try:
+        # Listar todas las tablas
+        if using_pg():
+            tables_sql = """
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = 'public'
+                ORDER BY table_name
+            """
+        else:
+            tables_sql = """
+                SELECT name as table_name 
+                FROM sqlite_master 
+                WHERE type='table'
+                ORDER BY name
+            """
+        
+        tables = fetchall(tables_sql)
+        
+        for table in tables:
+            table_name = table['table_name']
+            
+            # Ignorar tablas del sistema
+            if table_name.startswith('_') or table_name in ['spatial_ref_sys']:
+                continue
+            
+            try:
+                # Contar registros
+                count_sql = f"SELECT COUNT(*) as count FROM {table_name}"
+                count_result = fetchone(count_sql)
+                count = count_result['count'] if count_result else 0
+                
+                # Obtener columnas
+                if using_pg():
+                    columns_sql = f"""
+                        SELECT column_name, data_type 
+                        FROM information_schema.columns 
+                        WHERE table_name = '{table_name}'
+                        ORDER BY ordinal_position
+                    """
+                else:
+                    columns_sql = f"PRAGMA table_info({table_name})"
+                
+                columns = fetchall(columns_sql)
+                
+                status["tables"][table_name] = {
+                    "exists": True,
+                    "row_count": count,
+                    "columns": [
+                        col.get('column_name') or col.get('name') 
+                        for col in columns
+                    ]
+                }
+                
+            except Exception as e:
+                status["tables"][table_name] = {
+                    "exists": True,
+                    "error": str(e)
+                }
+        
+        # Verificar tabla específica 'tickets'
+        tickets_exists = 'tickets' in status["tables"]
+        
+        if tickets_exists:
+            # Obtener algunos ejemplos
+            try:
+                sample_sql = "SELECT * FROM tickets ORDER BY created_at DESC LIMIT 3"
+                samples = fetchall(sample_sql)
+                status["tables"]["tickets"]["sample_records"] = samples
+            except Exception as e:
+                status["errors"].append(f"Error obteniendo ejemplos: {e}")
+        
+        # Verificar tabla 'runtime_sessions'
+        runtime_sessions_exists = 'runtime_sessions' in status["tables"]
+        
+        status["summary"] = {
+            "total_tables": len(status["tables"]),
+            "tickets_table_exists": tickets_exists,
+            "runtime_sessions_exists": runtime_sessions_exists,
+            "ready_for_migrations": not tickets_exists
+        }
+        
+    except Exception as e:
+        status["errors"].append(f"Error general: {str(e)}")
+        logger.exception("Error en db-status")
+    
+    return jsonify(status), 200
+
+
+@bp.route("/health", methods=["GET"])
+def health_check():
+    """
+    Endpoint de health check para monitoreo.
+    """
+    import os
+    
+    whatsapp_token_configured = bool(os.getenv("WHATSAPP_TOKEN"))
+    openai_key_configured = bool(os.getenv("OPENAI_API_KEY"))
+    database_configured = bool(os.getenv("DATABASE_URL"))
+    
+    return jsonify({
+        "status": "healthy",
+        "whatsapp_configured": whatsapp_token_configured,
+        "audio_support": openai_key_configured,
+        "database_configured": database_configured,
+        "bots": ["housekeeping", "supervision"],
+        "message": "WhatsApp Multi-Bot is running"
+    }), 200
