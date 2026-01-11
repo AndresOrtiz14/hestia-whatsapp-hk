@@ -89,14 +89,16 @@ def fetchone(query, params=()):
         row = cur.fetchone()
         
         if USE_PG:
+            # IMPORTANTE: Obtener description ANTES de cerrar cursor
+            if row is not None:
+                columns = [desc[0] for desc in cur.description]
+                result = dict(zip(columns, row))
+            else:
+                result = None
+            
             conn.commit()
             cur.close()
-            
-            # psycopg v3 retorna tuplas, convertir a dict
-            if row:
-                columns = [desc[0] for desc in cur.description]
-                return dict(zip(columns, row))
-            return None
+            return result
         else:
             # SQLite con row_factory retorna Row
             return dict(row) if row else None
@@ -115,15 +117,14 @@ def fetchall(query, params=()):
         rows = cur.fetchall()
         
         if USE_PG:
-            conn.commit()
-            
-            # psycopg v3 retorna tuplas, convertir a dicts
-            if rows:
+            # IMPORTANTE: Obtener description ANTES de cerrar cursor
+            if rows and len(rows) > 0:
                 columns = [desc[0] for desc in cur.description]
                 result = [dict(zip(columns, row)) for row in rows]
             else:
                 result = []
             
+            conn.commit()
             cur.close()
             return result
         else:
@@ -132,7 +133,6 @@ def fetchall(query, params=()):
     finally:
         with suppress(Exception):
             conn.close()
-
 
 def execute(query, params=(), commit=True):
     """
