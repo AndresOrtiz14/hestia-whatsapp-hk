@@ -7,6 +7,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 from gateway_app.services.tickets_db import crear_ticket
+from gateway_app.services import tickets_db
+
 
 from datetime import date, datetime
 from .state_simple import (
@@ -566,6 +568,69 @@ def crear_ticket_directo(from_phone: str, reporte: dict) -> None:
 
 
 def crear_ticket_desde_draft(from_phone: str) -> None:
+    state = get_user_state(from_phone)
+
+    # ✅ Guard: if we’re not actually confirming a report anymore, ignore silently.
+    if state.get("state") != CONFIRMANDO_REPORTE:
+        logger.warning(
+            "HK_CREATE_FROM_DRAFT ignored (state=%s) from=%s",
+            state.get("state"),
+            from_phone,
+        )
+        return
+
+    draft = state.get("ticket_draft") or {}
+    logger.info("HK_CREATE_FROM_DRAFT from=%s draft=%s", from_phone, draft)
+
+    # VALIDACIÓN (only show user error if we are really in confirm state)
+    if not draft.get("habitacion") or not draft.get("detalle"):
+        logger.warning("HK_CREATE_FROM_DRAFT missing_fields from=%s draft=%s", from_phone, draft)
+        send_whatsapp(from_phone, "❌ Error: Falta información del reporte")
+        reset_ticket_draft(from_phone)
+        state["state"] = MENU
+        return
+
+    try:
+        # IMPORTANT: call via module alias if you’re using that pattern
+        ticket = tickets_db.crear_ticket(
+            habitacion=draft["habitacion"],
+            detalle=draft["detalle"],
+            prioridad=draft["prioridad"],
+            creado_por=from_phone,
+            origen="trabajador",
+            canal_origen="WHATSAPP_BOT_HOUSEKEEPING",
+            area="HOUSEKEEPING",
+        )
+
+        logger.info(
+            "HK_CREATE_FROM_DRAFT db_return from=%s ticket_is_none=%s ticket=%s",
+            from_phone,
+            ticket is None,
+            ticket,
+        )
+
+        if not ticket:
+            send_whatsapp(from_phone, "❌ No pude crear el ticket en la base de datos.")
+            reset_ticket_draft(from_phone)
+            state["state"] = MENU
+            return
+
+        ticket_id = ticket["id"]
+        logger.info("HK_CREATE_FROM_DRAFT created_id=%s from=%s", ticket_id, from_phone)
+
+        mensaje = texto_ticket_creado(ticket_id, draft["habitacion"], draft["prioridad"])
+        send_whatsapp(from_phone, mensaje)
+
+        # Clear draft + leave menu
+        reset_ticket_draft(from_phone)
+        state["state"] = MENU
+
+    except Exception as e:
+        logger.exception("HK_CREATE_FROM_DRAFT exception from=%s err=%s", from_phone, e)
+        send_whatsapp(from_phone, "❌ Error creando el ticket. Intenta de nuevo.")
+        reset_ticket_draft(from_phone)
+        state["state"] = MENU
+
     state = get_user_state(from_phone)
     draft = state["ticket_draft"]
 
