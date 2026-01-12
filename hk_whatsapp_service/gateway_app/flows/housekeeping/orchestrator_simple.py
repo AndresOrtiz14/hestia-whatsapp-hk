@@ -43,6 +43,7 @@ from .intents import (
 )
 from .outgoing import send_whatsapp
 from .demo_tickets import DEMO_TICKETS, elegir_mejor_ticket
+from gateway_app.services.tickets_db import obtener_tickets_asignados_a
 
 
 def handle_hk_message_simple(from_phone: str, text: str) -> None:
@@ -527,39 +528,85 @@ def handle_confirmando_reporte(from_phone: str, raw: str) -> None:
 
 def crear_ticket_directo(from_phone: str, reporte: dict) -> None:
     """
-    Crea ticket desde reporte directo (audio/texto).
-    
-    Args:
-        from_phone: Número de teléfono
-        reporte: Dict con {habitacion, detalle, prioridad}
+    Crea ticket desde reporte directo (texto/audio) y lo guarda en public.tickets.
     """
-    import random
-    
-    # Generar ID (en producción sería de BD)
-    ticket_id = random.randint(2000, 2999)
-    
-    # Crear ticket
-    nuevo_ticket = {
-        "id": ticket_id,
-        "habitacion": reporte["habitacion"],
-        "detalle": reporte["detalle"],
-        "prioridad": reporte["prioridad"],
-        "creado_por": from_phone,
-        "created_at": datetime.now().isoformat(),
-        "estado": "pendiente"
-    }
-    
-    # TODO: Guardar en BD y notificar a supervisión
-    
-    mensaje = texto_ticket_creado(ticket_id, reporte["habitacion"], reporte["prioridad"])
-    send_whatsapp(from_phone, mensaje)
-    
-    # Volver al menú
-    state = get_user_state(from_phone)
-    state["state"] = MENU
+    from gateway_app.services.tickets_db import crear_ticket
+
+    try:
+        ticket = crear_ticket(
+            habitacion=reporte["habitacion"],
+            detalle=reporte["detalle"],
+            prioridad=reporte["prioridad"],
+            creado_por=from_phone,  # el worker que reporta
+            origen="trabajador",
+            canal_origen="WHATSAPP_BOT_HOUSEKEEPING",
+            area="HOUSEKEEPING",
+        )
+
+        if not ticket:
+            send_whatsapp(from_phone, "❌ No pude crear el ticket en la base de datos.")
+            return
+
+        ticket_id = ticket["id"]
+        mensaje = texto_ticket_creado(ticket_id, reporte["habitacion"], reporte["prioridad"])
+        send_whatsapp(from_phone, mensaje)
+
+        # volver al menú
+        state = get_user_state(from_phone)
+        state["state"] = MENU
+
+    except Exception:
+        logger.exception("Error creando ticket directo en DB")
+        send_whatsapp(from_phone, "❌ Error creando el ticket. Intenta de nuevo.")
 
 
 def crear_ticket_desde_draft(from_phone: str) -> None:
+    """
+    Crea ticket desde el borrador y lo guarda en public.tickets.
+    """
+    from gateway_app.services.tickets_db import crear_ticket
+
+    state = get_user_state(from_phone)
+    draft = state["ticket_draft"]
+
+    # VALIDACIÓN
+    if not draft.get("habitacion") or not draft.get("detalle"):
+        send_whatsapp(from_phone, "❌ Error: Falta información del reporte")
+        reset_ticket_draft(from_phone)
+        state["state"] = MENU
+        return
+
+    try:
+        ticket = crear_ticket(
+            habitacion=draft["habitacion"],
+            detalle=draft["detalle"],
+            prioridad=draft["prioridad"],
+            creado_por=from_phone,  # el worker que reporta
+            origen="trabajador",
+            canal_origen="WHATSAPP_BOT_HOUSEKEEPING",
+            area="HOUSEKEEPING",
+        )
+
+        if not ticket:
+            send_whatsapp(from_phone, "❌ No pude crear el ticket en la base de datos.")
+            reset_ticket_draft(from_phone)
+            state["state"] = MENU
+            return
+
+        ticket_id = ticket["id"]
+        mensaje = texto_ticket_creado(ticket_id, draft["habitacion"], draft["prioridad"])
+        send_whatsapp(from_phone, mensaje)
+
+        # Limpiar y volver al menú
+        reset_ticket_draft(from_phone)
+        state["state"] = MENU
+
+    except Exception:
+        logger.exception("Error creando ticket desde draft en DB")
+        send_whatsapp(from_phone, "❌ Error creando el ticket. Intenta de nuevo.")
+        reset_ticket_draft(from_phone)
+        state["state"] = MENU
+
     """
     Crea ticket desde el borrador.
     VALIDACIÓN: Solo crea si hay habitación Y detalle.
