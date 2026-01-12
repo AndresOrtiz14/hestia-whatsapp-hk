@@ -558,6 +558,11 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
     intent_data = detect_audio_intent(text)
     intent = intent_data.get("intent")
     state = get_supervisor_state(from_phone)
+
+    # 🔍 DEBUG - Agregar estas 3 líneas
+    logger.info(f"🎯 INTENT DETECTADO: {intent}")
+    logger.info(f"📦 DATOS: {intent_data}")
+    logger.info(f"📝 TEXTO ORIGINAL: {text}")
     
     # PRIMERO: Manejar selección pendiente (si hay confirmación esperando)
     if state.get("seleccion_mucamas"):
@@ -569,9 +574,42 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         
         # Caso 1: Selección válida
         if mucama_seleccionada and mucama_seleccionada != "CANCEL":
-            send_whatsapp(from_phone, texto_ticket_asignado_simple(ticket_id, mucama_seleccionada["nombre_completo"]))
-            state.pop("seleccion_mucamas", None)
-            return True
+            # Recuperar datos del ticket desde seleccion_info
+            habitacion = seleccion_info.get("habitacion", "?")
+            detalle = seleccion_info.get("detalle", "Tarea asignada")
+            prioridad = seleccion_info.get("prioridad", "MEDIA")
+            
+            # Asignar y notificar con datos completos
+            worker_phone = mucama_seleccionada.get("telefono")
+            worker_nombre = mucama_seleccionada.get("nombre_completo") or mucama_seleccionada.get("username")
+            
+            from gateway_app.services.tickets_db import asignar_ticket
+            if asignar_ticket(ticket_id, worker_phone, worker_nombre):
+                prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
+                
+                # Notificar supervisor
+                send_whatsapp(
+                    from_phone,
+                    f"✅ Tarea #{ticket_id} asignada\n\n"
+                    f"🏨 Habitación: {habitacion}\n"
+                    f"📝 Problema: {detalle}\n"
+                    f"{prioridad_emoji} Prioridad: {prioridad}\n"
+                    f"👤 Asignado a: {worker_nombre}"
+                )
+                
+                # Notificar trabajador
+                from gateway_app.services.whatsapp_client import send_whatsapp_text
+                send_whatsapp_text(
+                    to=worker_phone,
+                    body=f"📋 Nueva tarea asignada\n\n"
+                        f"#{ticket_id} · Hab. {habitacion}\n"
+                        f"{detalle}\n"
+                        f"{prioridad_emoji} Prioridad: {prioridad}\n\n"
+                        f"💡 Responde 'tomar' para aceptar"
+                )
+                
+                state.pop("seleccion_mucamas", None)
+                return True
         
         # Caso 2: Cancelar
         elif mucama_seleccionada == "CANCEL":
