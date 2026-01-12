@@ -198,7 +198,6 @@ def seed_workers():
     logger.info("📦 Creando workers de prueba...")
     
     # Password dummy para testing (hash de "test123")
-    # En producción, esto vendría del sistema de auth real
     dummy_password_hash = hashlib.sha256("test123".encode()).hexdigest()
     
     workers_data = [
@@ -206,25 +205,29 @@ def seed_workers():
             "username": "Seba Fruns Test",
             "telefono": "56996107169",
             "email": "seba.test@hestia.local",
-            "area": "HOUSEKEEPING"
+            "area": "HOUSEKEEPING",
+            "role": "mucama"  # ← AGREGAR ESTE CAMPO
         },
         {
             "username": "Javier Pozo Test", 
             "telefono": "4915221417651",
             "email": "javier.test@hestia.local",
-            "area": "MANTENCION"
+            "area": "MANTENCION",
+            "role": "mantencion"  # ← AGREGAR ESTE CAMPO
         },
         {
             "username": "Pedro Arriagada Test",
             "telefono": "56983001018",
             "email": "pedro.test@hestia.local",
-            "area": "MANTENCION"
+            "area": "MANTENCION",
+            "role": "mantencion"  # ← AGREGAR ESTE CAMPO
         },
         {
             "username": "Andres Ortiz Test",
             "telefono": "56956326272",
             "email": "andres.test@hestia.local",
-            "area": "HOUSEKEEPING"
+            "area": "HOUSEKEEPING",
+            "role": "mucama"  # ← AGREGAR ESTE CAMPO
         }
     ]
     
@@ -232,8 +235,8 @@ def seed_workers():
         try:
             sql = """
                 INSERT INTO public.users 
-                (username, telefono, email, area, activo, password_hash, initialized)
-                VALUES (?, ?, ?, ?, true, ?, true)
+                (username, telefono, email, area, role, activo, password_hash, initialized)
+                VALUES (?, ?, ?, ?, ?, true, ?, true)
             """
             
             execute(sql, [
@@ -241,6 +244,7 @@ def seed_workers():
                 worker["telefono"],
                 worker["email"],
                 worker["area"],
+                worker["role"],  # ← AGREGAR AQUÍ
                 dummy_password_hash
             ], commit=True)
             
