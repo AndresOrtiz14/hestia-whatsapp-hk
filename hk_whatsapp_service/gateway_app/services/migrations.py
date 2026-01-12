@@ -185,6 +185,7 @@ def seed_workers():
     IMPORTANTE: Reemplaza los números con tus números REALES de WhatsApp.
     """
     from gateway_app.services.db import fetchone, execute
+    import hashlib
     
     logger.info("👥 Verificando workers...")
     
@@ -196,30 +197,32 @@ def seed_workers():
     
     logger.info("📦 Creando workers de prueba...")
     
-    # ⚠️ IMPORTANTE: Reemplaza estos números con TUS números REALES de WhatsApp
-    # Formato: 56XXXXXXXXX (sin +, sin espacios)
+    # Password dummy para testing (hash de "test123")
+    # En producción, esto vendría del sistema de auth real
+    dummy_password_hash = hashlib.sha256("test123".encode()).hexdigest()
+    
     workers_data = [
         {
             "username": "Seba Fruns Test",
-            "telefono": "56996107169",  # ← CAMBIAR POR TU NÚMERO REAL
+            "telefono": "56996107169",
             "email": "seba.test@hestia.local",
             "area": "HOUSEKEEPING"
         },
         {
             "username": "Javier Pozo Test", 
-            "telefono": "4915221417651",  # ← CAMBIAR POR TU NÚMERO REAL
+            "telefono": "4915221417651",
             "email": "javier.test@hestia.local",
             "area": "MANTENCION"
         },
         {
             "username": "Pedro Arriagada Test",
-            "telefono": "56983001018",  # ← Este es TU número de supervisor, úsalo para testing
+            "telefono": "56983001018",
             "email": "pedro.test@hestia.local",
             "area": "MANTENCION"
         },
         {
             "username": "Andres Ortiz Test",
-            "telefono": "56956326272",  # ← Este es TU número de supervisor, úsalo para testing
+            "telefono": "56956326272",
             "email": "andres.test@hestia.local",
             "area": "HOUSEKEEPING"
         }
@@ -228,26 +231,28 @@ def seed_workers():
     for worker in workers_data:
         try:
             sql = """
-                INSERT INTO public.users (username, telefono, email, area, activo)
-                VALUES (?, ?, ?, ?, true)
+                INSERT INTO public.users 
+                (username, telefono, email, area, activo, password_hash, initialized)
+                VALUES (?, ?, ?, ?, true, ?, true)
             """
             
             execute(sql, [
                 worker["username"],
                 worker["telefono"],
                 worker["email"],
-                worker["area"]
+                worker["area"],
+                dummy_password_hash
             ], commit=True)
             
             logger.info(f"✅ Worker creado: {worker['username']} ({worker['telefono']})")
             
         except Exception as e:
-            # Si falla (por constraints), solo advertir
+            # Si falla por duplicate key o constraint, solo advertir
             logger.warning(f"⚠️ No se pudo crear worker {worker['username']}: {e}")
             continue
     
     logger.info("🎉 Workers de prueba listos")
-
+    
 def run_migrations():
     """
     Ejecuta todas las migraciones necesarias.

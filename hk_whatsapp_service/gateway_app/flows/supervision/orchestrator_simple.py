@@ -3,6 +3,9 @@ Orquestador SIMPLE para supervisión - Sin menú, solo comandos.
 """
 import logging
 
+from .ticket_assignment import calcular_score_worker
+from gateway_app.services.workers_db import buscar_worker_por_nombre, obtener_todos_workers
+
 logger = logging.getLogger(__name__)
 
 from datetime import date
@@ -151,7 +154,7 @@ def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
     Returns:
         True si se manejó la asignación
     """
-    from .demo_data import DEMO_WORKERS, get_worker_by_nombre
+
     from .ticket_assignment import calcular_score_worker, confirmar_asignacion
     
     state = get_supervisor_state(from_phone)
@@ -185,10 +188,14 @@ def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
         index = int(raw) - 1
         
         # Ordenar workers por score igual que en recomendaciones
+        from gateway_app.services.workers_db import obtener_todos_workers
+        all_workers = obtener_todos_workers()
+
         workers_con_score = []
-        for w in DEMO_WORKERS:
+        for w in all_workers:
             score = calcular_score_worker(w)
             workers_con_score.append({**w, "score": score})
+
         
         workers_con_score.sort(key=lambda w: w["score"], reverse=True)
         
@@ -205,7 +212,9 @@ def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
     
     # Opción 2: Respuesta por nombre
     else:
-        worker = get_worker_by_nombre(raw)
+        from gateway_app.services.workers_db import buscar_worker_por_nombre
+        worker = buscar_worker_por_nombre(raw)
+
     
     # Verificar que se encontró
     if worker:
@@ -266,7 +275,8 @@ def mostrar_pendientes_simple(from_phone: str) -> None:
 
 def asignar_siguiente(from_phone: str) -> None:
     """Asigna el ticket de mayor prioridad."""
-    from .demo_data import get_demo_tickets_pendientes, DEMO_WORKERS
+    from .demo_data import get_demo_tickets_pendientes
+    from gateway_app.services.workers_db import obtener_todos_workers
     from .ticket_assignment import calcular_score_worker
     from .ui_simple import texto_recomendaciones_simple
     
@@ -307,9 +317,11 @@ def asignar_siguiente(from_phone: str) -> None:
     )
     
     # Mostrar recomendaciones compactas (inline, no función externa)
+    all_workers = obtener_todos_workers()
     workers_con_score = []
-    for worker in DEMO_WORKERS:
+    for worker in all_workers:
         score = calcular_score_worker(worker)
+
         workers_con_score.append({**worker, "score": score})
     
     workers_con_score.sort(key=lambda m: m["score"], reverse=True)
@@ -543,7 +555,12 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
     """
     from .audio_commands import detect_audio_intent
     from .ticket_assignment import confirmar_asignacion
-    from .demo_data import get_worker_by_nombre, get_demo_tickets_pendientes, DEMO_WORKERS
+    # DESPUÉS
+    from gateway_app.services.workers_db import (
+    obtener_todos_workers,
+    buscar_worker_por_nombre,
+    buscar_workers_por_nombre
+    )
     from .worker_search import (
         buscar_workers,
         formato_lista_workers,
@@ -615,7 +632,9 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         worker_nombre = intent_data.get("components", {}).get("worker") or text.strip()
         worker_nombre = normalizar_nombre(worker_nombre)
         
-        candidatas = buscar_workers(worker_nombre, DEMO_WORKERS)
+        from gateway_app.services.workers_db import buscar_workers_por_nombre
+        candidatas = buscar_workers_por_nombre(worker_nombre)
+
         
         if not candidatas:
             send_whatsapp(
@@ -655,8 +674,9 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         worker_nombre = normalizar_nombre(worker_nombre)
         
         # Buscar con sistema inteligente
-        candidatas = buscar_workers(worker_nombre, DEMO_WORKERS)
-        
+        from gateway_app.services.workers_db import buscar_workers_por_nombre
+        candidatas = buscar_workers_por_nombre(worker_nombre)
+ 
         if not candidatas:
             send_whatsapp(
                 from_phone,
@@ -694,7 +714,8 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         worker_nombre = normalizar_nombre(worker_nombre)
         
         # Buscar con sistema inteligente
-        candidatas = buscar_workers(worker_nombre, DEMO_WORKERS)
+        from gateway_app.services.workers_db import buscar_workers_por_nombre
+        candidatas = buscar_workers_por_nombre(worker_nombre)
         
         if not candidatas:
             send_whatsapp(
@@ -752,11 +773,9 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
             
             # 2. Buscar trabajador
-            from .demo_data import DEMO_WORKERS
             from .worker_search import buscar_workers, normalizar_nombre
-            
-            nombre_lower = normalizar_nombre(nombre_trabajador)
-            coincidencias = buscar_workers(nombre_lower, DEMO_WORKERS)
+            from gateway_app.services.workers_db import buscar_workers_por_nombre
+            coincidencias = buscar_workers_por_nombre(nombre_trabajador)
             
             if len(coincidencias) == 1:
                 # ✅ ASIGNACIÓN DIRECTA EN BD
@@ -809,11 +828,17 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 from .ticket_assignment import calcular_score_worker
                 from .ui_simple import texto_recomendaciones_simple
                 
+                from gateway_app.services.workers_db import obtener_todos_workers
+                all_workers = obtener_todos_workers()
+
                 workers_con_score = []
-                for worker in coincidencias:
+                for worker in all_workers:
                     score = calcular_score_worker(worker)
-                    workers_con_score.append({**worker, "score": score})
-                
+                    workers_con_score.append({**worker, "score": score})  # ← AGREGAR ESTO
+
+                workers_con_score.sort(key=lambda w: w["score"], reverse=True)
+
+
                 workers_con_score.sort(key=lambda w: w["score"], reverse=True)
                 mensaje_rec = texto_recomendaciones_simple(workers_con_score)
                 send_whatsapp(from_phone, mensaje_rec)
@@ -837,10 +862,14 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 from .ticket_assignment import calcular_score_worker
                 from .ui_simple import texto_recomendaciones_simple
                 
+                from gateway_app.services.workers_db import obtener_todos_workers
+                all_workers = obtener_todos_workers()
+
                 workers_con_score = []
-                for worker in DEMO_WORKERS:
+                for worker in all_workers:
                     score = calcular_score_worker(worker)
                     workers_con_score.append({**worker, "score": score})
+
                 
                 workers_con_score.sort(key=lambda w: w["score"], reverse=True)
                 mensaje_rec = texto_recomendaciones_simple(workers_con_score)
@@ -888,12 +917,16 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 state["esperando_asignacion"] = True
                 
                 # Mostrar recomendaciones
-                from .demo_data import DEMO_WORKERS
+                from gateway_app.services.workers_db import buscar_workers_por_nombre
+
                 from .ticket_assignment import calcular_score_worker
                 from .ui_simple import texto_recomendaciones_simple
                 
+                from gateway_app.services.workers_db import obtener_todos_workers
+                all_workers = obtener_todos_workers()
+
                 workers_con_score = []
-                for worker in DEMO_WORKERS:
+                for worker in all_workers:
                     score = calcular_score_worker(worker)
                     workers_con_score.append({**worker, "score": score})
                 
@@ -921,7 +954,8 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             send_whatsapp(from_phone, "❌ No entendí el nombre del trabajador")
             return True
         
-        worker = get_worker_by_nombre(worker_nombre)
+        from gateway_app.services.workers_db import buscar_worker_por_nombre
+        worker = buscar_worker_por_nombre(worker_nombre)
         
         if worker:
             tickets = get_demo_tickets_pendientes()
