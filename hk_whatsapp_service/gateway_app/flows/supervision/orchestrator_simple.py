@@ -257,9 +257,9 @@ def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
 
 def mostrar_pendientes_simple(from_phone: str) -> None:
     """Muestra tickets pendientes de forma simple."""
-    from .demo_data import get_demo_tickets_pendientes
+    from gateway_app.services.tickets_db import obtener_tickets_por_estado
     
-    tickets = get_demo_tickets_pendientes()
+    tickets = obtener_tickets_por_estado("PENDIENTE")
     
     # Ordenar por prioridad
     prioridad_order = {"ALTA": 0, "MEDIA": 1, "BAJA": 2}
@@ -277,12 +277,12 @@ def mostrar_pendientes_simple(from_phone: str) -> None:
 
 def asignar_siguiente(from_phone: str) -> None:
     """Asigna el ticket de mayor prioridad."""
-    from .demo_data import get_demo_tickets_pendientes
+    from gateway_app.services.tickets_db import obtener_tickets_por_estado
     from gateway_app.services.workers_db import obtener_todos_workers
     from .ticket_assignment import calcular_score_worker
     from .ui_simple import texto_recomendaciones_simple
     
-    tickets = get_demo_tickets_pendientes()
+    tickets = obtener_tickets_por_estado("PENDIENTE")
     
     if not tickets:
         send_whatsapp(from_phone, "✅ No hay tickets pendientes")
@@ -337,20 +337,22 @@ def asignar_siguiente(from_phone: str) -> None:
 
 def mostrar_urgentes(from_phone: str) -> None:
     """Muestra solo tickets urgentes."""
-    from .demo_data import get_demo_tickets_pendientes, get_demo_tickets_en_progreso
+    from gateway_app.services.tickets_db import obtener_tickets_por_estado
+    from datetime import datetime, timedelta
     
     # Pendientes hace >5 min
-    pendientes = get_demo_tickets_pendientes()
+    pendientes = obtener_tickets_por_estado("PENDIENTE")
+    now = datetime.now()
     pendientes_urgentes = [
         t for t in pendientes 
-        if t.get("tiempo_sin_resolver_mins", 0) > 5
+        if (now - t.get("created_at", now)).total_seconds() / 60 > 5
     ]
     
     # En progreso hace >10 min
-    progreso = get_demo_tickets_en_progreso()
+    progreso = obtener_tickets_por_estado("EN_CURSO")
     retrasados = [
         t for t in progreso 
-        if t.get("tiempo_sin_resolver_mins", 0) > 10
+        if t.get("started_at") and (now - t["started_at"]).total_seconds() / 60 > 10
     ]
     
     mensaje = texto_urgentes(pendientes_urgentes, retrasados)
@@ -359,9 +361,9 @@ def mostrar_urgentes(from_phone: str) -> None:
 
 def mostrar_en_proceso(from_phone: str) -> None:
     """Muestra todos los tickets en proceso."""
-    from .demo_data import get_demo_tickets_en_progreso
+    from gateway_app.services.tickets_db import obtener_tickets_por_estado
     
-    tickets = get_demo_tickets_en_progreso()
+    tickets = obtener_tickets_por_estado("EN_CURSO")
     
     if not tickets:
         send_whatsapp(from_phone, "✅ No hay tareas en proceso")
@@ -394,12 +396,14 @@ def mostrar_en_proceso(from_phone: str) -> None:
 
 def mostrar_retrasados(from_phone: str) -> None:
     """Muestra solo tickets retrasados (>10 min)."""
-    from .demo_data import get_demo_tickets_en_progreso
+    from gateway_app.services.tickets_db import obtener_tickets_por_estado
+    from datetime import datetime
     
-    tickets = get_demo_tickets_en_progreso()
+    tickets = obtener_tickets_por_estado("EN_CURSO")
+    now = datetime.now()
     retrasados = [
         t for t in tickets 
-        if t.get("tiempo_sin_resolver_mins", 0) > 10
+        if t.get("started_at") and (now - t["started_at"]).total_seconds() / 60 > 10
     ]
     
     if not retrasados:
@@ -420,34 +424,24 @@ def mostrar_retrasados(from_phone: str) -> None:
 
 
 def mostrar_info_ticket(from_phone: str, ticket_id: int) -> None:
-    """
-    Muestra información detallada de un ticket específico.
+    from gateway_app.services.tickets_db import obtener_ticket_por_id
     
-    Args:
-        from_phone: Número del supervisor
-        ticket_id: ID del ticket
-    """
-    from .demo_data import (
-        get_demo_tickets_pendientes,
-        get_demo_tickets_en_progreso
-    )
-    
-    # Buscar en todos los estados
-    ticket = None
-    estado_actual = "?"
-    
-    for t in get_demo_tickets_pendientes():
-        if t["id"] == ticket_id:
-            ticket = t
-            estado_actual = "Pendiente"
-            break
+    ticket = obtener_ticket_por_id(ticket_id)
     
     if not ticket:
-        for t in get_demo_tickets_en_progreso():
-            if t["id"] == ticket_id:
-                ticket = t
-                estado_actual = "En progreso"
-                break
+        send_whatsapp(from_phone, f"❌ No encontré la tarea #{ticket_id}")
+        return
+    
+    # Mapear estado de BD a texto legible
+    estado_map = {
+        "PENDIENTE": "Pendiente",
+        "ASIGNADO": "Asignado",
+        "EN_CURSO": "En progreso",
+        "PAUSADO": "Pausado",
+        "RESUELTO": "Completado"
+    }
+    estado_actual = estado_map.get(ticket.get("estado", "PENDIENTE"), "Desconocido")
+
     
     # No hay tickets completados en demo_data, solo pendientes y en progreso
     
@@ -775,7 +769,6 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
             
             # 2. Buscar trabajador
-            from .worker_search import buscar_workers, normalizar_nombre
             from gateway_app.services.workers_db import buscar_workers_por_nombre
             coincidencias = buscar_workers_por_nombre(nombre_trabajador)
             
@@ -783,7 +776,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 # ✅ ASIGNACIÓN DIRECTA EN BD
                 worker = coincidencias[0]
                 worker_phone = worker.get("telefono")
-                worker_nombre = worker.get("nombre_completo", worker.get("nombre"))
+                worker_nombre = worker.get("nombre_completo") or worker.get("username")
                 
                 # Asignar en BD
                 if asignar_ticket(ticket_id, worker_phone, worker_nombre):
@@ -829,18 +822,14 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 
                 from .ticket_assignment import calcular_score_worker
                 from .ui_simple import texto_recomendaciones_simple
-                
                 from gateway_app.services.workers_db import obtener_todos_workers
+                
                 all_workers = obtener_todos_workers()
-
                 workers_con_score = []
                 for worker in all_workers:
                     score = calcular_score_worker(worker)
-                    workers_con_score.append({**worker, "score": score})  # ← AGREGAR ESTO
-
-                workers_con_score.sort(key=lambda w: w["score"], reverse=True)
-
-
+                    workers_con_score.append({**worker, "score": score})
+                
                 workers_con_score.sort(key=lambda w: w["score"], reverse=True)
                 mensaje_rec = texto_recomendaciones_simple(workers_con_score)
                 send_whatsapp(from_phone, mensaje_rec)
@@ -863,15 +852,13 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 
                 from .ticket_assignment import calcular_score_worker
                 from .ui_simple import texto_recomendaciones_simple
-                
                 from gateway_app.services.workers_db import obtener_todos_workers
+                
                 all_workers = obtener_todos_workers()
-
                 workers_con_score = []
                 for worker in all_workers:
                     score = calcular_score_worker(worker)
                     workers_con_score.append({**worker, "score": score})
-
                 
                 workers_con_score.sort(key=lambda w: w["score"], reverse=True)
                 mensaje_rec = texto_recomendaciones_simple(workers_con_score)
@@ -957,10 +944,13 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             return True
         
         from gateway_app.services.workers_db import buscar_worker_por_nombre
+        from gateway_app.services.tickets_db import obtener_tickets_por_estado
+        
         worker = buscar_worker_por_nombre(worker_nombre)
         
         if worker:
-            tickets = get_demo_tickets_pendientes()
+            tickets = obtener_tickets_por_estado("PENDIENTE")
+
             if tickets:
                 prioridad_order = {"ALTA": 0, "MEDIA": 1, "BAJA": 2}
                 tickets_sorted = sorted(
