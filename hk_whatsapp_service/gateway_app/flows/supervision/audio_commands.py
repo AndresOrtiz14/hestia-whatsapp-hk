@@ -282,6 +282,7 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
         detalle = re.sub(r'cuarto\s*\d+', '', detalle)
         detalle = re.sub(r'pieza\s*\d+', '', detalle)
         detalle = re.sub(r'hab\s*\d+', '', detalle)
+        detalle = re.sub(r'^(la|el)\s+', '', detalle.strip())
         
         # Si hay nombre después de "a [nombre]", extraerlo y limpiar
         if worker:

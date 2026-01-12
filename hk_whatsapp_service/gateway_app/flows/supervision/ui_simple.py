@@ -52,10 +52,10 @@ def texto_tickets_pendientes_simple(tickets: list) -> str:
             ticket.get("prioridad", "MEDIA"), "🟡"
         )
         lineas.append(
-            f"{prioridad} #{ticket['id']} · Hab. {ticket['habitacion']} · "
-            f"{ticket['detalle'][:30]}"
-        )
-    
+            hab = ticket.get('ubicacion') or ticket.get('habitacion', '?'))
+
+        lineas.append(f"{prioridad_emoji} #{ticket['id']} · Hab. {hab} · {ticket['detalle'][:30]}")
+        
     if len(tickets) > 5:
         lineas.append(f"\n... y {len(tickets) - 5} más")
     
@@ -97,7 +97,8 @@ def texto_recomendaciones_simple(workers_con_score: list) -> str:
             "en_pausa": "⏸️"
         }.get(worker.get("estado"), "❓")
         
-        lineas.append(f"{i}. {estado_emoji} {worker['nombre']}")
+        nombre = worker.get('nombre_completo') or worker.get('username') or worker.get('nombre', '?')
+        lineas.append(f"{i}. {estado_emoji} {nombre}")
     
     lineas.append("\n💡 Di el nombre o número")
     lineas.append("O escribe 'cancelar'")

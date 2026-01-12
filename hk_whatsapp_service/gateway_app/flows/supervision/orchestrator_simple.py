@@ -299,12 +299,13 @@ def asignar_siguiente(from_phone: str) -> None:
         ticket.get("prioridad", "MEDIA"), "🟡"
     )
     
+    hab = ticket.get('ubicacion') or ticket.get('habitacion', '?')
     send_whatsapp(
         from_phone,
         f"📋 Siguiente ticket:\n\n"
-        f"{prioridad_emoji} #{ticket_id} · Hab. {ticket['habitacion']}\n"
+        f"{prioridad_emoji} #{ticket_id} · Hab. {hab}\n"
         f"{ticket['detalle']}\n"
-        f"{ticket['tiempo_sin_resolver_mins']} min esperando"
+        f"{ticket.get('tiempo_sin_resolver_mins', 0)} min esperando"
     )
     
     # Mostrar recomendaciones compactas (inline, no función externa)
@@ -402,11 +403,11 @@ def mostrar_retrasados(from_phone: str) -> None:
     lineas = [f"⏰ {len(retrasados)} tickets retrasados:\n"]
     
     for ticket in retrasados:
+        hab = ticket.get('ubicacion') or ticket.get('habitacion', '?')
         lineas.append(
-            f"⚠️ #{ticket['id']} · Hab. {ticket['habitacion']} · "
-            f"{ticket['asignado_a_nombre']} · {ticket['tiempo_sin_resolver_mins']} min"
+            f"⚠️ #{ticket['id']} · Hab. {hab} · "
+            f"{ticket.get('asignado_a_nombre', '?')} · {ticket.get('tiempo_sin_resolver_mins', 0)} min"
         )
-    
     lineas.append("\n💡 Di: 'reasignar [#] a [nombre]'")
     
     send_whatsapp(from_phone, "\n".join(lineas))
