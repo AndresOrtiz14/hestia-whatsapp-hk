@@ -158,12 +158,13 @@ def obtener_tickets_asignados_a(phone: str) -> List[Dict[str, Any]]:
     table = "public.tickets" if using_pg() else "tickets"
 
     sql = f"""
-        SELECT *
-        FROM {table}
-        WHERE huesped_whatsapp LIKE ?
-          AND estado IN ('ASIGNADO', 'ACEPTADO', 'EN_CURSO', 'PAUSADO')
-        ORDER BY created_at ASC
+    SELECT *
+    FROM {table}
+    WHERE huesped_whatsapp LIKE ?
+      AND estado IN ('PENDIENTE', 'ASIGNADO', 'ACEPTADO', 'EN_CURSO', 'PAUSADO')
+    ORDER BY created_at ASC
     """
+
     try:
         return fetchall(sql, [f"{phone}%"])
     except Exception as e:
