@@ -19,25 +19,14 @@ from .ui_simple import (
 )
 from .outgoing import send_whatsapp
 
-
 def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
-    """
-    Orquestador SIMPLE - sin menú, solo comandos naturales.
-    
-    Args:
-        from_phone: Número de teléfono del supervisor
-        text: Texto del mensaje (puede venir de audio)
-    """
-
     state = get_supervisor_state(from_phone)
     try:
         raw = (text or "").strip().lower()
         logger.info(f"👔 SUP | {from_phone} | Comando: '{raw[:30]}...'")
         
-        # 1) Saludo inicial del día (solo una vez)
-        today_str = date.today().isoformat()
-        if state.get("last_greet_date") != today_str:
-            state["last_greet_date"] = today_str
+        # 1) Comando: Saludo (siempre responde)
+        if raw in ['hola', 'hi', 'hello', 'buenas', 'buenos dias', 'buenas tardes']:
             send_whatsapp(from_phone, texto_saludo_supervisor())
             return
         
@@ -613,15 +602,46 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             # Confirmar
             ticket_id = conf["ticket_id"]
             worker = conf["worker"]
-            send_whatsapp(from_phone, texto_ticket_asignado_simple(ticket_id, worker["nombre_completo"]))
-            state.pop("confirmacion_pendiente", None)
-            return True
-        elif text.lower().strip() in ['no', 'cancelar', 'nope']:
-            send_whatsapp(from_phone, "❌ Asignación cancelada")
-            state.pop("confirmacion_pendiente", None)
-            return True
-        # Si no es sí/no, procesar como nuevo comando
-        state.pop("confirmacion_pendiente", None)
+            worker_phone = worker.get("telefono")
+            worker_nombre = worker.get("nombre_completo") or worker.get("username")
+            
+            # ✅ ASIGNAR EN BD
+            from gateway_app.services.tickets_db import asignar_ticket
+            
+            if asignar_ticket(ticket_id, worker_phone, worker_nombre):
+                # Datos del ticket (si están disponibles en conf)
+                habitacion = conf.get("habitacion", "?")
+                detalle = conf.get("detalle", "Tarea asignada")
+                prioridad = conf.get("prioridad", "MEDIA")
+                prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
+                
+                # 1. Notificar al SUPERVISOR
+                send_whatsapp(
+                    from_phone,
+                    f"✅ Tarea #{ticket_id} asignada\n\n"
+                    f"🏨 Habitación: {habitacion}\n"
+                    f"📝 Problema: {detalle}\n"
+                    f"{prioridad_emoji} Prioridad: {prioridad}\n"
+                    f"👤 Asignado a: {worker_nombre}"
+                )
+                
+                # 2. Notificar al TRABAJADOR
+                from gateway_app.services.whatsapp_client import send_whatsapp_text
+                send_whatsapp_text(
+                    to=worker_phone,
+                    body=f"📋 Nueva tarea asignada\n\n"
+                        f"#{ticket_id} · Hab. {habitacion}\n"
+                        f"{detalle}\n"
+                        f"{prioridad_emoji} Prioridad: {prioridad}\n\n"
+                        f"💡 Responde 'tomar' para aceptar"
+                )
+                
+                state.pop("confirmacion_pendiente", None)
+                return True
+            else:
+                send_whatsapp(from_phone, "❌ Error asignando. Intenta de nuevo.")
+                state.pop("confirmacion_pendiente", None)
+                return True
     
     # Si está esperando asignación y dice un nombre
     if state.get("esperando_asignacion"):
@@ -773,38 +793,40 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             coincidencias = buscar_workers_por_nombre(nombre_trabajador)
             
             if len(coincidencias) == 1:
-                # ✅ ASIGNACIÓN DIRECTA EN BD
+                # ✅ PEDIR CONFIRMACIÓN (no asignar todavía)
                 worker = coincidencias[0]
                 worker_phone = worker.get("telefono")
                 worker_nombre = worker.get("nombre_completo") or worker.get("username")
                 
-                # Asignar en BD
-                if asignar_ticket(ticket_id, worker_phone, worker_nombre):
-                    # Notificar al supervisor
-                    send_whatsapp(
-                        from_phone,
-                        f"✅ Tarea #{ticket_id} creada y asignada\n\n"
-                        f"🏨 Habitación: {habitacion}\n"
-                        f"📝 Problema: {detalle}\n"
-                        f"{prioridad_emoji} Prioridad: {prioridad}\n"
-                        f"👤 Asignado a: {worker_nombre}"
-                    )
-                    
-                    # ✅ NOTIFICAR AL TRABAJADOR
-                    from gateway_app.services.whatsapp_client import send_whatsapp_text
-                    send_whatsapp_text(
-                        to=worker_phone,
-                        body=f"📋 Nueva tarea asignada\n\n"
-                             f"#{ticket_id} · Hab. {habitacion}\n"
-                             f"{detalle}\n"
-                             f"{prioridad_emoji} Prioridad: {prioridad}\n\n"
-                             f"💡 Responde 'tomar' para aceptar"
-                    )
-                    
-                    return True
-                else:
-                    send_whatsapp(from_phone, "❌ Error asignando. Intenta de nuevo.")
-                    return True
+                estado_emoji = {
+                    "disponible": "✅",
+                    "ocupada": "🔴",
+                    "en_pausa": "⏸️"
+                }.get(worker.get("estado"), "✅")
+                
+                # Guardar en estado para confirmar después
+                state["confirmacion_pendiente"] = {
+                    "tipo": "crear_y_asignar",
+                    "ticket_id": ticket_id,
+                    "worker": worker,
+                    "habitacion": habitacion,
+                    "detalle": detalle,
+                    "prioridad": prioridad
+                }
+                
+                # Mostrar resumen COMPLETO y pedir confirmación
+                send_whatsapp(
+                    from_phone,
+                    f"✅ Tarea #{ticket_id} creada\n\n"
+                    f"🏨 Habitación: {habitacion}\n"
+                    f"📝 Problema: {detalle}\n"
+                    f"{prioridad_emoji} Prioridad: {prioridad}\n\n"
+                    f"📋 Asignar a:\n"
+                    f"{estado_emoji} {worker_nombre}\n\n"
+                    f"💡 Escribe 'sí' para confirmar o 'no' para cancelar"
+                )
+                
+                return True
             
             elif len(coincidencias) > 1:
                 # Múltiples: mostrar opciones
