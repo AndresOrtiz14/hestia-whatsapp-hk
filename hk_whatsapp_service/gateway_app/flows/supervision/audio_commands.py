@@ -236,13 +236,24 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
         }
     
     # Patrón 1: "Asignar ticket 1503 a María"
+    # IMPORTANTE: Solo si NO hay contexto de habitación
     if es_asignar and ticket_id and worker:
-        return {
-            "intent": "asignar_ticket",
-            "ticket_id": ticket_id,
-            "worker": worker,
-            "text": text
-        }
+        # Verificar si es habitación (tiene palabras como "la", "hab", "habitación")
+        tiene_contexto_habitacion = any(word in text.lower() for word in [
+            'la ', 'el ', 'hab ', 'habitacion', 'habitación', 'cuarto', 'pieza'
+        ])
+        
+        if tiene_contexto_habitacion:
+            # Es habitación, no ticket ID - continuar a siguiente patrón
+            pass
+        else:
+            # Es ticket ID real
+            return {
+                "intent": "asignar_ticket",
+                "ticket_id": ticket_id,
+                "worker": worker,
+                "text": text
+            }
     
     # Patrón 2: "Habitación 420 limpieza urgente asignar a Pedro"
     if habitacion and es_asignar and worker:
