@@ -11,6 +11,7 @@ We store state as JSON text (json.dumps). On Postgres we cast to jsonb in SQL.
 from __future__ import annotations
 
 import json
+from datetime import datetime
 import logging
 from typing import Any, Dict, Optional
 
@@ -37,10 +38,13 @@ def _decode_json_maybe(value: Any) -> Any:
 
 def load_runtime_session(phone: str) -> Optional[Dict[str, Any]]:
     table = "public.runtime_sessions" if using_pg() else "runtime_sessions"
-    row = fetchone(
-        f"SELECT data FROM {table} WHERE phone = ?",
-        [phone],
-    )
+    row = fetchone(f"SELECT data FROM {table} WHERE phone = ?", [phone])
+    if not row:
+        return None
+    
+    data_raw = row.get("data")
+    decoded = _decode_json_maybe(data_raw)
+    return decoded if isinstance(decoded, dict) else None
 
 
 

@@ -5,6 +5,8 @@ import logging
 
 from .ticket_assignment import calcular_score_worker
 from gateway_app.services.workers_db import buscar_worker_por_nombre, obtener_todos_workers
+from gateway_app.services.tickets_db import obtener_tickets_asignados_a
+
 
 logger = logging.getLogger(__name__)
 

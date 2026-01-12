@@ -238,20 +238,17 @@ def handle_comandos_ticket_activo(from_phone: str, text: str) -> bool:
 
 def mostrar_tickets(from_phone: str) -> None:
     """
-    Muestra tickets disponibles.
-    
-    Args:
-        from_phone: Número de teléfono
+    Muestra tickets (tareas) asignados al worker desde la BD real: public.tickets
     """
     state = get_user_state(from_phone)
-    
-    # Filtrar tickets de este trabajador
-    mis_tickets = [t for t in DEMO_TICKETS if t.get("asignado_a") == from_phone]
-    
+
+    mis_tickets = obtener_tickets_asignados_a(from_phone)
+
     mensaje = texto_lista_tickets(mis_tickets)
     send_whatsapp(from_phone, mensaje)
-    
+
     state["state"] = VIENDO_TICKETS
+
 
 
 def tomar_ticket(from_phone: str) -> None:

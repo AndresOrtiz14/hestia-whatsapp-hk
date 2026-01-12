@@ -57,41 +57,26 @@ Te ayudo a gestionar tus tareas del día."""
 
 
 def texto_ticket_asignado(ticket: dict) -> str:
-    """
-    Notificación de tarea asignada.
-    
-    Args:
-        ticket: Datos de la tarea
-    
-    Returns:
-        Texto formateado
-    """
     prioridad_emoji = {
         "ALTA": "🔴",
         "MEDIA": "🟡",
         "BAJA": "🟢"
     }.get(ticket.get("prioridad", "MEDIA"), "🟡")
-    
+
+    hab = ticket.get("habitacion") or ticket.get("ubicacion") or ticket.get("room") or "?"
+
     return f"""🔔 Nueva tarea asignada
 
-{prioridad_emoji} #{ticket['id']} · Hab. {ticket['habitacion']}
-{ticket['detalle']}
+{prioridad_emoji} #{ticket['id']} · Hab. {hab}
+{ticket.get('detalle', '')}
 
 💡 Di 'tomar' para empezar"""
 
 
 def texto_ticket_en_progreso(ticket: dict) -> str:
-    """
-    Confirmación de ticket en progreso.
-    
-    Args:
-        ticket: Datos del ticket
-    
-    Returns:
-        Texto formateado
-    """
+    hab = ticket.get("habitacion") or ticket.get("ubicacion") or ticket.get("room") or "?"
     return f"""✅ #{ticket['id']} en progreso
-📋 Hab. {ticket['habitacion']} · {ticket['detalle']}
+📋 Hab. {hab} · {ticket.get('detalle', '')}
 
 💡 'fin' cuando termines"""
 
@@ -142,37 +127,28 @@ def texto_ticket_reanudado(ticket: dict) -> str:
 
 
 def texto_lista_tickets(tickets: list) -> str:
-    """
-    Lista de tareas disponibles.
-    
-    Args:
-        tickets: Lista de tareas
-    
-    Returns:
-        Texto formateado
-    """
     if not tickets:
         return "✅ No tienes tareas pendientes"
-    
+
     lineas = [f"📋 {len(tickets)} tarea(s):\n"]
-    
-    for ticket in tickets[:5]:  # Máximo 5
+
+    for ticket in tickets[:5]:
         prioridad_emoji = {
             "ALTA": "🔴",
             "MEDIA": "🟡",
             "BAJA": "🟢"
         }.get(ticket.get("prioridad", "MEDIA"), "🟡")
-        
-        lineas.append(
-            f"{prioridad_emoji} #{ticket['id']} · Hab. {ticket['habitacion']} · "
-            f"{ticket['detalle'][:30]}"
-        )
-    
+
+        hab = ticket.get("habitacion") or ticket.get("ubicacion") or ticket.get("room") or "?"
+        detalle = (ticket.get("detalle") or "")[:30]
+
+        lineas.append(f"{prioridad_emoji} #{ticket['id']} · Hab. {hab} · {detalle}")
+
     if len(tickets) > 5:
         lineas.append(f"\n... y {len(tickets) - 5} más")
-    
+
     lineas.append("\n💡 Di 'tomar' o el #")
-    
+
     return "\n".join(lineas)
 
 
