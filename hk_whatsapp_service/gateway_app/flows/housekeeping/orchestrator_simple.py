@@ -492,6 +492,8 @@ def handle_confirmando_reporte(from_phone: str, raw: str) -> None:
     """
     state = get_user_state(from_phone)
     draft = state["ticket_draft"]
+    logger.info("HK_CONFIRM from=%s raw=%r draft=%s", from_phone, raw, draft)
+
     
     # Confirmar
     if raw in ['si', 'sí', 'yes', 'ok', 'confirmar', 'confirmo', 'dale', 'correcto']:
@@ -530,7 +532,8 @@ def crear_ticket_directo(from_phone: str, reporte: dict) -> None:
     """
     Crea ticket desde reporte directo (texto/audio) y lo guarda en public.tickets.
     """
-    from gateway_app.services.tickets_db import crear_ticket
+    from gateway_app.services.tickets_db import crear_ticket, obtener_tickets_asignados_a
+
 
     try:
         ticket = crear_ticket(
@@ -561,6 +564,53 @@ def crear_ticket_directo(from_phone: str, reporte: dict) -> None:
 
 
 def crear_ticket_desde_draft(from_phone: str) -> None:
+    state = get_user_state(from_phone)
+    draft = state["ticket_draft"]
+
+    logger.info("HK_CREATE_FROM_DRAFT from=%s draft=%s", from_phone, draft)
+
+    if not draft.get("habitacion") or not draft.get("detalle"):
+        logger.warning("HK_CREATE_FROM_DRAFT missing_fields from=%s draft=%s", from_phone, draft)
+        send_whatsapp(from_phone, "❌ Error: Falta información del reporte")
+        reset_ticket_draft(from_phone)
+        state["state"] = MENU
+        return
+
+    try:
+        ticket = crear_ticket(
+            habitacion=draft["habitacion"],
+            detalle=draft["detalle"],
+            prioridad=draft["prioridad"],
+            creado_por=from_phone,
+            origen="trabajador",
+            canal_origen="WHATSAPP_BOT_HOUSEKEEPING",
+            area="HOUSEKEEPING",
+        )
+
+        logger.info("HK_CREATE_FROM_DRAFT db_return from=%s ticket_is_none=%s ticket=%s",
+                    from_phone, ticket is None, ticket)
+
+        if not ticket:
+            send_whatsapp(from_phone, "❌ No pude crear el ticket en la base de datos.")
+            reset_ticket_draft(from_phone)
+            state["state"] = MENU
+            return
+
+        ticket_id = ticket["id"]
+        logger.info("HK_CREATE_FROM_DRAFT created_id=%s from=%s", ticket_id, from_phone)
+
+        mensaje = texto_ticket_creado(ticket_id, draft["habitacion"], draft["prioridad"])
+        send_whatsapp(from_phone, mensaje)
+
+        reset_ticket_draft(from_phone)
+        state["state"] = MENU
+
+    except Exception as e:
+        logger.exception("HK_CREATE_FROM_DRAFT exception from=%s err=%s", from_phone, e)
+        send_whatsapp(from_phone, "❌ Error creando el ticket. Intenta de nuevo.")
+        reset_ticket_draft(from_phone)
+        state["state"] = MENU
+
     """
     Crea ticket desde el borrador y lo guarda en public.tickets.
     """

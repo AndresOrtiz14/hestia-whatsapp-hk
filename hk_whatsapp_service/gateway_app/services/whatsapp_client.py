@@ -3,6 +3,10 @@ from gateway_app.config import Config
 
 GRAPH_BASE = "https://graph.facebook.com/v20.0"
 
+import logging
+logger = logging.getLogger(__name__)
+
+
 def send_whatsapp_text(*, to: str, body: str) -> None:
     if not Config.WHATSAPP_TOKEN or not Config.PHONE_NUMBER_ID:
         raise RuntimeError("Missing WhatsApp env vars")
@@ -19,5 +23,10 @@ def send_whatsapp_text(*, to: str, body: str) -> None:
         "text": {"body": body},
     }
 
+    logger.info("WA_SEND to=%s body_preview=%r", to, body[:120])
+
     r = requests.post(url, headers=headers, json=payload, timeout=15)
+
+    logger.info("WA_SEND_RESP to=%s status=%s", to, r.status_code)
+
     r.raise_for_status()

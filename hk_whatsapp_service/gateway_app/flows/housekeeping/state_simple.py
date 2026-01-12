@@ -11,6 +11,12 @@ from typing import Any, Dict
 
 from gateway_app.services.runtime_state import load_runtime_session, save_runtime_session
 
+import logging
+import json
+
+logger = logging.getLogger(__name__)
+
+
 # Estados principales
 MENU = "MENU"
 VIENDO_TICKETS = "VIENDO_TICKETS"
@@ -34,6 +40,27 @@ def _default_state() -> Dict[str, Any]:
         },
         "last_greet_date": None,
     }
+
+def _brief_state(state: Dict[str, Any]) -> str:
+    ticket_activo = state.get("ticket_activo")
+    ticket_activo_id = None
+    if isinstance(ticket_activo, dict):
+        ticket_activo_id = ticket_activo.get("id")
+
+    draft = state.get("ticket_draft") or {}
+    if not isinstance(draft, dict):
+        draft = {}
+
+    return json.dumps(
+        {
+            "state": state.get("state"),
+            "ticket_activo_id": ticket_activo_id,
+            "draft_habitacion": draft.get("habitacion"),
+            "draft_prioridad": draft.get("prioridad"),
+            "last_greet_date": state.get("last_greet_date"),
+        },
+        ensure_ascii=False,
+    )
 
 
 def get_user_state(phone: str) -> Dict[str, Any]:
