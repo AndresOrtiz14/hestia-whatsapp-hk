@@ -6,6 +6,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from gateway_app.services.tickets_db import crear_ticket
+
 from datetime import date, datetime
 from .state_simple import (
     get_user_state,
@@ -614,7 +616,7 @@ def crear_ticket_desde_draft(from_phone: str) -> None:
     """
     Crea ticket desde el borrador y lo guarda en public.tickets.
     """
-    from gateway_app.services.tickets_db import crear_ticket
+
 
     state = get_user_state(from_phone)
     draft = state["ticket_draft"]

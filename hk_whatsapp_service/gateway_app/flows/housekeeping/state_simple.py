@@ -67,10 +67,15 @@ def get_user_state(phone: str) -> Dict[str, Any]:
     """
     Load state from cache -> DB -> default.
     """
+    logger.info("HK_STATE get_user_state(%s) cache=%s", phone, phone in _STATE_CACHE)
+
     if phone in _STATE_CACHE:
+        logger.info("HK_STATE cache_hit(%s) %s", phone, _brief_state(_STATE_CACHE[phone]))
         return _STATE_CACHE[phone]
 
     state = load_runtime_session(phone)
+    logger.info("HK_STATE loaded_from_db(%s) is_none=%s raw_type=%s", phone, state is None, type(state).__name__)
+
     base = _default_state()
 
     if isinstance(state, dict):
@@ -85,8 +90,10 @@ def get_user_state(phone: str) -> Dict[str, Any]:
 
     # If DB had no state, persist the default immediately
     if state is None:
+        logger.info("HK_STATE no_db_state(%s) -> persisting default %s", phone, _brief_state(base))
         save_runtime_session(phone, base)
 
+    logger.info("HK_STATE final(%s) %s", phone, _brief_state(base))
     return base
 
 
