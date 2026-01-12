@@ -179,6 +179,75 @@ def seed_base_data():
     else:
         logger.info(f"✅ Hotel ya existe (id={hotel['id']})")
 
+def seed_workers():
+    """
+    Crea workers de prueba directamente en la tabla users.
+    IMPORTANTE: Reemplaza los números con tus números REALES de WhatsApp.
+    """
+    from gateway_app.services.db import fetchone, execute
+    
+    logger.info("👥 Verificando workers...")
+    
+    # Verificar si ya hay workers
+    check = fetchone("SELECT COUNT(*) as count FROM public.users WHERE area IN ('HOUSEKEEPING', 'MANTENCION')")
+    if check and check['count'] > 0:
+        logger.info(f"✅ Ya existen {check['count']} workers")
+        return
+    
+    logger.info("📦 Creando workers de prueba...")
+    
+    # ⚠️ IMPORTANTE: Reemplaza estos números con TUS números REALES de WhatsApp
+    # Formato: 56XXXXXXXXX (sin +, sin espacios)
+    workers_data = [
+        {
+            "username": "Seba Fruns Test",
+            "telefono": "56996107169",  # ← CAMBIAR POR TU NÚMERO REAL
+            "email": "seba.test@hestia.local",
+            "area": "HOUSEKEEPING"
+        },
+        {
+            "username": "Javier Pozo Test", 
+            "telefono": "4915221417651",  # ← CAMBIAR POR TU NÚMERO REAL
+            "email": "javier.test@hestia.local",
+            "area": "MANTENCION"
+        },
+        {
+            "username": "Pedro Arriagada Test",
+            "telefono": "56983001018",  # ← Este es TU número de supervisor, úsalo para testing
+            "email": "pedro.test@hestia.local",
+            "area": "MANTENCION"
+        },
+        {
+            "username": "Andres Ortiz Test",
+            "telefono": "56956326272",  # ← Este es TU número de supervisor, úsalo para testing
+            "email": "andres.test@hestia.local",
+            "area": "HOUSEKEEPING"
+        }
+    ]
+    
+    for worker in workers_data:
+        try:
+            sql = """
+                INSERT INTO public.users (username, telefono, email, area, activo)
+                VALUES (?, ?, ?, ?, true)
+            """
+            
+            execute(sql, [
+                worker["username"],
+                worker["telefono"],
+                worker["email"],
+                worker["area"]
+            ], commit=True)
+            
+            logger.info(f"✅ Worker creado: {worker['username']} ({worker['telefono']})")
+            
+        except Exception as e:
+            # Si falla (por constraints), solo advertir
+            logger.warning(f"⚠️ No se pudo crear worker {worker['username']}: {e}")
+            continue
+    
+    logger.info("🎉 Workers de prueba listos")
+
 def run_migrations():
     """
     Ejecuta todas las migraciones necesarias.
@@ -203,8 +272,9 @@ def run_migrations():
             logger.info(f"📊 La tabla tiene {count} registros")
             logger.info("⏭️  Saltando creación de tablas (ya existen)")
             
-            # ✅ NUEVO: Siempre verificar y crear datos base
+            # ✅ Siempre verificar y crear datos base
             seed_base_data()
+            seed_workers()  # ← AGREGAR AQUÍ
             
             logger.info("=" * 60)
             return
@@ -213,7 +283,8 @@ def run_migrations():
         create_tickets_table()
         create_indices()
         create_trigger_updated_at()
-        seed_base_data()  # ✅ También crear datos base en setup inicial
+        seed_base_data()
+        seed_workers()  # ← Y AQUÍ TAMBIÉN
         
         logger.info("🎉 Migraciones completadas exitosamente")
         logger.info("=" * 60)
