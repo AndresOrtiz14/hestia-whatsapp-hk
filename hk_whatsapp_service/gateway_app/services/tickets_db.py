@@ -82,18 +82,16 @@ def crear_ticket(
 
 def asignar_ticket(
     ticket_id: int,
-    asignado_a: str,
+    asignado_a_phone: str,
     asignado_a_nombre: str
 ) -> bool:
     """
     Asigna un ticket a un trabajador.
     
-    ADAPTADO: Usa 'assigned_to' del schema del hotel.
-    
     Args:
         ticket_id: ID del ticket
-        asignado_a: Teléfono del trabajador (se guarda como texto por ahora)
-        asignado_a_nombre: Nombre del trabajador (no se guarda en este schema)
+        asignado_a_phone: Teléfono del trabajador
+        asignado_a_nombre: Nombre del trabajador
     
     Returns:
         True si se asignó correctamente
@@ -102,18 +100,21 @@ def asignar_ticket(
     
     table = "public.tickets" if using_pg() else "tickets"
     
-    # NOTA: assigned_to probablemente espera un user_id (integer), no phone (text)
-    # Por ahora lo dejamos como texto, pero en producción necesitarás mapear phone → user_id
+    # NOTA: assigned_to en el schema del hotel espera user_id (integer)
+    # Por ahora guardamos el nombre en huesped_whatsapp y actualizamos estado
     
     sql = f"""
         UPDATE {table}
         SET estado = 'ASIGNADO',
+            huesped_whatsapp = ?,
             assigned_at = NOW()
         WHERE id = ?
     """
     
     try:
-        execute(sql, [ticket_id], commit=True)
+        # Guardamos el phone + nombre en huesped_whatsapp como: "56912345678|María González"
+        phone_with_name = f"{asignado_a_phone}|{asignado_a_nombre}"
+        execute(sql, [phone_with_name, ticket_id], commit=True)
         logger.info(f"✅ Ticket #{ticket_id} asignado en DB")
         return True
     except Exception as e:
@@ -230,4 +231,120 @@ def completar_ticket(ticket_id: int) -> bool:
         return True
     except Exception as e:
         logger.exception(f"❌ Error completando ticket: {e}")
+
+def obtener_tickets_por_estado(estado: str) -> List[Dict[str, Any]]:
+    """
+    Obtiene tickets filtrados por estado.
+    
+    Args:
+        estado: PENDIENTE, ASIGNADO, EN_CURSO, RESUELTO, etc.
+    
+    Returns:
+        Lista de tickets
+    """
+    table = "public.tickets" if using_pg() else "tickets"
+    
+    sql = f"""
+        SELECT *
+        FROM {table}
+        WHERE estado = ?
+        ORDER BY created_at DESC
+    """
+    
+    try:
+        tickets = fetchall(sql, [estado])
+        logger.info(f"📋 {len(tickets)} tickets con estado '{estado}'")
+        return tickets
+    except Exception as e:
+        logger.exception(f"❌ Error obteniendo tickets por estado: {e}")
+        return []
+
+
+def obtener_tickets_asignados_a(phone: str) -> List[Dict[str, Any]]:
+    """
+    Obtiene todos los tickets asignados a un trabajador específico.
+    
+    Args:
+        phone: Teléfono del trabajador
+    
+    Returns:
+        Lista de tickets asignados
+    """
+    table = "public.tickets" if using_pg() else "tickets"
+    
+    # Buscamos en huesped_whatsapp (que tiene formato "phone|nombre")
+    sql = f"""
+        SELECT *
+        FROM {table}
+        WHERE huesped_whatsapp LIKE ?
+        AND estado IN ('ASIGNADO', 'ACEPTADO', 'EN_CURSO', 'PAUSADO')
+        ORDER BY created_at ASC
+    """
+    
+    try:
+        # Buscar tickets donde el phone coincida
+        tickets = fetchall(sql, [f"{phone}%"])
+        logger.info(f"📋 {len(tickets)} tickets asignados a {phone}")
+        return tickets
+    except Exception as e:
+        logger.exception(f"❌ Error obteniendo tickets asignados: {e}")
+        return []
+
+
+def actualizar_estado_ticket(
+    ticket_id: int,
+    nuevo_estado: str,
+    worker_phone: str = None
+) -> bool:
+    """
+    Actualiza el estado de un ticket.
+    
+    Args:
+        ticket_id: ID del ticket
+        nuevo_estado: ACEPTADO, EN_CURSO, PAUSADO, RESUELTO
+        worker_phone: Teléfono del worker (para verificar ownership)
+    
+    Returns:
+        True si se actualizó correctamente
+    """
+    logger.info(f"🔄 Actualizando ticket #{ticket_id} → {nuevo_estado}")
+    
+    table = "public.tickets" if using_pg() else "tickets"
+    
+    # Actualizar campos según el estado
+    if nuevo_estado == "ACEPTADO":
+        sql = f"""
+            UPDATE {table}
+            SET estado = ?,
+                accepted_at = NOW()
+            WHERE id = ?
+        """
+    elif nuevo_estado == "EN_CURSO":
+        sql = f"""
+            UPDATE {table}
+            SET estado = ?,
+                started_at = NOW()
+            WHERE id = ?
+        """
+    elif nuevo_estado == "RESUELTO":
+        sql = f"""
+            UPDATE {table}
+            SET estado = ?,
+                finished_at = NOW()
+            WHERE id = ?
+        """
+    else:
+        # PAUSADO o cualquier otro
+        sql = f"""
+            UPDATE {table}
+            SET estado = ?
+            WHERE id = ?
+        """
+    
+    try:
+        execute(sql, [nuevo_estado, ticket_id], commit=True)
+        logger.info(f"✅ Ticket #{ticket_id} actualizado a '{nuevo_estado}'")
+        return True
+    except Exception as e:
+        logger.exception(f"❌ Error actualizando estado: {e}")
         return False

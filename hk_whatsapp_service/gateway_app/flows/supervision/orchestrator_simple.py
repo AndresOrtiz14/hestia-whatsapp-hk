@@ -50,6 +50,19 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
             mostrar_pendientes_simple(from_phone)
             return
         
+        # 4.5) Comando: Ver por estado desde BD (NUEVO)
+        if raw in ["bd pendientes", "db pendientes", "pendientes bd"]:
+            mostrar_tickets_db(from_phone, "PENDIENTE")
+            return
+        
+        if raw in ["bd asignados", "db asignados", "asignados bd"]:
+            mostrar_tickets_db(from_phone, "ASIGNADO")
+            return
+        
+        if raw in ["bd en curso", "db en curso", "en curso bd"]:
+            mostrar_tickets_db(from_phone, "EN_CURSO")
+            return
+        
         # 5) Comando: Asignar urgente / más urgente / siguiente
         if raw in ["siguiente", "next", "proximo", "urgente", "asignar urgente", "mas urgente", "más urgente"]:
             asignar_siguiente(from_phone)
@@ -196,10 +209,31 @@ def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
     
     # Verificar que se encontró
     if worker:
-        confirmar_asignacion(from_phone, ticket_id, worker)
-        state["esperando_asignacion"] = False
-        state["ticket_seleccionado"] = None
-        return True
+        # ✅ ASIGNAR EN BD REAL
+        from gateway_app.services.tickets_db import asignar_ticket
+        
+        worker_phone = worker.get("telefono")
+        worker_nombre = worker.get("nombre_completo", worker.get("nombre"))
+        
+        if asignar_ticket(ticket_id, worker_phone, worker_nombre):
+            # Notificar al supervisor
+            confirmar_asignacion(from_phone, ticket_id, worker)
+            
+            # ✅ NOTIFICAR AL TRABAJADOR
+            from gateway_app.services.whatsapp_client import send_whatsapp_text
+            send_whatsapp_text(
+                to=worker_phone,
+                body=f"📋 Nueva tarea asignada\n\n"
+                     f"#{ticket_id} · Habitación asignada\n"
+                     f"💡 Responde 'tomar' para aceptar"
+            )
+            
+            state["esperando_asignacion"] = False
+            state["ticket_seleccionado"] = None
+            return True
+        else:
+            send_whatsapp(from_phone, "❌ Error asignando. Intenta de nuevo.")
+            return True
     else:
         send_whatsapp(
             from_phone,
@@ -443,6 +477,58 @@ def mostrar_info_ticket(from_phone: str, ticket_id: int) -> None:
     
     send_whatsapp(from_phone, "\n".join(lineas))
 
+def mostrar_tickets_db(from_phone: str, estado: str = "PENDIENTE") -> None:
+    """
+    Muestra tickets desde la BD real por estado.
+    
+    Args:
+        from_phone: Teléfono del supervisor
+        estado: Estado a filtrar
+    """
+    from gateway_app.services.tickets_db import obtener_tickets_por_estado
+    
+    tickets = obtener_tickets_por_estado(estado)
+    
+    if not tickets:
+        send_whatsapp(from_phone, f"✅ No hay tickets en estado '{estado}'")
+        return
+    
+    estado_emoji = {
+        "PENDIENTE": "⏳",
+        "ASIGNADO": "👤",
+        "EN_CURSO": "🔄",
+        "PAUSADO": "⏸️",
+        "RESUELTO": "✅"
+    }.get(estado, "📋")
+    
+    lineas = [f"{estado_emoji} {len(tickets)} ticket(s) {estado.lower()}:\n"]
+    
+    for ticket in tickets[:10]:
+        prioridad_emoji = {
+            "ALTA": "🔴",
+            "MEDIA": "🟡",
+            "BAJA": "🟢"
+        }.get(ticket.get("prioridad", "MEDIA"), "🟡")
+        
+        ubicacion = ticket.get("ubicacion", "?")
+        detalle = ticket.get("detalle", "")[:30]
+        
+        # Extraer nombre del trabajador si está asignado
+        huesped_wa = ticket.get("huesped_whatsapp", "")
+        if "|" in huesped_wa:
+            _, worker_name = huesped_wa.split("|", 1)
+        else:
+            worker_name = "Sin asignar"
+        
+        lineas.append(
+            f"{prioridad_emoji} #{ticket['id']} · Hab.{ubicacion} · {worker_name}\n"
+            f"   {detalle}..."
+        )
+    
+    if len(tickets) > 10:
+        lineas.append(f"\n... y {len(tickets) - 10} más")
+    
+    send_whatsapp(from_phone, "\n".join(lineas))
 
 def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
     """
@@ -639,15 +725,15 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             send_whatsapp(from_phone, mensaje)
             return True
         
-    # Caso 2.5: Crear Y asignar (comando compuesto)
+    # Caso 2: Crear y asignar
     if intent == "crear_y_asignar":
         habitacion = intent_data["habitacion"]
         detalle = intent_data["detalle"]
         prioridad = intent_data["prioridad"]
-        nombre_trabajador = intent_data["worker"]  # ← FIX: audio_commands usa "worker", no "nombre_trabajador"
+        nombre_trabajador = intent_data["worker"]
         
-        # 1. Crear el ticket
-        from gateway_app.services.tickets_db import crear_ticket
+        # 1. Crear el ticket en BD
+        from gateway_app.services.tickets_db import crear_ticket, asignar_ticket
         
         try:
             ticket = crear_ticket(
@@ -665,37 +751,52 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             ticket_id = ticket["id"]
             prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
             
-            # 2. Iniciar flujo de asignación
-            state["ticket_seleccionado"] = ticket_id
-            state["esperando_asignacion"] = True
-            state["nombre_parcial"] = nombre_trabajador
-            
-            # 3. Buscar trabajadores que coincidan
+            # 2. Buscar trabajador
             from .demo_data import DEMO_WORKERS
-            nombre_lower = nombre_trabajador.lower()
+            from .worker_search import buscar_workers, normalizar_nombre
             
-            coincidencias = [
-                w for w in DEMO_WORKERS
-                if nombre_lower in w["nombre"].lower()
-            ]
+            nombre_lower = normalizar_nombre(nombre_trabajador)
+            coincidencias = buscar_workers(nombre_lower, DEMO_WORKERS)
             
             if len(coincidencias) == 1:
-                # Solo un match → asignar directamente
+                # ✅ ASIGNACIÓN DIRECTA EN BD
                 worker = coincidencias[0]
-                state["esperando_asignacion"] = False
+                worker_phone = worker.get("telefono")
+                worker_nombre = worker.get("nombre_completo", worker.get("nombre"))
                 
-                send_whatsapp(
-                    from_phone,
-                    f"✅ Tarea #{ticket_id} creada y asignada\n\n"
-                    f"🏨 Habitación: {habitacion}\n"
-                    f"📝 Problema: {detalle}\n"
-                    f"{prioridad_emoji} Prioridad: {prioridad}\n"
-                    f"👤 Asignado a: {worker['nombre']}"
-                )
-                return True
+                # Asignar en BD
+                if asignar_ticket(ticket_id, worker_phone, worker_nombre):
+                    # Notificar al supervisor
+                    send_whatsapp(
+                        from_phone,
+                        f"✅ Tarea #{ticket_id} creada y asignada\n\n"
+                        f"🏨 Habitación: {habitacion}\n"
+                        f"📝 Problema: {detalle}\n"
+                        f"{prioridad_emoji} Prioridad: {prioridad}\n"
+                        f"👤 Asignado a: {worker_nombre}"
+                    )
+                    
+                    # ✅ NOTIFICAR AL TRABAJADOR
+                    from gateway_app.services.whatsapp_client import send_whatsapp_text
+                    send_whatsapp_text(
+                        to=worker_phone,
+                        body=f"📋 Nueva tarea asignada\n\n"
+                             f"#{ticket_id} · Hab. {habitacion}\n"
+                             f"{detalle}\n"
+                             f"{prioridad_emoji} Prioridad: {prioridad}\n\n"
+                             f"💡 Responde 'tomar' para aceptar"
+                    )
+                    
+                    return True
+                else:
+                    send_whatsapp(from_phone, "❌ Error asignando. Intenta de nuevo.")
+                    return True
             
             elif len(coincidencias) > 1:
-                # Múltiples matches → mostrar opciones
+                # Múltiples: mostrar opciones
+                state["ticket_seleccionado"] = ticket_id
+                state["esperando_asignacion"] = True
+                
                 send_whatsapp(
                     from_phone,
                     f"✅ Tarea #{ticket_id} creada\n\n"
@@ -719,7 +820,10 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 return True
             
             else:
-                # Sin matches → mostrar todos
+                # No encontrado: mostrar todos
+                state["ticket_seleccionado"] = ticket_id
+                state["esperando_asignacion"] = True
+                
                 send_whatsapp(
                     from_phone,
                     f"✅ Tarea #{ticket_id} creada\n\n"
