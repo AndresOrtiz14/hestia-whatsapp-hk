@@ -197,17 +197,6 @@ def texto_pedir_detalle() -> str:
 
 
 def texto_confirmar_reporte(habitacion: str, detalle: str, prioridad: str) -> str:
-    """
-    Muestra resumen del reporte para confirmar.
-    
-    Args:
-        habitacion: Número de habitación
-        detalle: Detalle del problema
-        prioridad: Prioridad detectada
-    
-    Returns:
-        Texto formateado
-    """
     prioridad_emoji = {
         "ALTA": "🔴",
         "MEDIA": "🟡",
@@ -216,9 +205,11 @@ def texto_confirmar_reporte(habitacion: str, detalle: str, prioridad: str) -> st
     
     return f"""📋 Confirma el reporte:
 
-🏨 Habitación: {habitacion}
+🛏️ Habitación: {habitacion}
 📝 Problema: {detalle}
 {prioridad_emoji} Prioridad: {prioridad}
 
 ✅ Escribe 'sí' para confirmar
-✏️ O 'editar' para cambiar"""
+✏️ O 'editar' para cambiar
+❌ O 'no' para cancelar
+🏨 O 'M' para volver al Menú"""

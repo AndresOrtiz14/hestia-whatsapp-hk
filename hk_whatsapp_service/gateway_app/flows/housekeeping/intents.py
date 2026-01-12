@@ -114,9 +114,17 @@ def detectar_reporte_directo(text: str) -> Optional[Dict[str, Any]]:
     detalle = re.sub(r'el\s+\d{3,4}', '', detalle)
     
     detalle = detalle.strip()
-    
-    # Si no hay detalle, no es reporte directo
+
+    # VALIDACIÓN MEJORADA: No es reporte directo si:
+    # 1. No hay detalle
+    # 2. Detalle es muy corto (< 3 caracteres)
+    # 3. Detalle es SOLO números (mismo que la habitación)
     if not detalle or len(detalle) < 3:
+        return None
+
+    # Si el detalle es solo dígitos, no es un reporte válido
+    # (ej: "305" → habitación=305, detalle=305 ❌)
+    if detalle.isdigit():
         return None
     
     # Detectar prioridad

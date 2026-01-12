@@ -523,6 +523,13 @@ def handle_confirmando_reporte(from_phone: str, raw: str) -> None:
         send_whatsapp(from_phone, "❌ Reporte cancelado")
         return
     
+        # Volver al menú
+    if raw in ['m', 'menu', 'menú', 'volver']:
+        reset_ticket_draft(from_phone)
+        send_whatsapp(from_phone, texto_menu_simple())
+        state["state"] = MENU
+        return
+    
     # No entendió
     mensaje = texto_confirmar_reporte(
         draft["habitacion"],
