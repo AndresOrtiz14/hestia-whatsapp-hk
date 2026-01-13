@@ -22,18 +22,20 @@ def extract_ticket_id(text: str) -> Optional[int]:
         "el 1504" -> 1504
         "número 1505" -> 1505
         "asignar el 1503" -> 1503
+        "reasignar 12 a seba" -> 12
     """
-    # Buscar patrones como "ticket 1503", "1503", "el 1503", "asignar el 1503"
+    # Buscar patrones como "ticket 1503", "1503", "el 1503", "asignar el 1503", "reasignar 12"
     patterns = [
+        r'reasignar\s+(?:el\s+|la\s+)?#?(\d{1,4})',  # ✅ NUEVO: Detectar "reasignar 12"
         r'ticket\s*#?\s*(\d+)',
         r'número\s*#?\s*(\d+)',
         r'el\s+#?(\d+)',
         r'la\s+#?(\d+)',
-        r'asignar\s+(?:el\s+|la\s+)?#?(\d{3,4})',
-        r'derivar\s+(?:el\s+|la\s+)?#?(\d{3,4})',
-        r'mandar\s+(?:el\s+|la\s+)?#?(\d{3,4})',
-        r'#(\d{3,4})',  # Solo #1503
-        r'\b(\d{4})\b',  # 4 dígitos solos
+        r'asignar\s+(?:el\s+|la\s+)?#?(\d{1,4})',  # ✅ CAMBIADO: Permite 1-4 dígitos
+        r'derivar\s+(?:el\s+|la\s+)?#?(\d{1,4})',
+        r'mandar\s+(?:el\s+|la\s+)?#?(\d{1,4})',
+        r'#(\d{1,4})',  # ✅ CAMBIADO: Permite 1-4 dígitos
+        r'\b(\d{3,4})\b',  # 3-4 dígitos solos
     ]
     
     text_lower = text.lower()
@@ -41,7 +43,10 @@ def extract_ticket_id(text: str) -> Optional[int]:
     for pattern in patterns:
         match = re.search(pattern, text_lower)
         if match:
-            return int(match.group(1))
+            ticket_id = int(match.group(1))
+            # ✅ VALIDACIÓN: Solo tickets válidos (1-9999)
+            if 1 <= ticket_id <= 9999:
+                return ticket_id
     
     return None
 
@@ -80,7 +85,10 @@ def extract_worker_name(text: str) -> Optional[str]:
         'camila',
         'ricardo',
         'roberto',
-        'beto'
+        'beto',
+        'seba',  # ✅ NUEVO
+        'javier',  # ✅ NUEVO
+        'andres', 'andrés'  # ✅ NUEVO
     ]
     
     text_lower = text.lower()
@@ -195,6 +203,7 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
     
     Tipos de intención:
         - "asignar_ticket": Asignar ticket existente
+        - "reasignar_ticket": Reasignar ticket a otro worker
         - "crear_ticket": Crear nuevo ticket
         - "crear_y_asignar": Crear y asignar en un solo comando
         - "ver_estado": Ver tickets o workers
@@ -226,14 +235,19 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
         'que lo resuelva', 'que lo haga', 'que lo vea',
         'que la resuelva', 'que la haga', 'que la vea'
     ])
+    
+    # ✅ MEJORADO: Detectar reasignación con más patrones
     es_reasignar = any(word in text_lower for word in [
-        'reasignar', 'reasigna',
-        'cambiar', 'cambia',
-        'mover', 'mueve'
+        'reasignar', 'reasigna', 're asignar',
+        'cambiar', 'cambia', 'cambiar a',
+        'mover', 'mueve', 'mover a',
+        'pasar', 'pasa', 'pasar a',
+        'transferir', 'transfiere'
     ])
+    
     es_crear = any(word in text_lower for word in ['crear', 'nuevo', 'generar', 'registrar'])
     
-    # Patrón 0: "Reasignar ticket 1503 a María" (NUEVO)
+    # ✅ Patrón 0: "Reasignar ticket 12 a María" (PRIORIDAD MÁXIMA)
     if es_reasignar and ticket_id and worker:
         return {
             "intent": "reasignar_ticket",
@@ -243,8 +257,8 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
         }
     
     # Patrón 1: "Asignar ticket 1503 a María"
-    # IMPORTANTE: Solo si NO hay contexto de habitación
-    if es_asignar and ticket_id and worker:
+    # IMPORTANTE: Solo si NO hay contexto de habitación Y NO es reasignación
+    if es_asignar and ticket_id and worker and not es_reasignar:
         # Verificar si es habitación (tiene palabras como "la", "hab", "habitación")
         tiene_contexto_habitacion = any(word in text.lower() for word in [
             'la ', 'el ', 'hab ', 'habitacion', 'habitación', 'cuarto', 'pieza'

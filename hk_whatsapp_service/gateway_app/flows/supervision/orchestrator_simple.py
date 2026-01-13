@@ -299,13 +299,24 @@ def asignar_siguiente(from_phone: str) -> None:
         ticket.get("prioridad", "MEDIA"), "🟡"
     )
     
-    hab = ticket.get('ubicacion') or ticket.get('habitacion', '?')
+    # ✅ Calcular tiempo esperando desde created_at
+    created_at = ticket.get("created_at")
+    if created_at:
+        if isinstance(created_at, str):
+            from dateutil import parser
+            created_at = parser.parse(created_at)
+        
+        from datetime import datetime
+        tiempo_mins = int((datetime.now(created_at.tzinfo) - created_at).total_seconds() / 60)
+    else:
+        tiempo_mins = 0
+
     send_whatsapp(
         from_phone,
         f"📋 Siguiente ticket:\n\n"
         f"{prioridad_emoji} #{ticket_id} · Hab. {hab}\n"
         f"{ticket['detalle']}\n"
-        f"{ticket.get('tiempo_sin_resolver_mins', 0)} min esperando"
+        f"{tiempo_mins} min esperando"  # ✅ Usa variable calculada
     )
     
     # Mostrar recomendaciones compactas (inline, no función externa)
@@ -368,12 +379,29 @@ def mostrar_en_proceso(from_phone: str) -> None:
             "BAJA": "🟢"
         }.get(ticket.get("prioridad", "MEDIA"), "🟡")
         
-        trabajador = ticket.get("asignado_a_nombre", "?")
-        tiempo = ticket.get("tiempo_sin_resolver_mins", 0)
+        # ✅ Extraer trabajador desde huesped_whatsapp
+        huesped_whatsapp = ticket.get("huesped_whatsapp", "")
+        if "|" in huesped_whatsapp:
+            worker_phone, worker_name = huesped_whatsapp.split("|", 1)
+        else:
+            worker_name = "?"
+
+        # ✅ Calcular tiempo desde started_at
+        started_at = ticket.get("started_at")
+        if started_at:
+            if isinstance(started_at, str):
+                from dateutil import parser
+                started_at = parser.parse(started_at)
+            
+            from datetime import datetime
+            tiempo = int((datetime.now(started_at.tzinfo) - started_at).total_seconds() / 60)
+        else:
+            tiempo = 0
         
+        ubicacion = ticket.get("ubicacion") or ticket.get("habitacion", "?")
         lineas.append(
             f"{prioridad_emoji} #{ticket['id']} · {trabajador} · "
-            f"Hab. {ticket['habitacion']} · {tiempo} min"
+            f"Hab. {ubicacion} · {tiempo} min"
         )
     
     if len(tickets) > 10:
@@ -404,9 +432,27 @@ def mostrar_retrasados(from_phone: str) -> None:
     
     for ticket in retrasados:
         hab = ticket.get('ubicacion') or ticket.get('habitacion', '?')
+        # ✅ Extraer trabajador
+        huesped_whatsapp = ticket.get("huesped_whatsapp", "")
+        if "|" in huesped_whatsapp:
+            worker_phone, worker_name = huesped_whatsapp.split("|", 1)
+        else:
+            worker_name = "Sin asignar"
+
+        # ✅ Calcular tiempo desde created_at (no started_at para retrasados)
+        created_at = ticket.get("created_at")
+        if created_at:
+            if isinstance(created_at, str):
+                from dateutil import parser
+                created_at = parser.parse(created_at)
+            
+            from datetime import datetime
+            tiempo = int((datetime.now(created_at.tzinfo) - created_at).total_seconds() / 60)
+        else:
+            tiempo = 0
+
         lineas.append(
-            f"⚠️ #{ticket['id']} · Hab. {hab} · "
-            f"{ticket.get('asignado_a_nombre', '?')} · {ticket.get('tiempo_sin_resolver_mins', 0)} min"
+            f"⚠️ #{ticket['id']} · Hab. {hab} · {worker_name} · {tiempo} min"
         )
     lineas.append("\n💡 Di: 'reasignar [#] a [nombre]'")
     
@@ -514,7 +560,7 @@ def mostrar_tickets_db(from_phone: str, estado: str = "PENDIENTE") -> None:
         # Extraer nombre del trabajador si está asignado
         huesped_wa = ticket.get("huesped_whatsapp", "")
         if "|" in huesped_wa:
-            _, worker_name = huesped_wa.split("|", 1)
+            worker_phone, worker_name = huesped_wa.split("|", 1)
         else:
             worker_name = "Sin asignar"
         
@@ -611,6 +657,21 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 
                 state.pop("seleccion_mucamas", None)
                 return True
+            
+        # ✅ Caso 1.5 NUEVO: Manejar reasignación si es el tipo correcto
+        if seleccion_info.get("tipo") == "reasignar":
+            worker_original = seleccion_info.get("worker_original", {})
+            worker_original_phone = worker_original.get("phone")
+            
+            # Notificar al worker original
+            if worker_original_phone:
+                ubicacion = seleccion_info.get("ubicacion", "?")
+                from gateway_app.services.whatsapp_client import send_whatsapp_text
+                send_whatsapp_text(
+                    worker_original_phone,
+                    f"📢 Tu tarea #{ticket_id} (Hab. {ubicacion}) fue reasignada a {worker_nombre}"
+                )
+                logger.info(f"✅ Notificación de reasignación enviada a {worker_original_phone}")
         
         # Caso 2: Cancelar
         elif mucama_seleccionada == "CANCEL":
@@ -762,13 +823,29 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             send_whatsapp(from_phone, mensaje)
             return True
     
-    # Caso 1.5: Reasignar ticket existente (NUEVO)
+    # Caso 1.5: Reasignar ticket existente
     if intent == "reasignar_ticket":
         ticket_id = intent_data["ticket_id"]
         worker_nombre = intent_data["worker"]
         worker_nombre = normalizar_nombre(worker_nombre)
         
-        # Buscar con sistema inteligente
+        # ✅ Obtener ticket para guardar worker original
+        from gateway_app.services.tickets_db import obtener_ticket_por_id, asignar_ticket
+        ticket = obtener_ticket_por_id(ticket_id)
+        
+        if not ticket:
+            send_whatsapp(from_phone, f"❌ No encontré el ticket #{ticket_id}")
+            return True
+        
+        # ✅ Guardar worker original
+        huesped_whatsapp_original = ticket.get("huesped_whatsapp", "")
+        if "|" in huesped_whatsapp_original:
+            worker_original_phone, worker_original_name = huesped_whatsapp_original.split("|", 1)
+        else:
+            worker_original_phone = None
+            worker_original_name = None
+        
+        # Buscar nuevo worker
         from gateway_app.services.workers_db import buscar_workers_por_nombre
         candidatas = buscar_workers_por_nombre(worker_nombre)
         
@@ -781,21 +858,64 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             return True
         
         if len(candidatas) == 1:
-            # Solo una: confirmar reasignación
+            # ✅ Reasignar y notificar a TODOS
             worker = candidatas[0]
+            worker_phone = worker.get("telefono")
             worker_nombre_completo = worker.get("nombre_completo", worker.get("nombre"))
-            send_whatsapp(
-                from_phone,
-                f"🔄 Tarea #{ticket_id} reasignada → {worker_nombre_completo}\n\n"
-                "💡 En producción: se notificaría al nuevo trabajador"
-            )
-            return True
+            
+            if asignar_ticket(ticket_id, worker_phone, worker_nombre_completo):
+                ubicacion = ticket.get("ubicacion") or ticket.get("habitacion", "?")
+                detalle = ticket.get("detalle", "Sin detalle")
+                prioridad = ticket.get("prioridad", "MEDIA")
+                prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
+                
+                # 1. ✅ Notificar al worker ORIGINAL
+                if worker_original_phone:
+                    from gateway_app.services.whatsapp_client import send_whatsapp_text
+                    send_whatsapp_text(
+                        worker_original_phone,
+                        f"📢 Tu tarea #{ticket_id} (Hab. {ubicacion}) fue reasignada a {worker_nombre_completo}"
+                    )
+                    logger.info(f"✅ Notificación de reasignación enviada a {worker_original_phone}")
+                
+                # 2. ✅ Confirmar al SUPERVISOR
+                send_whatsapp(
+                    from_phone,
+                    f"✅ Tarea #{ticket_id} reasignada\n\n"
+                    f"🛏️ Habitación: {ubicacion}\n"
+                    f"📝 Problema: {detalle}\n"
+                    f"{prioridad_emoji} Prioridad: {prioridad}\n"
+                    f"👤 Reasignado a: {worker_nombre_completo}"
+                )
+                
+                # 3. ✅ Notificar al NUEVO worker
+                from gateway_app.services.whatsapp_client import send_whatsapp_text
+                send_whatsapp_text(
+                    worker_phone,
+                    f"📋 Nueva tarea asignada\n\n"
+                    f"#{ticket_id} · Hab. {ubicacion}\n"
+                    f"{detalle}\n"
+                    f"{prioridad_emoji} Prioridad: {prioridad}\n\n"
+                    f"💡 Responde 'tomar' para aceptar"
+                )
+                
+                return True
+            else:
+                send_whatsapp(from_phone, "❌ Error reasignando ticket")
+                return True
         else:
-            # Múltiples: pedir que elija
+            # Múltiples: guardar en estado para selección
             state["seleccion_mucamas"] = {
                 "tipo": "reasignar",
                 "ticket_id": ticket_id,
-                "candidatas": candidatas
+                "candidatas": candidatas,
+                "worker_original": {
+                    "phone": worker_original_phone,
+                    "name": worker_original_name
+                },
+                "ubicacion": ticket.get("ubicacion") or ticket.get("habitacion", "?"),
+                "detalle": ticket.get("detalle", "Sin detalle"),
+                "prioridad": ticket.get("prioridad", "MEDIA")
             }
             mensaje = formato_lista_workers(candidatas)
             send_whatsapp(from_phone, mensaje)
