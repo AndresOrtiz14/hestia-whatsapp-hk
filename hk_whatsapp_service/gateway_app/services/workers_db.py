@@ -103,3 +103,39 @@ def buscar_workers_por_nombre(nombre: str) -> List[Dict[str, Any]]:
     except Exception as e:
         logger.exception(f"❌ Error buscando workers: {e}")
         return []
+
+
+def buscar_worker_por_telefono(telefono: str) -> Optional[Dict[str, Any]]:
+    """
+    Busca un worker por número de teléfono.
+    
+    Args:
+        telefono: Número de teléfono (ej: "56996107169")
+    
+    Returns:
+        Worker encontrado o None
+    """
+    sql = """
+        SELECT 
+            id,
+            username as nombre_completo,
+            telefono,
+            area,
+            activo
+        FROM public.users
+        WHERE activo = true
+        AND area IN ('HOUSEKEEPING', 'MANTENCION')
+        AND telefono = ?
+        LIMIT 1
+    """
+    
+    try:
+        worker = fetchone(sql, [telefono])
+        if worker:
+            logger.info(f"✅ Worker encontrado por teléfono: {worker['nombre_completo']}")
+        else:
+            logger.info(f"⚠️ No se encontró worker con teléfono: {telefono}")
+        return worker
+    except Exception as e:
+        logger.exception(f"❌ Error buscando worker por teléfono: {e}")
+        return None

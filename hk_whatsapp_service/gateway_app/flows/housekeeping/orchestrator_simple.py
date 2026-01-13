@@ -49,6 +49,31 @@ from .outgoing import send_whatsapp
 from .demo_tickets import DEMO_TICKETS, elegir_mejor_ticket
 from gateway_app.services.tickets_db import obtener_tickets_asignados_a
 
+def verificar_turno_activo(from_phone: str) -> bool:
+    """
+    Verifica si el turno está activo. Si no, lo inicia automáticamente.
+    
+    Args:
+        from_phone: Número de teléfono
+    
+    Returns:
+        True si el turno está activo (o fue auto-iniciado)
+    """
+    state = get_user_state(from_phone)
+    
+    if not state.get("turno_activo", False):
+        # Auto-iniciar turno
+        from datetime import datetime
+        state["turno_activo"] = True
+        state["turno_inicio"] = datetime.now().isoformat()
+        
+        send_whatsapp(
+            from_phone,
+            "🟢 Turno iniciado automáticamente\n\n"
+            "💡 Para terminar tu turno, escribe 'terminar turno'"
+        )
+    
+    return True
 
 def handle_hk_message_simple(from_phone: str, text: str) -> None:
 
@@ -61,8 +86,10 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
         today_str = date.today().isoformat()
         if state.get("last_greet_date") != today_str:
             state["last_greet_date"] = today_str
-            send_whatsapp(from_phone, texto_saludo_dia())
-            send_whatsapp(from_phone, texto_menu_simple())
+            turno_activo = state.get("turno_activo", False)
+            
+            from .ui_simple import texto_saludo_con_turno
+            send_whatsapp(from_phone, texto_saludo_con_turno(turno_activo))
             state["state"] = MENU
             return
 
@@ -72,6 +99,15 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
             reset_ticket_draft(from_phone)  # NUEVO: Limpiar draft al volver
             send_whatsapp(from_phone, texto_menu_simple())
             state["state"] = MENU
+            return
+        
+        # 2.5) Comandos de turno
+        if raw in ['iniciar turno', 'iniciar', 'comenzar turno', 'empezar turno', 'start']:
+            iniciar_turno(from_phone)
+            return
+
+        if raw in ['terminar turno', 'terminar', 'finalizar turno', 'fin turno', 'stop']:
+            terminar_turno(from_phone)
             return
         
         # 2.5) NUEVO: Navegación directa de menú (desde cualquier estado)
@@ -156,36 +192,42 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
 
 
 def handle_menu(from_phone: str, raw: str) -> None:
-    """
-    Maneja selección del menú.
-    
-    Args:
-        from_phone: Número de teléfono
-        raw: Texto normalizado
-    """
     state = get_user_state(from_phone)
+    turno_activo = state.get("turno_activo", False)
     
-    # Opción 1: Ver tickets
-    if raw in ['1', 'ver tickets', 'tickets']:
-        mostrar_tickets(from_phone)
-        return
-    
-    # Opción 2: Reportar problema
-    if raw in ['2', 'reportar', 'reportar problema']:
-        iniciar_reporte(from_phone)
-        return
-    
-    # Opción 3: Ayuda
-    if raw in ['3', 'ayuda', 'help']:
-        send_whatsapp(from_phone, texto_ayuda())
-        return
+    if turno_activo:
+        # Menú con turno activo
+        if raw in ['1', 'ver tickets', 'tickets']:
+            mostrar_tickets(from_phone)
+            return
+        
+        if raw in ['2', 'reportar', 'reportar problema']:
+            iniciar_reporte(from_phone)
+            return
+        
+        if raw in ['3', 'terminar turno', 'fin turno']:
+            terminar_turno(from_phone)
+            return
+        
+        if raw in ['4', 'ayuda', 'help']:
+            send_whatsapp(from_phone, texto_ayuda())
+            return
+    else:
+        # Menú sin turno activo
+        if raw in ['1', 'iniciar turno', 'iniciar']:
+            iniciar_turno(from_phone)
+            return
+        
+        if raw in ['2', 'ayuda', 'help']:
+            send_whatsapp(from_phone, texto_ayuda())
+            return
     
     # No reconocido
+    from .ui_simple import texto_menu_simple
     send_whatsapp(
         from_phone,
-        "❌ Opción no válida\n\n" + texto_menu_simple()
+        "❌ Opción no válida\n\n" + texto_menu_simple(turno_activo)
     )
-
 
 def handle_viendo_tickets(from_phone: str, raw: str) -> None:
     """
@@ -245,6 +287,7 @@ def mostrar_tickets(from_phone: str) -> None:
     """
     Muestra tickets (tareas) asignados al worker desde la BD real: public.tickets
     """
+    verificar_turno_activo(from_phone)
     state = get_user_state(from_phone)
 
     mis_tickets = obtener_tickets_asignados_a(from_phone)
@@ -263,6 +306,7 @@ def tomar_ticket(from_phone: str) -> None:
     Args:
         from_phone: Número de teléfono
     """
+    verificar_turno_activo(from_phone)
     state = get_user_state(from_phone)
     
     # Si ya tiene ticket activo
@@ -404,6 +448,7 @@ def iniciar_reporte(from_phone: str) -> None:
     Args:
         from_phone: Número de teléfono
     """
+    verificar_turno_activo(from_phone)
     state = get_user_state(from_phone)
     reset_ticket_draft(from_phone)
     
@@ -575,9 +620,15 @@ def crear_ticket_directo(from_phone: str, reporte: dict) -> None:
 
 
 def crear_ticket_desde_draft(from_phone: str) -> None:
+    """
+    Crea ticket desde el borrador y notifica al supervisor.
+    
+    Args:
+        from_phone: Número de teléfono del worker
+    """
     state = get_user_state(from_phone)
 
-    # ✅ Guard: if we’re not actually confirming a report anymore, ignore silently.
+    # ✅ Guard: Solo crear si estamos en estado de confirmación
     if state.get("state") != CONFIRMANDO_REPORTE:
         logger.warning(
             "HK_CREATE_FROM_DRAFT ignored (state=%s) from=%s",
@@ -589,7 +640,7 @@ def crear_ticket_desde_draft(from_phone: str) -> None:
     draft = state.get("ticket_draft") or {}
     logger.info("HK_CREATE_FROM_DRAFT from=%s draft=%s", from_phone, draft)
 
-    # VALIDACIÓN (only show user error if we are really in confirm state)
+    # VALIDACIÓN
     if not draft.get("habitacion") or not draft.get("detalle"):
         logger.warning("HK_CREATE_FROM_DRAFT missing_fields from=%s draft=%s", from_phone, draft)
         send_whatsapp(from_phone, "❌ Error: Falta información del reporte")
@@ -598,7 +649,7 @@ def crear_ticket_desde_draft(from_phone: str) -> None:
         return
 
     try:
-        # IMPORTANT: call via module alias if you’re using that pattern
+        # Crear ticket en BD
         ticket = tickets_db.crear_ticket(
             habitacion=draft["habitacion"],
             detalle=draft["detalle"],
@@ -625,148 +676,119 @@ def crear_ticket_desde_draft(from_phone: str) -> None:
         ticket_id = ticket["id"]
         logger.info("HK_CREATE_FROM_DRAFT created_id=%s from=%s", ticket_id, from_phone)
 
+        # 1️⃣ Confirmar al worker
         mensaje = texto_ticket_creado(ticket_id, draft["habitacion"], draft["prioridad"])
         send_whatsapp(from_phone, mensaje)
 
-        # Clear draft + leave menu
-        reset_ticket_draft(from_phone)
-        state["state"] = MENU
-
-    except Exception as e:
-        logger.exception("HK_CREATE_FROM_DRAFT exception from=%s err=%s", from_phone, e)
-        send_whatsapp(from_phone, "❌ Error creando el ticket. Intenta de nuevo.")
-        reset_ticket_draft(from_phone)
-        state["state"] = MENU
-
-    state = get_user_state(from_phone)
-    draft = state["ticket_draft"]
-
-    logger.info("HK_CREATE_FROM_DRAFT from=%s draft=%s", from_phone, draft)
-
-    if not draft.get("habitacion") or not draft.get("detalle"):
-        logger.warning("HK_CREATE_FROM_DRAFT missing_fields from=%s draft=%s", from_phone, draft)
-        send_whatsapp(from_phone, "❌ Error: Falta información del reporte")
-        reset_ticket_draft(from_phone)
-        state["state"] = MENU
-        return
-
-    try:
-        ticket = crear_ticket(
-            habitacion=draft["habitacion"],
-            detalle=draft["detalle"],
-            prioridad=draft["prioridad"],
-            creado_por=from_phone,
-            origen="trabajador",
-            canal_origen="WHATSAPP_BOT_HOUSEKEEPING",
-            area="HOUSEKEEPING",
-        )
-
-        logger.info("HK_CREATE_FROM_DRAFT db_return from=%s ticket_is_none=%s ticket=%s",
-                    from_phone, ticket is None, ticket)
-
-        if not ticket:
-            send_whatsapp(from_phone, "❌ No pude crear el ticket en la base de datos.")
-            reset_ticket_draft(from_phone)
-            state["state"] = MENU
-            return
-
-        ticket_id = ticket["id"]
-        logger.info("HK_CREATE_FROM_DRAFT created_id=%s from=%s", ticket_id, from_phone)
-
-        mensaje = texto_ticket_creado(ticket_id, draft["habitacion"], draft["prioridad"])
-        send_whatsapp(from_phone, mensaje)
-
-        reset_ticket_draft(from_phone)
-        state["state"] = MENU
-
-    except Exception as e:
-        logger.exception("HK_CREATE_FROM_DRAFT exception from=%s err=%s", from_phone, e)
-        send_whatsapp(from_phone, "❌ Error creando el ticket. Intenta de nuevo.")
-        reset_ticket_draft(from_phone)
-        state["state"] = MENU
-
-    """
-    Crea ticket desde el borrador y lo guarda en public.tickets.
-    """
-
-
-    state = get_user_state(from_phone)
-    draft = state["ticket_draft"]
-
-    # VALIDACIÓN
-    if not draft.get("habitacion") or not draft.get("detalle"):
-        send_whatsapp(from_phone, "❌ Error: Falta información del reporte")
-        reset_ticket_draft(from_phone)
-        state["state"] = MENU
-        return
-
-    try:
-        ticket = crear_ticket(
-            habitacion=draft["habitacion"],
-            detalle=draft["detalle"],
-            prioridad=draft["prioridad"],
-            creado_por=from_phone,  # el worker que reporta
-            origen="trabajador",
-            canal_origen="WHATSAPP_BOT_HOUSEKEEPING",
-            area="HOUSEKEEPING",
-        )
-
-        if not ticket:
-            send_whatsapp(from_phone, "❌ No pude crear el ticket en la base de datos.")
-            reset_ticket_draft(from_phone)
-            state["state"] = MENU
-            return
-
-        ticket_id = ticket["id"]
-        mensaje = texto_ticket_creado(ticket_id, draft["habitacion"], draft["prioridad"])
-        send_whatsapp(from_phone, mensaje)
+        # 2️⃣ ✅ NOTIFICAR AL SUPERVISOR
+        import os
+        supervisor_phones = os.getenv("SUPERVISOR_PHONES", "").split(",")
+        supervisor_phones = [p.strip() for p in supervisor_phones if p.strip()]
+        
+        if supervisor_phones:
+            from gateway_app.services.whatsapp_client import send_whatsapp_text
+            from gateway_app.services.workers_db import buscar_worker_por_telefono
+            
+            prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(draft["prioridad"], "🟡")
+            
+            # Obtener nombre del worker
+            worker = buscar_worker_por_telefono(from_phone)
+            worker_nombre = worker.get("nombre_completo") if worker else "Trabajador"
+            
+            for supervisor_phone in supervisor_phones:
+                send_whatsapp_text(
+                    to=supervisor_phone,
+                    body=f"📋 Nuevo reporte de {worker_nombre}\n\n"
+                         f"#{ticket_id} · Hab. {draft['habitacion']}\n"
+                         f"{draft['detalle']}\n"
+                         f"{prioridad_emoji} Prioridad: {draft['prioridad']}\n\n"
+                         f"💡 Di 'asignar {ticket_id} a [nombre]' para derivar"
+                )
+                logger.info(f"✅ Notificación enviada a supervisor {supervisor_phone}")
 
         # Limpiar y volver al menú
         reset_ticket_draft(from_phone)
         state["state"] = MENU
 
-    except Exception:
-        logger.exception("Error creando ticket desde draft en DB")
+    except Exception as e:
+        logger.exception("HK_CREATE_FROM_DRAFT exception from=%s err=%s", from_phone, e)
         send_whatsapp(from_phone, "❌ Error creando el ticket. Intenta de nuevo.")
         reset_ticket_draft(from_phone)
         state["state"] = MENU
 
+def iniciar_turno(from_phone: str) -> None:
     """
-    Crea ticket desde el borrador.
-    VALIDACIÓN: Solo crea si hay habitación Y detalle.
+    Inicia el turno del trabajador.
     
     Args:
         from_phone: Número de teléfono
     """
+    from datetime import datetime
     state = get_user_state(from_phone)
-    draft = state["ticket_draft"]
     
-    # VALIDACIÓN: Verificar que hay datos completos
-    if not draft.get("habitacion") or not draft.get("detalle"):
-        send_whatsapp(from_phone, "❌ Error: Falta información del reporte")
-        reset_ticket_draft(from_phone)
-        state["state"] = MENU
+    if state.get("turno_activo", False):
+        send_whatsapp(from_phone, "⚠️ Tu turno ya está activo")
         return
     
-    import random
-    ticket_id = random.randint(2000, 2999)
+    # Iniciar turno
+    state["turno_activo"] = True
+    state["turno_inicio"] = datetime.now().isoformat()
+    state["turno_fin"] = None
     
-    # Crear ticket
-    nuevo_ticket = {
-        "id": ticket_id,
-        "habitacion": draft["habitacion"],
-        "detalle": draft["detalle"],
-        "prioridad": draft["prioridad"],
-        "creado_por": from_phone,
-        "created_at": datetime.now().isoformat(),
-        "estado": "pendiente"
-    }
+    from .ui_simple import texto_menu_simple
+    send_whatsapp(
+        from_phone,
+        "🟢 Turno iniciado\n\n"
+        "¡Listo para trabajar! 💪"
+    )
+    send_whatsapp(from_phone, texto_menu_simple(turno_activo=True))
+    state["state"] = MENU
+
+
+def terminar_turno(from_phone: str) -> None:
+    """
+    Termina el turno del trabajador.
     
-    # TODO: Guardar en BD y notificar a supervisión
+    Args:
+        from_phone: Número de teléfono
+    """
+    from datetime import datetime
+    state = get_user_state(from_phone)
     
-    mensaje = texto_ticket_creado(ticket_id, draft["habitacion"], draft["prioridad"])
-    send_whatsapp(from_phone, mensaje)
+    if not state.get("turno_activo", False):
+        send_whatsapp(from_phone, "⚠️ No tienes turno activo")
+        return
     
-    # Limpiar y volver al menú
-    reset_ticket_draft(from_phone)
+    # Verificar si tiene ticket activo
+    if state.get("ticket_activo"):
+        send_whatsapp(
+            from_phone,
+            "⚠️ No puedes terminar turno con tarea activa\n\n"
+            "💡 Finaliza o pausa tu tarea primero"
+        )
+        return
+    
+    # Calcular duración
+    inicio = state.get("turno_inicio")
+    if inicio:
+        from datetime import datetime
+        inicio_dt = datetime.fromisoformat(inicio)
+        fin_dt = datetime.now()
+        duracion = fin_dt - inicio_dt
+        horas = int(duracion.total_seconds() / 3600)
+        minutos = int((duracion.total_seconds() % 3600) / 60)
+        duracion_texto = f"{horas}h {minutos}min"
+    else:
+        duracion_texto = "No disponible"
+    
+    # Terminar turno
+    state["turno_activo"] = False
+    state["turno_fin"] = datetime.now().isoformat()
+    
+    send_whatsapp(
+        from_phone,
+        f"🔴 Turno terminado\n\n"
+        f"⏱️ Duración: {duracion_texto}\n"
+        f"¡Buen trabajo! 👏"
+    )
     state["state"] = MENU

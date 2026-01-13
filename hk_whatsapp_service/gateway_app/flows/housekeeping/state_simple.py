@@ -39,6 +39,10 @@ def _default_state() -> Dict[str, Any]:
             "prioridad": None,
         },
         "last_greet_date": None,
+        # Sistema de turnos
+        "turno_activo": False,
+        "turno_inicio": None,
+        "turno_fin": None,
     }
 
 def _brief_state(state: Dict[str, Any]) -> str:

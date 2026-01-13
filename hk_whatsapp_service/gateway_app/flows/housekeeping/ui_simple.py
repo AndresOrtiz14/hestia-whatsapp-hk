@@ -3,23 +3,35 @@ UI simplificada para bot de Housekeeping.
 Mensajes cortos y claros.
 """
 
-def texto_menu_simple() -> str:
+def texto_menu_simple(turno_activo: bool = True) -> str:
     """
-    Menú principal simplificado.
+    Menú principal con opciones según estado de turno.
+    
+    Args:
+        turno_activo: Si el turno está activo
     
     Returns:
         Texto del menú
     """
-    return """🏨 Menú de Operaciones
+    if turno_activo:
+        return """🏨 Menú de Operaciones
 
 1. 📋 Ver mis tareas
 2. ➕ Reportar problema
-3. ❓ Ayuda
+3. 🔴 Terminar turno
+4. ❓ Ayuda
 
 💡 O escribe:
-• 'tomar' - Tomar tarea
-• 'fin' - Finalizar
-• 'pausar' - Pausar"""
+- 'tomar' - Tomar tarea
+- 'fin' - Finalizar
+- 'pausar' - Pausar"""
+    else:
+        return """🏨 Menú de Operaciones
+
+1. 🟢 Iniciar turno
+2. ❓ Ayuda
+
+⚠️ Debes iniciar turno para trabajar"""
 
 
 def texto_ayuda() -> str:
@@ -55,6 +67,39 @@ def texto_saludo_dia() -> str:
     return """👋 Hola, soy el asistente de operaciones de Hestia.
 Te ayudo a gestionar tus tareas del día."""
 
+def texto_saludo_con_turno(turno_activo: bool) -> str:
+    """
+    Saludo del día con estado de turno.
+    
+    Args:
+        turno_activo: Si el turno está activo
+    
+    Returns:
+        Texto de saludo
+    """
+    if turno_activo:
+        return """👋 Hola, tu turno está activo ✅
+
+🏨 Menú de Operaciones
+
+1. 📋 Ver mis tareas
+2. ➕ Reportar problema
+3. 🔴 Terminar turno
+4. ❓ Ayuda
+
+💡 O escribe:
+- 'tomar' - Tomar tarea
+- 'fin' - Finalizar
+- 'pausar' - Pausar"""
+    else:
+        return """👋 Hola, tu turno está inactivo ⏸️
+
+💡 Opciones:
+
+1. 🟢 Iniciar turno
+2. ❓ Ayuda
+
+Para comenzar a trabajar, inicia tu turno."""
 
 def texto_ticket_asignado(ticket: dict) -> str:
     prioridad_emoji = {
