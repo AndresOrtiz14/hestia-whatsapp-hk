@@ -163,6 +163,31 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
             handle_viendo_tickets(from_phone, raw)
             return
         
+            # Estado: TRABAJANDO
+        if state["state"] == TRABAJANDO:
+            if raw in ['fin', 'finalizar', 'terminar', 'listo', 'terminado']:
+                finalizar_ticket(from_phone)
+                return
+            
+            if raw in ['pausar', 'pausa']:
+                pausar_ticket(from_phone)
+                return
+            
+            if raw in ['m', 'menu', 'menú', 'volver']:
+                mostrar_menu(from_phone)
+                return
+            
+            # Mensaje genérico cuando está trabajando
+            send_whatsapp(
+                from_phone,
+                "⚙️ Tarea en progreso\n\n"
+                "💡 Comandos:\n"
+                "• 'fin' - Terminar tarea\n"
+                "• 'pausar' - Pausar tarea\n"
+                "• 'M' - Menú"
+            )
+            return
+
         if current_state == REPORTANDO_HAB:
             handle_reportando_habitacion(from_phone, text)
             return
@@ -348,6 +373,10 @@ def tomar_ticket(from_phone: str) -> None:
         state["ticket_activo_id"] = ticket_id
         state["state"] = TRABAJANDO
         
+        # ✅ PERSISTIR ESTADO EN BD
+        from gateway_app.flows.housekeeping.state_simple import persist_state
+        persist_state(from_phone, state)
+        
         # Notificar al worker
         prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(
             ticket.get("prioridad", "MEDIA"), "🟡"
@@ -362,64 +391,58 @@ def tomar_ticket(from_phone: str) -> None:
             f"💡 Di 'fin' cuando termines"
         )
     else:
-        send_whatsapp(from_phone, "❌ Error tomando tarea. Intenta de nuevo.")
+        send_whatsapp(from_phone, "❌ Error tomando tarea. Intenta de nuevo.")    
 
-
-# Continúa en la siguiente parte...
 
 
 def finalizar_ticket(from_phone: str) -> None:
     """
     Finaliza el ticket activo.
+    Actualiza estado en BD: EN_CURSO → RESUELTO
     
     Args:
-        from_phone: Número de teléfono
+        from_phone: Número de teléfono del worker
     """
     state = get_user_state(from_phone)
-    ticket = state.get("ticket_activo")
     
-    if not ticket:
-        send_whatsapp(from_phone, "❌ No tienes ticket activo")
+    # Verificar que tiene ticket activo
+    ticket_id = state.get("ticket_activo_id")
+    if not ticket_id:
+        send_whatsapp(from_phone, "⚠️ No tienes ninguna tarea activa")
         return
     
-    # Calcular tiempo
-    started = datetime.fromisoformat(ticket["started_at"])
-    ended = datetime.now()
-    tiempo_mins = int((ended - started).total_seconds() / 60)
+    # ✅ Actualizar estado en BD: EN_CURSO → RESUELTO
+    from gateway_app.services.tickets_db import actualizar_estado_ticket, obtener_ticket_por_id
+    from gateway_app.services.db import execute
+    from datetime import datetime
     
-    # Actualizar ticket
-    ticket["ended_at"] = ended.isoformat()
-    ticket["estado"] = "completado"
-    
-    # Limpiar estado
-    state["ticket_activo"] = None
-    state["state"] = MENU
-    
-    # Notificar
-    mensaje = texto_ticket_completado(ticket, tiempo_mins)
-    send_whatsapp(from_phone, mensaje)
-    
-    # Mostrar siguiente si hay
-    mis_tickets = [t for t in DEMO_TICKETS 
-                   if t.get("asignado_a") == from_phone 
-                   and t.get("estado") != "completado"]
-    
-    if mis_tickets:
-        siguiente = elegir_mejor_ticket(mis_tickets)
-        if siguiente:
-            prioridad_emoji = {
-                "ALTA": "🔴",
-                "MEDIA": "🟡",
-                "BAJA": "🟢"
-            }.get(siguiente.get("prioridad", "MEDIA"), "🟡")
-            
-            send_whatsapp(
-                from_phone,
-                f"\nSiguiente disponible:\n"
-                f"{prioridad_emoji} #{siguiente['id']} · Hab. {siguiente['habitacion']}\n"
-                f"{siguiente['detalle']}\n\n"
-                f"💡 Di 'tomar' o 'M'"
-            )
+    if actualizar_estado_ticket(ticket_id, "RESUELTO"):
+        # Registrar finished_at
+        execute(
+            "UPDATE public.tickets SET finished_at = ? WHERE id = ?",
+            [datetime.now(), ticket_id],
+            commit=True
+        )
+        
+        # Limpiar estado local
+        state["ticket_activo_id"] = None
+        state["state"] = MENU
+        
+        # Persistir estado
+        from gateway_app.flows.housekeeping.state_simple import persist_state
+        persist_state(from_phone, state)
+        
+        # Notificar
+        send_whatsapp(
+            from_phone,
+            f"✅ Tarea #{ticket_id} completada\n\n"
+            f"🎉 ¡Buen trabajo!\n\n"
+            f"💡 Di 'M' para el menú"
+        )
+        
+        logger.info(f"✅ Ticket #{ticket_id} finalizado por {from_phone}")
+    else:
+        send_whatsapp(from_phone, "❌ Error finalizando tarea. Intenta de nuevo.")
 
 
 def pausar_ticket(from_phone: str) -> None:
