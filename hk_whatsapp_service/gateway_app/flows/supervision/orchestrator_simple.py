@@ -673,23 +673,122 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                         f"💡 Responde 'tomar' para aceptar"
                 )
                 
+                # ✅ NUEVO: Manejar reasignación si es el tipo correcto
+                if seleccion_info.get("tipo") == "reasignar":
+                    worker_original = seleccion_info.get("worker_original", {})
+                    worker_original_phone = worker_original.get("phone")
+                    
+                    # Notificar al worker original
+                    if worker_original_phone:
+                        ubicacion = seleccion_info.get("ubicacion", "?")
+                        from gateway_app.services.whatsapp_client import send_whatsapp_text
+                        send_whatsapp_text(
+                            worker_original_phone,
+                            f"📢 Tu tarea #{ticket_id} (Hab. {ubicacion}) fue reasignada a {worker_nombre}"
+                        )
+                        logger.info(f"✅ Notificación de reasignación enviada a {worker_original_phone}")
+
                 state.pop("seleccion_mucamas", None)
                 return True
             
-        # ✅ Caso 1.5 NUEVO: Manejar reasignación si es el tipo correcto
-        if seleccion_info.get("tipo") == "reasignar":
-            worker_original = seleccion_info.get("worker_original", {})
-            worker_original_phone = worker_original.get("phone")
+        # Caso 1.5: Reasignar ticket existente
+        if intent == "reasignar_ticket":
+            ticket_id = intent_data["ticket_id"]
+            worker_nombre = intent_data["worker"]
+            # ✅ NO normalizar - buscar tal cual viene del intent
             
-            # Notificar al worker original
-            if worker_original_phone:
-                ubicacion = seleccion_info.get("ubicacion", "?")
-                from gateway_app.services.whatsapp_client import send_whatsapp_text
-                send_whatsapp_text(
-                    worker_original_phone,
-                    f"📢 Tu tarea #{ticket_id} (Hab. {ubicacion}) fue reasignada a {worker_nombre}"
+            # Obtener ticket para guardar worker original
+            from gateway_app.services.tickets_db import obtener_ticket_por_id, asignar_ticket
+            ticket = obtener_ticket_por_id(ticket_id)
+            
+            if not ticket:
+                send_whatsapp(from_phone, f"❌ No encontré el ticket #{ticket_id}")
+                return True
+            
+            # Guardar worker original
+            huesped_whatsapp_original = ticket.get("huesped_whatsapp", "")
+            if "|" in huesped_whatsapp_original:
+                worker_original_phone, worker_original_name = huesped_whatsapp_original.split("|", 1)
+            else:
+                worker_original_phone = None
+                worker_original_name = None
+            
+            # Buscar nuevo worker
+            from gateway_app.services.workers_db import buscar_workers_por_nombre
+            candidatas = buscar_workers_por_nombre(worker_nombre)
+            
+            if not candidatas:
+                send_whatsapp(
+                    from_phone,
+                    f"❌ No encontré a '{worker_nombre}'\n\n"
+                    "💡 Verifica el nombre"
                 )
-                logger.info(f"✅ Notificación de reasignación enviada a {worker_original_phone}")
+                return True
+            
+            if len(candidatas) == 1:
+                # Un solo worker: reasignar directamente
+                worker = candidatas[0]
+                worker_phone = worker.get("telefono")
+                worker_nombre_completo = worker.get("nombre_completo", worker.get("nombre"))
+                
+                if asignar_ticket(ticket_id, worker_phone, worker_nombre_completo):
+                    ubicacion = ticket.get("ubicacion") or ticket.get("habitacion", "?")
+                    detalle = ticket.get("detalle", "Sin detalle")
+                    prioridad = ticket.get("prioridad", "MEDIA")
+                    prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
+                    
+                    # 1. Notificar al worker ORIGINAL
+                    if worker_original_phone:
+                        from gateway_app.services.whatsapp_client import send_whatsapp_text
+                        send_whatsapp_text(
+                            worker_original_phone,
+                            f"📢 Tu tarea #{ticket_id} (Hab. {ubicacion}) fue reasignada a {worker_nombre_completo}"
+                        )
+                        logger.info(f"✅ Notificación de reasignación enviada a {worker_original_phone}")
+                    
+                    # 2. Confirmar al SUPERVISOR
+                    send_whatsapp(
+                        from_phone,
+                        f"✅ Tarea #{ticket_id} reasignada\n\n"
+                        f"🛏️ Habitación: {ubicacion}\n"
+                        f"📝 Problema: {detalle}\n"
+                        f"{prioridad_emoji} Prioridad: {prioridad}\n"
+                        f"👤 Reasignado a: {worker_nombre_completo}"
+                    )
+                    
+                    # 3. Notificar al NUEVO worker
+                    from gateway_app.services.whatsapp_client import send_whatsapp_text
+                    send_whatsapp_text(
+                        worker_phone,
+                        f"📋 Nueva tarea asignada\n\n"
+                        f"#{ticket_id} · Hab. {ubicacion}\n"
+                        f"{detalle}\n"
+                        f"{prioridad_emoji} Prioridad: {prioridad}\n\n"
+                        f"💡 Responde 'tomar' para aceptar"
+                    )
+                    
+                    return True
+                else:
+                    send_whatsapp(from_phone, "❌ Error reasignando ticket")
+                    return True
+            else:
+                # Múltiples coincidencias: mostrar opciones
+                state["seleccion_mucamas"] = {
+                    "tipo": "reasignar",
+                    "ticket_id": ticket_id,
+                    "candidatas": candidatas,
+                    "worker_original": {
+                        "phone": worker_original_phone,
+                        "name": worker_original_name
+                    },
+                    "ubicacion": ticket.get("ubicacion") or ticket.get("habitacion", "?"),
+                    "detalle": ticket.get("detalle", "Sin detalle"),
+                    "prioridad": ticket.get("prioridad", "MEDIA")
+                }
+                from .worker_search import formato_lista_workers
+                mensaje = formato_lista_workers(candidatas)
+                send_whatsapp(from_phone, mensaje)
+                return True
         
         # Caso 2: Cancelar
         elif mucama_seleccionada == "CANCEL":
