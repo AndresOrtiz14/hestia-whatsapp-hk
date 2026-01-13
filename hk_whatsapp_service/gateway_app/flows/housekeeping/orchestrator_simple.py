@@ -14,7 +14,7 @@ from datetime import date, datetime
 from .state_simple import (
     get_user_state,
     reset_ticket_draft,
-    persist_user_state,  # ✅ AGREGADO
+    persist_user_state,
     MENU,
     VIENDO_TICKETS,
     TRABAJANDO,
@@ -114,7 +114,7 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
                 ticket = tickets_en_curso[0]
                 state["ticket_activo_id"] = ticket["id"]
                 state["state"] = TRABAJANDO
-                persist_user_state(from_phone, state)  # ✅ CORREGIDO
+                persist_user_state(from_phone, state)
                 
                 # Ahora finalizar
                 finalizar_ticket(from_phone)
@@ -233,7 +233,7 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
     )
     finally:
         # Persist full state at end of processing
-        persist_user_state(from_phone, state)  # ✅ CORREGIDO
+        persist_user_state(from_phone, state)
 
 
 def handle_menu(from_phone: str, raw: str) -> None:
@@ -394,7 +394,7 @@ def tomar_ticket(from_phone: str) -> None:
         state["state"] = TRABAJANDO
         
         # ✅ PERSISTIR ESTADO EN BD
-        persist_user_state(from_phone, state)  # ✅ CORREGIDO
+        persist_user_state(from_phone, state)
         
         # Notificar al worker
         prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(
@@ -418,6 +418,7 @@ def finalizar_ticket(from_phone: str) -> None:
     """
     Finaliza el ticket activo.
     Actualiza estado en BD: EN_CURSO → RESUELTO
+    Notifica al supervisor con el tiempo de resolución.
     
     Args:
         from_phone: Número de teléfono del worker
@@ -430,35 +431,104 @@ def finalizar_ticket(from_phone: str) -> None:
         send_whatsapp(from_phone, "⚠️ No tienes ninguna tarea activa")
         return
     
-    # ✅ Actualizar estado en BD: EN_CURSO → RESUELTO
+    # ✅ Obtener datos completos del ticket ANTES de actualizar
     from gateway_app.services.tickets_db import actualizar_estado_ticket, obtener_ticket_por_id
     from gateway_app.services.db import execute
     from datetime import datetime
     
+    ticket_data = obtener_ticket_por_id(ticket_id)
+    if not ticket_data:
+        send_whatsapp(from_phone, "❌ Error obteniendo datos del ticket")
+        return
+    
+    # ✅ Actualizar estado en BD: EN_CURSO → RESUELTO
     if actualizar_estado_ticket(ticket_id, "RESUELTO"):
         # Registrar finished_at
+        now = datetime.now()
         execute(
             "UPDATE public.tickets SET finished_at = ? WHERE id = ?",
-            [datetime.now(), ticket_id],
+            [now, ticket_id],
             commit=True
         )
+        
+        # ✅ CALCULAR TIEMPO DE RESOLUCIÓN
+        started_at = ticket_data.get("started_at")
+        if started_at:
+            # Convertir a datetime si es necesario
+            if isinstance(started_at, str):
+                from dateutil import parser
+                started_at = parser.parse(started_at)
+            
+            duracion = now - started_at
+            minutos_totales = int(duracion.total_seconds() / 60)
+            
+            # Formatear tiempo
+            if minutos_totales < 60:
+                tiempo_texto = f"{minutos_totales} min"
+            else:
+                horas = minutos_totales // 60
+                minutos = minutos_totales % 60
+                tiempo_texto = f"{horas}h {minutos}min" if minutos > 0 else f"{horas}h"
+        else:
+            tiempo_texto = "No disponible"
+            minutos_totales = 0
+        
+        # ✅ NOTIFICAR AL SUPERVISOR
+        import os
+        supervisor_phones = os.getenv("SUPERVISOR_PHONES", "").split(",")
+        supervisor_phones = [p.strip() for p in supervisor_phones if p.strip()]
+        
+        if supervisor_phones:
+            from gateway_app.services.whatsapp_client import send_whatsapp_text
+            from gateway_app.services.workers_db import buscar_worker_por_telefono
+            
+            # Obtener nombre del worker
+            worker = buscar_worker_por_telefono(from_phone)
+            worker_nombre = worker.get("nombre_completo") if worker else "Trabajador"
+            
+            # Emojis según prioridad y tiempo
+            prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(
+                ticket_data.get("prioridad", "MEDIA"), "🟡"
+            )
+            
+            # Emoji de tiempo (rápido vs lento)
+            if minutos_totales <= 15:
+                tiempo_emoji = "⚡"  # Muy rápido
+            elif minutos_totales <= 30:
+                tiempo_emoji = "✅"  # Normal
+            else:
+                tiempo_emoji = "🕐"  # Lento
+            
+            ubicacion = ticket_data.get("ubicacion") or ticket_data.get("habitacion", "?")
+            
+            for supervisor_phone in supervisor_phones:
+                send_whatsapp_text(
+                    to=supervisor_phone,
+                    body=f"✅ Tarea completada por {worker_nombre}\n\n"
+                         f"#{ticket_id} · Hab. {ubicacion}\n"
+                         f"{ticket_data.get('detalle', 'Sin detalle')}\n"
+                         f"{prioridad_emoji} Prioridad: {ticket_data.get('prioridad', 'MEDIA')}\n"
+                         f"{tiempo_emoji} Tiempo: {tiempo_texto}"
+                )
+                logger.info(f"✅ Notificación de finalización enviada a supervisor {supervisor_phone}")
         
         # Limpiar estado local
         state["ticket_activo_id"] = None
         state["state"] = MENU
         
         # Persistir estado
-        persist_user_state(from_phone, state)  # ✅ CORREGIDO
+        persist_user_state(from_phone, state)
         
-        # Notificar
+        # Notificar al worker
         send_whatsapp(
             from_phone,
             f"✅ Tarea #{ticket_id} completada\n\n"
+            f"⏱️ Tiempo: {tiempo_texto}\n"
             f"🎉 ¡Buen trabajo!\n\n"
             f"💡 Di 'M' para el menú"
         )
         
-        logger.info(f"✅ Ticket #{ticket_id} finalizado por {from_phone}")
+        logger.info(f"✅ Ticket #{ticket_id} finalizado por {from_phone} en {tiempo_texto}")
     else:
         send_whatsapp(from_phone, "❌ Error finalizando tarea. Intenta de nuevo.")
 
