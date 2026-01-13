@@ -51,10 +51,9 @@ def texto_tickets_pendientes_simple(tickets: list) -> str:
         prioridad = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(
             ticket.get("prioridad", "MEDIA"), "🟡"
         )
-        lineas.append(
-            hab = ticket.get('ubicacion') or ticket.get('habitacion', '?'))
-
-        lineas.append(f"{prioridad_emoji} #{ticket['id']} · Hab. {hab} · {ticket['detalle'][:30]}")
+        hab = ticket.get('ubicacion') or ticket.get('habitacion', '?')
+        detalle = ticket.get('detalle', '')[:30]
+        lineas.append(f"{prioridad_emoji} #{ticket['id']} · Hab. {hab} · {detalle}")
         
     if len(tickets) > 5:
         lineas.append(f"\n... y {len(tickets) - 5} más")

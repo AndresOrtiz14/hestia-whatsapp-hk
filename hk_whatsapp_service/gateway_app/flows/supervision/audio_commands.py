@@ -243,6 +243,23 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
             'la ', 'el ', 'hab ', 'habitacion', 'habitación', 'cuarto', 'pieza'
         ])
         
+        # ✅ NUEVO: También verificar que el número sea un ticket ID real
+        # (tickets empiezan en 1, habitaciones típicamente 100+)
+        if ticket_id and ticket_id < 100:
+            # Muy probablemente es un ticket ID, no habitación
+            tiene_contexto_habitacion = False
+        
+        if tiene_contexto_habitacion:
+            # Es habitación, no ticket ID - continuar a siguiente patrón
+            pass
+        else:
+            # Es ticket ID real
+            return {
+                "intent": "asignar_ticket",
+                "ticket_id": ticket_id,
+                "worker": worker,
+                "text": text
+            }
         if tiene_contexto_habitacion:
             # Es habitación, no ticket ID - continuar a siguiente patrón
             pass

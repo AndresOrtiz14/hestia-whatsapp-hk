@@ -1005,22 +1005,60 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             return True
         
         from gateway_app.services.workers_db import buscar_worker_por_nombre
-        from gateway_app.services.tickets_db import obtener_tickets_por_estado
+        from gateway_app.services.tickets_db import obtener_tickets_por_estado, asignar_ticket, obtener_ticket_por_id
         
         worker = buscar_worker_por_nombre(worker_nombre)
         
         if worker:
             tickets = obtener_tickets_por_estado("PENDIENTE")
-
             if tickets:
                 prioridad_order = {"ALTA": 0, "MEDIA": 1, "BAJA": 2}
                 tickets_sorted = sorted(
                     tickets,
                     key=lambda t: prioridad_order.get(t.get("prioridad", "MEDIA"), 1)
                 )
-                ticket_id = tickets_sorted[0]["id"]
-                worker_nombre_completo = worker.get("nombre_completo", worker.get("nombre"))
-                send_whatsapp(from_phone, texto_ticket_asignado_simple(ticket_id, worker_nombre_completo))
+                ticket = tickets_sorted[0]
+                ticket_id = ticket["id"]
+                
+                worker_phone = worker.get("telefono")
+                worker_nombre_completo = worker.get("nombre_completo") or worker.get("username")
+                
+                # ✅ Asignar en BD
+                if asignar_ticket(ticket_id, worker_phone, worker_nombre_completo):
+                    # Obtener datos completos del ticket
+                    ticket_data = obtener_ticket_por_id(ticket_id)
+                    habitacion = ticket_data.get("ubicacion") or ticket_data.get("habitacion", "?")
+                    detalle = ticket_data.get("detalle", "Tarea asignada")
+                    prioridad = ticket_data.get("prioridad", "MEDIA")
+                    prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
+                    
+                    # 1. Notificar supervisor
+                    send_whatsapp(
+                        from_phone,
+                        f"✅ Tarea #{ticket_id} asignada\n\n"
+                        f"🛏️ Habitación: {habitacion}\n"
+                        f"📝 Problema: {detalle}\n"
+                        f"{prioridad_emoji} Prioridad: {prioridad}\n"
+                        f"👤 Asignado a: {worker_nombre_completo}"
+                    )
+                    
+                    # 2. ✅ Notificar worker
+                    from gateway_app.services.whatsapp_client import send_whatsapp_text
+                    send_whatsapp_text(
+                        to=worker_phone,
+                        body=f"📋 Nueva tarea asignada\n\n"
+                            f"#{ticket_id} · Hab. {habitacion}\n"
+                            f"{detalle}\n"
+                            f"{prioridad_emoji} Prioridad: {prioridad}\n\n"
+                            f"💡 Responde 'tomar' para aceptar"
+                    )
+                    
+                    return True
+                else:
+                    send_whatsapp(from_phone, "❌ Error asignando. Intenta de nuevo.")
+                    return True
+            else:
+                send_whatsapp(from_phone, "✅ No hay tickets pendientes")
                 return True
         else:
             send_whatsapp(from_phone, f"❌ No encontré a '{worker_nombre}'")
