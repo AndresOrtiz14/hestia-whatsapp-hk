@@ -8,7 +8,7 @@ Bot de Housekeeping - Versión Simplificada
 from .message_handler import handle_hk_message_with_audio
 
 # Exportar versión simple directa (solo texto)
-from .orchestrator_simple import handle_hk_message_simple
+from .orchestrator_hk_multiticket import handle_hk_message_simple
 
 # Alias para compatibilidad con código existente
 handle_hk_message = handle_hk_message_simple
