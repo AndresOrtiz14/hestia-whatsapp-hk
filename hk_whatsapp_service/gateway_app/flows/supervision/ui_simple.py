@@ -1,6 +1,7 @@
 """
 UI simplificada para supervisión - Sin menú, solo comandos.
 """
+from typing import List, Dict, Any
 
 def texto_saludo_supervisor() -> str:
     """
