@@ -101,6 +101,38 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
             state["state"] = MENU
             return
         
+                # ✅ 2.3) COMANDO GLOBAL: Finalizar ticket (desde cualquier estado)
+        if raw in ['fin', 'finalizar', 'terminar', 'listo', 'terminado', 'completar']:
+            # Buscar si tiene ticket EN_CURSO en BD (fuente de verdad)
+            from gateway_app.services.tickets_db import obtener_tickets_asignados_a
+            tickets = obtener_tickets_asignados_a(from_phone)
+            tickets_en_curso = [t for t in tickets if t.get('estado') == 'EN_CURSO']
+            
+            if tickets_en_curso:
+                # Tiene ticket EN_CURSO en BD, sincronizar estado local
+                ticket = tickets_en_curso[0]
+                state["ticket_activo_id"] = ticket["id"]
+                state["state"] = TRABAJANDO
+                from gateway_app.flows.housekeeping.state_simple import persist_state
+                persist_state(from_phone, state)
+                
+                # Ahora finalizar
+                finalizar_ticket(from_phone)
+                return
+            else:
+                # Verificar estado local
+                if state.get("ticket_activo_id"):
+                    finalizar_ticket(from_phone)
+                    return
+                else:
+                    send_whatsapp(from_phone, "⚠️ No tienes ninguna tarea activa")
+                    return
+        
+        # ✅ 2.4) COMANDO GLOBAL: Tomar ticket (desde cualquier estado)
+        if raw in ['tomar', 'aceptar', 'tomo']:
+            tomar_ticket(from_phone)
+            return
+        
         # 2.5) Comandos de turno
         if raw in ['iniciar turno', 'iniciar', 'comenzar turno', 'empezar turno', 'start']:
             iniciar_turno(from_phone)
@@ -140,10 +172,6 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
                 return
         
         # 5) Comandos globales
-        if es_comando_tomar(raw):
-            tomar_ticket(from_phone)
-            return
-        
         if es_comando_reportar(raw):
             iniciar_reporte(from_phone)
             return
@@ -162,31 +190,6 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
         if current_state == VIENDO_TICKETS:
             handle_viendo_tickets(from_phone, raw)
             return
-        
-            # Estado: TRABAJANDO
-        if state["state"] == TRABAJANDO:
-            if raw in ['fin', 'finalizar', 'terminar', 'listo', 'terminado']:
-                finalizar_ticket(from_phone)
-                return
-            
-            if raw in ['pausar', 'pausa']:
-                pausar_ticket(from_phone)
-                return
-            
-            if raw in ['m', 'menu', 'menú', 'volver']:
-                mostrar_menu(from_phone)
-                return
-            
-            # Mensaje genérico cuando está trabajando
-            send_whatsapp(
-                from_phone,
-                "⚙️ Tarea en progreso\n\n"
-                "💡 Comandos:\n"
-                "• 'fin' - Terminar tarea\n"
-                "• 'pausar' - Pausar tarea\n"
-                "• 'M' - Menú"
-            )
-            return
 
         if current_state == REPORTANDO_HAB:
             handle_reportando_habitacion(from_phone, text)
@@ -198,6 +201,24 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
         
         if current_state == CONFIRMANDO_REPORTE:
             handle_confirmando_reporte(from_phone, raw)
+            return
+        
+        if state["state"] == TRABAJANDO:
+            # 'fin' ya se maneja arriba como comando global
+            
+            if raw in ['pausar', 'pausa']:
+                pausar_ticket(from_phone)
+                return
+            
+            # Mensaje genérico cuando está trabajando
+            send_whatsapp(
+                from_phone,
+                "⚙️ Tarea en progreso\n\n"
+                "💡 Comandos:\n"
+                "• 'fin' - Terminar tarea\n"
+                "• 'pausar' - Pausar tarea\n"
+                "• 'M' - Menú"
+            )
             return
         
         # 7) No entendí
