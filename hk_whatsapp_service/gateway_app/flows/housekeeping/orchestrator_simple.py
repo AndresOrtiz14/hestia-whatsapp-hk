@@ -1,6 +1,6 @@
 """
 Orquestador simplificado para bot de Housekeeping.
-Sin menú complejo, flujo directo.
+VERSIÓN MULTI-TICKET: Permite trabajar en varios tickets simultáneamente.
 """
 import logging
 
@@ -102,38 +102,51 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
             state["state"] = MENU
             return
         
-        # ✅ 2.3) COMANDO GLOBAL: Finalizar ticket (desde cualquier estado)
-        if raw in ['fin', 'finalizar', 'terminar', 'listo', 'terminado', 'completar']:
-            # Buscar si tiene ticket EN_CURSO en BD (fuente de verdad)
-            from gateway_app.services.tickets_db import obtener_tickets_asignados_a
-            tickets = obtener_tickets_asignados_a(from_phone)
-            tickets_en_curso = [t for t in tickets if t.get('estado') == 'EN_CURSO']
+        # ✅ 2.3) COMANDO GLOBAL: Finalizar ticket (con o sin número)
+        if raw.startswith('fin') or raw in ['finalizar', 'terminar', 'listo', 'terminado', 'completar']:
+            # Intentar extraer número de ticket: "fin 15", "finalizar 12"
+            import re
+            match = re.search(r'\b(\d{1,4})\b', raw)
             
-            if tickets_en_curso:
-                # Tiene ticket EN_CURSO en BD, sincronizar estado local
-                ticket = tickets_en_curso[0]
-                state["ticket_activo_id"] = ticket["id"]
-                state["state"] = TRABAJANDO
-                persist_user_state(from_phone, state)
-                
-                # Ahora finalizar
-                finalizar_ticket(from_phone)
-                return
+            if match:
+                # Tiene número específico
+                ticket_id = int(match.group(1))
+                finalizar_ticket_especifico(from_phone, ticket_id)
             else:
-                # Verificar estado local
-                if state.get("ticket_activo_id"):
-                    finalizar_ticket(from_phone)
-                    return
-                else:
-                    send_whatsapp(from_phone, "⚠️ No tienes ninguna tarea activa")
-                    return
+                # Sin número: finalizar el único activo o preguntar cuál
+                finalizar_ticket_interactivo(from_phone)
+            return
         
-        # ✅ 2.4) COMANDO GLOBAL: Tomar ticket (desde cualquier estado)
+        # ✅ 2.4) COMANDO GLOBAL: Pausar ticket (con o sin número)
+        if raw.startswith('pausar') or raw == 'pausa':
+            import re
+            match = re.search(r'\b(\d{1,4})\b', raw)
+            
+            if match:
+                ticket_id = int(match.group(1))
+                pausar_ticket_especifico(from_phone, ticket_id)
+            else:
+                pausar_ticket_interactivo(from_phone)
+            return
+        
+        # ✅ 2.5) COMANDO GLOBAL: Reanudar ticket (con número)
+        if raw.startswith('reanudar') or raw.startswith('continuar'):
+            import re
+            match = re.search(r'\b(\d{1,4})\b', raw)
+            
+            if match:
+                ticket_id = int(match.group(1))
+                reanudar_ticket_especifico(from_phone, ticket_id)
+            else:
+                send_whatsapp(from_phone, "💡 Indica qué tarea: 'reanudar [#]'")
+            return
+        
+        # ✅ 2.6) COMANDO GLOBAL: Tomar ticket
         if raw in ['tomar', 'aceptar', 'tomo']:
             tomar_ticket(from_phone)
             return
         
-        # 2.5) Comandos de turno
+        # 2.7) Comandos de turno
         if raw in ['iniciar turno', 'iniciar', 'comenzar turno', 'empezar turno', 'start']:
             iniciar_turno(from_phone)
             return
@@ -142,24 +155,13 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
             terminar_turno(from_phone)
             return
         
-        # 2.5) NUEVO: Navegación directa de menú (desde cualquier estado)
-        # Permite escribir 1, 2, 3, 4 para navegar sin volver al menú
-        # IMPORTANTE: Respeta el estado del turno
+        # 2.8) Navegación directa de menú (desde cualquier estado)
         if raw in ['1', '2', '3', '4'] and state.get("state") not in [REPORTANDO_HAB, REPORTANDO_DETALLE, CONFIRMANDO_REPORTE]:
             turno_activo = state.get("turno_activo", False)
-            
-            # Solo si NO está en medio de un reporte, delegar a handle_menu
-            # que sabe cómo manejar las opciones según el turno
             handle_menu(from_phone, raw)
             return
         
-        # 3) Si tiene ticket activo, priorizar comandos de trabajo
-        if state.get("ticket_activo"):
-            if handle_comandos_ticket_activo(from_phone, text):
-                return
-        
-        # 4) Detectar reporte directo (ej: "hab 305 fuga de agua")
-        # IMPORTANTE: Solo si NO está en flujo de reporte manual
+        # 3) Detectar reporte directo (ej: "hab 305 fuga de agua")
         current_state = state.get("state")
         if current_state not in [REPORTANDO_HAB, REPORTANDO_DETALLE, CONFIRMANDO_REPORTE]:
             reporte = detectar_reporte_directo(text)
@@ -167,16 +169,21 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
                 crear_ticket_directo(from_phone, reporte)
                 return
         
-        # 5) Comandos globales
+        # 4) Comandos globales
         if es_comando_reportar(raw):
             iniciar_reporte(from_phone)
             return
         
-        if raw in ['tickets', 'ver tickets', 'mis tickets']:
+        if raw in ['tickets', 'ver tickets', 'mis tickets', 'mis tareas']:
             mostrar_tickets(from_phone)
             return
         
-        # 6) Routing por estado
+        # ✅ NUEVO: Ver tickets activos (en progreso)
+        if raw in ['activos', 'en curso', 'trabajando', 'progreso']:
+            mostrar_tickets_activos(from_phone)
+            return
+        
+        # 5) Routing por estado
         current_state = state.get("state")
         
         if current_state == MENU:
@@ -200,30 +207,28 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
             return
         
         if state["state"] == TRABAJANDO:
-            # 'fin' ya se maneja arriba como comando global
-            
-            if raw in ['pausar', 'pausa']:
-                pausar_ticket(from_phone)
-                return
-            
             # Mensaje genérico cuando está trabajando
             send_whatsapp(
                 from_phone,
-                "⚙️ Tarea en progreso\n\n"
+                "⚙️ Trabajando en tarea(s)\n\n"
                 "💡 Comandos:\n"
-                "• 'fin' - Terminar tarea\n"
-                "• 'pausar' - Pausar tarea\n"
+                "• 'activos' - Ver tus tareas activas\n"
+                "• 'fin [#]' - Terminar tarea específica\n"
+                "• 'pausar [#]' - Pausar tarea\n"
+                "• 'tomar' - Tomar otra tarea\n"
                 "• 'M' - Menú"
             )
             return
         
-        # 7) No entendí
+        # 6) No entendí
         send_whatsapp(
             from_phone,
             "🤔 No entendí.\n\n"
             "💡 Puedes decir:\n"
             "• 'tomar' - Tomar ticket\n"
-            "• 'tickets' - Ver mis tickets\n"
+            "• 'activos' - Ver tus tareas activas\n"
+            "• 'fin [#]' - Terminar tarea\n"
+            "• 'tickets' - Ver tus tickets\n"
             "• 'reportar' - Reportar problema\n"
             "• 'M' - Menú"
     )
@@ -285,43 +290,8 @@ def handle_viendo_tickets(from_phone: str, raw: str) -> None:
         tomar_ticket(from_phone)
         return
     
-    # TODO: Selección por número (#1011)
-    
     # Volver
     send_whatsapp(from_phone, "💡 Di 'tomar' o 'M'")
-
-
-def handle_comandos_ticket_activo(from_phone: str, text: str) -> bool:
-    """
-    Maneja comandos cuando hay ticket activo.
-    
-    Args:
-        from_phone: Número de teléfono
-        text: Texto del mensaje
-    
-    Returns:
-        True si se manejó un comando
-    """
-    raw = text.lower().strip()
-    state = get_user_state(from_phone)
-    ticket = state["ticket_activo"]
-    
-    # Finalizar
-    if es_comando_finalizar(raw):
-        finalizar_ticket(from_phone)
-        return True
-    
-    # Pausar
-    if es_comando_pausar(raw):
-        pausar_ticket(from_phone)
-        return True
-    
-    # Reanudar
-    if es_comando_reanudar(raw):
-        reanudar_ticket(from_phone)
-        return True
-    
-    return False
 
 
 def mostrar_tickets(from_phone: str) -> None:
@@ -338,41 +308,81 @@ def mostrar_tickets(from_phone: str) -> None:
 
     state["state"] = VIENDO_TICKETS
 
+
+def mostrar_tickets_activos(from_phone: str) -> None:
+    """
+    ✅ NUEVO: Muestra solo los tickets EN_CURSO del worker.
+    """
+    tickets = obtener_tickets_asignados_a(from_phone)
+    tickets_activos = [t for t in tickets if t.get('estado') == 'EN_CURSO']
+    
+    if not tickets_activos:
+        send_whatsapp(from_phone, "✅ No tienes tareas activas\n\n💡 Di 'tickets' para ver tus asignaciones")
+        return
+    
+    lineas = [f"⚙️ {len(tickets_activos)} tarea(s) activa(s):\n"]
+    
+    for ticket in tickets_activos:
+        prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(
+            ticket.get("prioridad", "MEDIA"), "🟡"
+        )
+        
+        ubicacion = ticket.get("ubicacion") or ticket.get("habitacion", "?")
+        detalle = ticket.get("detalle", "Sin detalle")[:30]
+        
+        # Calcular tiempo trabajando
+        started_at = ticket.get("started_at")
+        if started_at:
+            try:
+                from dateutil import parser
+                if isinstance(started_at, str):
+                    started_at = parser.parse(started_at)
+                tiempo_mins = int((datetime.now(started_at.tzinfo) - started_at).total_seconds() / 60)
+            except:
+                tiempo_mins = 0
+        else:
+            tiempo_mins = 0
+        
+        lineas.append(
+            f"{prioridad_emoji} #{ticket['id']} · Hab. {ubicacion} · {tiempo_mins} min\n"
+            f"   {detalle}"
+        )
+    
+    lineas.append("\n💡 'fin [#]' para terminar | 'pausar [#]' para pausar")
+    
+    send_whatsapp(from_phone, "\n".join(lineas))
+
+
 def tomar_ticket(from_phone: str) -> None:
     """
-    Toma el ticket de mayor prioridad asignado al worker.
-    Actualiza estado en BD: ASIGNADO → EN_CURSO
-    
-    Args:
-        from_phone: Número de teléfono del worker
+    ✅ MODIFICADO: Permite tomar múltiples tickets.
+    Ya no verifica si hay ticket activo, solo toma el siguiente disponible.
     """
     verificar_turno_activo(from_phone)
     state = get_user_state(from_phone)
     
-    # Si ya tiene ticket activo
-    if state.get("ticket_activo_id"):
-        from gateway_app.services.tickets_db import obtener_ticket_por_id
-        ticket = obtener_ticket_por_id(state["ticket_activo_id"])
-        if ticket:
-            send_whatsapp(
-                from_phone,
-                f"⚠️ Ya tienes el ticket #{ticket['id']} en progreso\n\n"
-                "💡 'fin' para terminarlo"
-            )
-            return
-    
-    # ✅ Buscar tickets asignados desde BD
+    # ✅ Buscar tickets ASIGNADOS desde BD
     from gateway_app.services.tickets_db import obtener_tickets_asignados_a, actualizar_estado_ticket
     from gateway_app.services.db import execute
     
     tickets = obtener_tickets_asignados_a(from_phone)
+    tickets_asignados = [t for t in tickets if t.get('estado') == 'ASIGNADO']
     
-    if not tickets:
-        send_whatsapp(from_phone, "✅ No tienes tickets pendientes")
+    if not tickets_asignados:
+        # Ver si tiene tickets EN_CURSO
+        tickets_en_curso = [t for t in tickets if t.get('estado') == 'EN_CURSO']
+        if tickets_en_curso:
+            send_whatsapp(
+                from_phone,
+                f"✅ Ya tienes {len(tickets_en_curso)} tarea(s) activa(s)\n\n"
+                f"💡 Di 'activos' para verlas"
+            )
+        else:
+            send_whatsapp(from_phone, "✅ No tienes tickets pendientes por tomar")
         return
     
-    # Tomar el primer ticket (ya viene ordenado por prioridad)
-    ticket = tickets[0]
+    # Tomar el primer ticket asignado
+    ticket = tickets_asignados[0]
     ticket_id = ticket["id"]
     
     # ✅ Actualizar estado en BD: ASIGNADO → EN_CURSO
@@ -385,11 +395,8 @@ def tomar_ticket(from_phone: str) -> None:
             commit=True
         )
         
-        # Actualizar estado local
-        state["ticket_activo_id"] = ticket_id
+        # Actualizar estado local (agregar a lista en lugar de reemplazar)
         state["state"] = TRABAJANDO
-        
-        # ✅ PERSISTIR ESTADO EN BD
         persist_user_state(from_phone, state)
         
         # Notificar al worker
@@ -398,43 +405,73 @@ def tomar_ticket(from_phone: str) -> None:
         )
         hab = ticket.get("ubicacion") or ticket.get("habitacion", "?")
         
+        # Contar tickets activos
+        tickets_activos_total = len([t for t in tickets if t.get('estado') == 'EN_CURSO']) + 1
+        
         send_whatsapp(
             from_phone,
             f"✅ Tarea tomada\n\n"
             f"{prioridad_emoji} #{ticket_id} · Hab. {hab}\n"
             f"{ticket.get('detalle', 'Sin detalle')}\n\n"
-            f"💡 Di 'fin' cuando termines"
+            f"📊 Tienes {tickets_activos_total} tarea(s) activa(s)\n\n"
+            f"💡 'fin {ticket_id}' cuando termines\n"
+            f"💡 'activos' para ver todas"
         )
     else:
-        send_whatsapp(from_phone, "❌ Error tomando tarea. Intenta de nuevo.")    
+        send_whatsapp(from_phone, "❌ Error tomando tarea. Intenta de nuevo.")
 
 
-
-def finalizar_ticket(from_phone: str) -> None:
+def finalizar_ticket_interactivo(from_phone: str) -> None:
     """
-    Finaliza el ticket activo.
-    Actualiza estado en BD: EN_CURSO → RESUELTO
-    Notifica al supervisor con el tiempo de resolución.
-    
-    Args:
-        from_phone: Número de teléfono del worker
+    ✅ NUEVO: Finaliza ticket de forma interactiva.
+    Si tiene uno solo, lo finaliza. Si tiene varios, pide cuál.
     """
-    state = get_user_state(from_phone)
+    tickets = obtener_tickets_asignados_a(from_phone)
+    tickets_en_curso = [t for t in tickets if t.get('estado') == 'EN_CURSO']
     
-    # Verificar que tiene ticket activo
-    ticket_id = state.get("ticket_activo_id")
-    if not ticket_id:
+    if not tickets_en_curso:
         send_whatsapp(from_phone, "⚠️ No tienes ninguna tarea activa")
         return
     
-    # ✅ Obtener datos completos del ticket ANTES de actualizar
+    if len(tickets_en_curso) == 1:
+        # Solo una: finalizar directamente
+        finalizar_ticket_especifico(from_phone, tickets_en_curso[0]['id'])
+    else:
+        # Varias: preguntar cuál
+        lineas = [f"Tienes {len(tickets_en_curso)} tareas activas:\n"]
+        
+        for ticket in tickets_en_curso:
+            ubicacion = ticket.get("ubicacion") or ticket.get("habitacion", "?")
+            lineas.append(f"• #{ticket['id']} - Hab. {ubicacion}")
+        
+        lineas.append("\n💡 Indica cuál: 'fin [#]'")
+        send_whatsapp(from_phone, "\n".join(lineas))
+
+
+def finalizar_ticket_especifico(from_phone: str, ticket_id: int) -> None:
+    """
+    ✅ NUEVO: Finaliza un ticket específico por su ID.
+    """
     from gateway_app.services.tickets_db import actualizar_estado_ticket, obtener_ticket_por_id
     from gateway_app.services.db import execute
     from datetime import datetime
     
+    # Verificar que el ticket existe y está EN_CURSO
     ticket_data = obtener_ticket_por_id(ticket_id)
+    
     if not ticket_data:
-        send_whatsapp(from_phone, "❌ Error obteniendo datos del ticket")
+        send_whatsapp(from_phone, f"❌ No encontré la tarea #{ticket_id}")
+        return
+    
+    # Verificar que pertenece al worker
+    huesped_whatsapp = ticket_data.get("huesped_whatsapp", "")
+    if from_phone not in huesped_whatsapp:
+        send_whatsapp(from_phone, f"❌ La tarea #{ticket_id} no está asignada a ti")
+        return
+    
+    # Verificar que está EN_CURSO
+    if ticket_data.get("estado") != "EN_CURSO":
+        send_whatsapp(from_phone, f"⚠️ La tarea #{ticket_id} no está en progreso")
         return
     
     # ✅ Actualizar estado en BD: EN_CURSO → RESUELTO
@@ -450,7 +487,6 @@ def finalizar_ticket(from_phone: str) -> None:
         # ✅ CALCULAR TIEMPO DE RESOLUCIÓN
         started_at = ticket_data.get("started_at")
         if started_at:
-            # Convertir a datetime si es necesario
             if isinstance(started_at, str):
                 from dateutil import parser
                 started_at = parser.parse(started_at)
@@ -458,7 +494,6 @@ def finalizar_ticket(from_phone: str) -> None:
             duracion = now - started_at
             minutos_totales = int(duracion.total_seconds() / 60)
             
-            # Formatear tiempo
             if minutos_totales < 60:
                 tiempo_texto = f"{minutos_totales} min"
             else:
@@ -478,22 +513,19 @@ def finalizar_ticket(from_phone: str) -> None:
             from gateway_app.services.whatsapp_client import send_whatsapp_text
             from gateway_app.services.workers_db import buscar_worker_por_telefono
             
-            # Obtener nombre del worker
             worker = buscar_worker_por_telefono(from_phone)
             worker_nombre = worker.get("nombre_completo") if worker else "Trabajador"
             
-            # Emojis según prioridad y tiempo
             prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(
                 ticket_data.get("prioridad", "MEDIA"), "🟡"
             )
             
-            # Emoji de tiempo (rápido vs lento)
             if minutos_totales <= 15:
-                tiempo_emoji = "⚡"  # Muy rápido
+                tiempo_emoji = "⚡"
             elif minutos_totales <= 30:
-                tiempo_emoji = "✅"  # Normal
+                tiempo_emoji = "✅"
             else:
-                tiempo_emoji = "🕐"  # Lento
+                tiempo_emoji = "🕐"
             
             ubicacion = ticket_data.get("ubicacion") or ticket_data.get("habitacion", "?")
             
@@ -508,73 +540,123 @@ def finalizar_ticket(from_phone: str) -> None:
                 )
                 logger.info(f"✅ Notificación de finalización enviada a supervisor {supervisor_phone}")
         
-        # Limpiar estado local
-        state["ticket_activo_id"] = None
-        state["state"] = MENU
+        # Verificar si aún tiene tickets activos
+        tickets = obtener_tickets_asignados_a(from_phone)
+        tickets_activos = [t for t in tickets if t.get('estado') == 'EN_CURSO']
         
-        # Persistir estado
+        # Actualizar estado
+        state = get_user_state(from_phone)
+        if len(tickets_activos) == 0:
+            state["state"] = MENU
         persist_user_state(from_phone, state)
         
         # Notificar al worker
-        send_whatsapp(
-            from_phone,
-            f"✅ Tarea #{ticket_id} completada\n\n"
-            f"⏱️ Tiempo: {tiempo_texto}\n"
-            f"🎉 ¡Buen trabajo!\n\n"
-            f"💡 Di 'M' para el menú"
-        )
+        if len(tickets_activos) > 0:
+            send_whatsapp(
+                from_phone,
+                f"✅ Tarea #{ticket_id} completada\n\n"
+                f"⏱️ Tiempo: {tiempo_texto}\n"
+                f"🎉 ¡Buen trabajo!\n\n"
+                f"📊 Tienes {len(tickets_activos)} tarea(s) activa(s)\n"
+                f"💡 'activos' para verlas"
+            )
+        else:
+            send_whatsapp(
+                from_phone,
+                f"✅ Tarea #{ticket_id} completada\n\n"
+                f"⏱️ Tiempo: {tiempo_texto}\n"
+                f"🎉 ¡Buen trabajo!\n\n"
+                f"✨ No tienes más tareas activas\n"
+                f"💡 Di 'M' para el menú"
+            )
         
         logger.info(f"✅ Ticket #{ticket_id} finalizado por {from_phone} en {tiempo_texto}")
     else:
         send_whatsapp(from_phone, "❌ Error finalizando tarea. Intenta de nuevo.")
 
 
-def pausar_ticket(from_phone: str) -> None:
+def pausar_ticket_interactivo(from_phone: str) -> None:
     """
-    Pausa el ticket activo.
-    
-    Args:
-        from_phone: Número de teléfono
+    ✅ NUEVO: Pausa ticket de forma interactiva.
     """
-    state = get_user_state(from_phone)
-    ticket = state.get("ticket_activo")
+    tickets = obtener_tickets_asignados_a(from_phone)
+    tickets_en_curso = [t for t in tickets if t.get('estado') == 'EN_CURSO']
     
-    if not ticket:
-        send_whatsapp(from_phone, "❌ No tienes ticket activo")
+    if not tickets_en_curso:
+        send_whatsapp(from_phone, "⚠️ No tienes ninguna tarea activa")
         return
     
-    # Marcar pausa
-    ticket["paused_at"] = datetime.now().isoformat()
-    ticket["estado"] = "pausado"
-    
-    mensaje = texto_ticket_pausado(ticket)
-    send_whatsapp(from_phone, mensaje)
+    if len(tickets_en_curso) == 1:
+        pausar_ticket_especifico(from_phone, tickets_en_curso[0]['id'])
+    else:
+        lineas = [f"Tienes {len(tickets_en_curso)} tareas activas:\n"]
+        
+        for ticket in tickets_en_curso:
+            ubicacion = ticket.get("ubicacion") or ticket.get("habitacion", "?")
+            lineas.append(f"• #{ticket['id']} - Hab. {ubicacion}")
+        
+        lineas.append("\n💡 Indica cuál: 'pausar [#]'")
+        send_whatsapp(from_phone, "\n".join(lineas))
 
 
-def reanudar_ticket(from_phone: str) -> None:
+def pausar_ticket_especifico(from_phone: str, ticket_id: int) -> None:
     """
-    Reanuda el ticket pausado.
-    
-    Args:
-        from_phone: Número de teléfono
+    ✅ NUEVO: Pausa un ticket específico.
     """
-    state = get_user_state(from_phone)
-    ticket = state.get("ticket_activo")
+    from gateway_app.services.tickets_db import actualizar_estado_ticket, obtener_ticket_por_id
     
-    if not ticket:
-        send_whatsapp(from_phone, "❌ No tienes ticket activo")
+    ticket_data = obtener_ticket_por_id(ticket_id)
+    
+    if not ticket_data:
+        send_whatsapp(from_phone, f"❌ No encontré la tarea #{ticket_id}")
         return
     
-    if ticket.get("estado") != "pausado":
-        send_whatsapp(from_phone, "❌ El ticket no está pausado")
+    if ticket_data.get("estado") != "EN_CURSO":
+        send_whatsapp(from_phone, f"⚠️ La tarea #{ticket_id} no está en progreso")
         return
     
-    # Reanudar
-    ticket["resumed_at"] = datetime.now().isoformat()
-    ticket["estado"] = "en_progreso"
+    # Actualizar a PAUSADO
+    if actualizar_estado_ticket(ticket_id, "PAUSADO"):
+        ubicacion = ticket_data.get("ubicacion") or ticket_data.get("habitacion", "?")
+        
+        send_whatsapp(
+            from_phone,
+            f"⏸️ Tarea #{ticket_id} pausada\n\n"
+            f"📍 Hab. {ubicacion}\n\n"
+            f"💡 'reanudar {ticket_id}' para continuar"
+        )
+    else:
+        send_whatsapp(from_phone, "❌ Error pausando tarea")
+
+
+def reanudar_ticket_especifico(from_phone: str, ticket_id: int) -> None:
+    """
+    ✅ NUEVO: Reanuda un ticket pausado.
+    """
+    from gateway_app.services.tickets_db import actualizar_estado_ticket, obtener_ticket_por_id
     
-    mensaje = texto_ticket_reanudado(ticket)
-    send_whatsapp(from_phone, mensaje)
+    ticket_data = obtener_ticket_por_id(ticket_id)
+    
+    if not ticket_data:
+        send_whatsapp(from_phone, f"❌ No encontré la tarea #{ticket_id}")
+        return
+    
+    if ticket_data.get("estado") != "PAUSADO":
+        send_whatsapp(from_phone, f"⚠️ La tarea #{ticket_id} no está pausada")
+        return
+    
+    # Actualizar a EN_CURSO
+    if actualizar_estado_ticket(ticket_id, "EN_CURSO"):
+        ubicacion = ticket_data.get("ubicacion") or ticket_data.get("habitacion", "?")
+        
+        send_whatsapp(
+            from_phone,
+            f"▶️ Tarea #{ticket_id} reanudada\n\n"
+            f"📍 Hab. {ubicacion}\n\n"
+            f"💡 'fin {ticket_id}' cuando termines"
+        )
+    else:
+        send_whatsapp(from_phone, "❌ Error reanudando tarea")
 
 
 def iniciar_reporte(from_phone: str) -> None:
@@ -595,26 +677,18 @@ def iniciar_reporte(from_phone: str) -> None:
 def handle_reportando_habitacion(from_phone: str, text: str) -> None:
     """
     Maneja la respuesta cuando está pidiendo habitación.
-    MEJORA: Si el mensaje incluye habitación + detalle, crear ticket directo.
-    
-    Args:
-        from_phone: Número de teléfono
-        text: Texto con la habitación (y posiblemente detalle)
     """
     state = get_user_state(from_phone)
     
-    # NUEVO: Intentar detectar reporte completo (ej: "302 tiene mancha de humedad")
     from .intents import detectar_reporte_directo
     reporte_completo = detectar_reporte_directo(text)
     
     if reporte_completo:
-        # Tiene habitación + detalle: crear directo con confirmación
         state["ticket_draft"]["habitacion"] = reporte_completo["habitacion"]
         state["ticket_draft"]["detalle"] = reporte_completo["detalle"]
         state["ticket_draft"]["prioridad"] = reporte_completo["prioridad"]
         state["state"] = CONFIRMANDO_REPORTE
         
-        # Mostrar confirmación
         mensaje = texto_confirmar_reporte(
             reporte_completo["habitacion"],
             reporte_completo["detalle"],
@@ -623,7 +697,6 @@ def handle_reportando_habitacion(from_phone: str, text: str) -> None:
         send_whatsapp(from_phone, mensaje)
         return
     
-    # Solo habitación: continuar flujo normal
     from .intents import extraer_habitacion
     habitacion = extraer_habitacion(text)
     
@@ -631,7 +704,6 @@ def handle_reportando_habitacion(from_phone: str, text: str) -> None:
         send_whatsapp(from_phone, "❌ No entendí el número\n\n" + texto_pedir_habitacion())
         return
     
-    # Guardar y continuar
     state["ticket_draft"]["habitacion"] = habitacion
     state["state"] = REPORTANDO_DETALLE
     
@@ -641,24 +713,14 @@ def handle_reportando_habitacion(from_phone: str, text: str) -> None:
 def handle_reportando_detalle(from_phone: str, text: str) -> None:
     """
     Maneja el detalle del problema.
-    
-    Args:
-        from_phone: Número de teléfono
-        text: Detalle del problema
     """
     state = get_user_state(from_phone)
     draft = state["ticket_draft"]
     
-    # Guardar detalle
     draft["detalle"] = text
-    
-    # Detectar prioridad automáticamente
     draft["prioridad"] = detectar_prioridad(text)
-    
-    # Ir a confirmación (NUEVO)
     state["state"] = CONFIRMANDO_REPORTE
     
-    # Mostrar resumen para confirmar
     mensaje = texto_confirmar_reporte(
         draft["habitacion"],
         draft["detalle"],
@@ -670,48 +732,38 @@ def handle_reportando_detalle(from_phone: str, text: str) -> None:
 def handle_confirmando_reporte(from_phone: str, raw: str) -> None:
     """
     Maneja la confirmación del reporte.
-    
-    Args:
-        from_phone: Número de teléfono
-        raw: Texto normalizado
     """
     state = get_user_state(from_phone)
     draft = state["ticket_draft"]
     logger.info("HK_CONFIRM from=%s raw=%r draft=%s", from_phone, raw, draft)
 
     
-    # Confirmar
     if raw in ['si', 'sí', 'yes', 'ok', 'confirmar', 'confirmo', 'dale', 'correcto']:
         crear_ticket_desde_draft(from_phone)
         return
     
-    # Editar habitación
     if raw in ['editar', 'cambiar', 'modificar', 'editar habitacion', 'editar habitación']:
         state["state"] = REPORTANDO_HAB
         send_whatsapp(from_phone, texto_pedir_habitacion())
         return
     
-    # Editar detalle
     if raw in ['editar detalle', 'cambiar detalle']:
         state["state"] = REPORTANDO_DETALLE
         send_whatsapp(from_phone, texto_pedir_detalle())
         return
     
-    # Cancelar
     if raw in ['cancelar', 'cancel', 'no']:
         reset_ticket_draft(from_phone)
         state["state"] = MENU
         send_whatsapp(from_phone, "❌ Reporte cancelado")
         return
     
-    # Volver al menú
     if raw in ['m', 'menu', 'menú', 'volver']:
         reset_ticket_draft(from_phone)
         send_whatsapp(from_phone, texto_menu_simple())
         state["state"] = MENU
         return
     
-    # No entendió
     mensaje = texto_confirmar_reporte(
         draft["habitacion"],
         draft["detalle"],
@@ -732,7 +784,7 @@ def crear_ticket_directo(from_phone: str, reporte: dict) -> None:
             habitacion=reporte["habitacion"],
             detalle=reporte["detalle"],
             prioridad=reporte["prioridad"],
-            creado_por=from_phone,  # el worker que reporta
+            creado_por=from_phone,
             origen="trabajador",
             canal_origen="WHATSAPP_BOT_HOUSEKEEPING",
             area="HOUSEKEEPING",
@@ -746,7 +798,6 @@ def crear_ticket_directo(from_phone: str, reporte: dict) -> None:
         mensaje = texto_ticket_creado(ticket_id, reporte["habitacion"], reporte["prioridad"])
         send_whatsapp(from_phone, mensaje)
 
-        # volver al menú
         state = get_user_state(from_phone)
         state["state"] = MENU
 
@@ -758,13 +809,9 @@ def crear_ticket_directo(from_phone: str, reporte: dict) -> None:
 def crear_ticket_desde_draft(from_phone: str) -> None:
     """
     Crea ticket desde el borrador y notifica al supervisor.
-    
-    Args:
-        from_phone: Número de teléfono del worker
     """
     state = get_user_state(from_phone)
 
-    # ✅ Guard: Solo crear si estamos en estado de confirmación
     if state.get("state") != CONFIRMANDO_REPORTE:
         logger.warning(
             "HK_CREATE_FROM_DRAFT ignored (state=%s) from=%s",
@@ -776,7 +823,6 @@ def crear_ticket_desde_draft(from_phone: str) -> None:
     draft = state.get("ticket_draft") or {}
     logger.info("HK_CREATE_FROM_DRAFT from=%s draft=%s", from_phone, draft)
 
-    # VALIDACIÓN
     if not draft.get("habitacion") or not draft.get("detalle"):
         logger.warning("HK_CREATE_FROM_DRAFT missing_fields from=%s draft=%s", from_phone, draft)
         send_whatsapp(from_phone, "❌ Error: Falta información del reporte")
@@ -785,7 +831,6 @@ def crear_ticket_desde_draft(from_phone: str) -> None:
         return
 
     try:
-        # Crear ticket en BD
         ticket = tickets_db.crear_ticket(
             habitacion=draft["habitacion"],
             detalle=draft["detalle"],
@@ -812,11 +857,9 @@ def crear_ticket_desde_draft(from_phone: str) -> None:
         ticket_id = ticket["id"]
         logger.info("HK_CREATE_FROM_DRAFT created_id=%s from=%s", ticket_id, from_phone)
 
-        # 1️⃣ Confirmar al worker
         mensaje = texto_ticket_creado(ticket_id, draft["habitacion"], draft["prioridad"])
         send_whatsapp(from_phone, mensaje)
 
-        # 2️⃣ ✅ NOTIFICAR AL SUPERVISOR
         import os
         supervisor_phones = os.getenv("SUPERVISOR_PHONES", "").split(",")
         supervisor_phones = [p.strip() for p in supervisor_phones if p.strip()]
@@ -827,7 +870,6 @@ def crear_ticket_desde_draft(from_phone: str) -> None:
             
             prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(draft["prioridad"], "🟡")
             
-            # Obtener nombre del worker
             worker = buscar_worker_por_telefono(from_phone)
             worker_nombre = worker.get("nombre_completo") if worker else "Trabajador"
             
@@ -842,7 +884,6 @@ def crear_ticket_desde_draft(from_phone: str) -> None:
                 )
                 logger.info(f"✅ Notificación enviada a supervisor {supervisor_phone}")
 
-        # Limpiar y volver al menú
         reset_ticket_draft(from_phone)
         state["state"] = MENU
 
@@ -855,9 +896,6 @@ def crear_ticket_desde_draft(from_phone: str) -> None:
 def iniciar_turno(from_phone: str) -> None:
     """
     Inicia el turno del trabajador.
-    
-    Args:
-        from_phone: Número de teléfono
     """
     from datetime import datetime
     state = get_user_state(from_phone)
@@ -866,7 +904,6 @@ def iniciar_turno(from_phone: str) -> None:
         send_whatsapp(from_phone, "⚠️ Tu turno ya está activo")
         return
     
-    # Iniciar turno
     state["turno_activo"] = True
     state["turno_inicio"] = datetime.now().isoformat()
     state["turno_fin"] = None
@@ -883,10 +920,8 @@ def iniciar_turno(from_phone: str) -> None:
 
 def terminar_turno(from_phone: str) -> None:
     """
-    Termina el turno del trabajador.
-    
-    Args:
-        from_phone: Número de teléfono
+    ✅ MODIFICADO: Permite terminar turno aunque tenga tickets activos.
+    Los tickets se pausan automáticamente.
     """
     from datetime import datetime
     state = get_user_state(from_phone)
@@ -895,14 +930,21 @@ def terminar_turno(from_phone: str) -> None:
         send_whatsapp(from_phone, "⚠️ No tienes turno activo")
         return
     
-    # Verificar si tiene ticket activo
-    if state.get("ticket_activo"):
+    # Verificar si tiene tickets activos
+    tickets = obtener_tickets_asignados_a(from_phone)
+    tickets_activos = [t for t in tickets if t.get('estado') == 'EN_CURSO']
+    
+    if len(tickets_activos) > 0:
+        # Pausar todos los tickets activos
+        from gateway_app.services.tickets_db import actualizar_estado_ticket
+        
+        for ticket in tickets_activos:
+            actualizar_estado_ticket(ticket['id'], "PAUSADO")
+        
         send_whatsapp(
             from_phone,
-            "⚠️ No puedes terminar turno con tarea activa\n\n"
-            "💡 Finaliza o pausa tu tarea primero"
+            f"⏸️ {len(tickets_activos)} tarea(s) pausada(s) automáticamente"
         )
-        return
     
     # Calcular duración
     inicio = state.get("turno_inicio")

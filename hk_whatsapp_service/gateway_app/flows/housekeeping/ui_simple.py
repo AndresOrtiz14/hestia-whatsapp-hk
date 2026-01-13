@@ -228,7 +228,7 @@ def texto_pedir_habitacion() -> str:
     Returns:
         Texto de solicitud
     """
-    return "➕ ¿Qué habitación?\n(ej: 305)"
+    return "🛏️ ¿Qué habitación?\n(ej: 305)"
 
 
 def texto_pedir_detalle() -> str:
