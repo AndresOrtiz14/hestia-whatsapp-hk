@@ -10,7 +10,7 @@ from gateway_app.services.tickets_db import obtener_tickets_asignados_a
 
 logger = logging.getLogger(__name__)
 
-from datetime import date
+from datetime import date, datetime
 from .state import get_supervisor_state
 from .ui_simple import (
     texto_saludo_supervisor,
@@ -299,18 +299,22 @@ def asignar_siguiente(from_phone: str) -> None:
         ticket.get("prioridad", "MEDIA"), "🟡"
     )
     
-    # ✅ Calcular tiempo esperando desde created_at
+    # ✅ CORREGIDO: Extraer habitación
+    hab = ticket.get('ubicacion') or ticket.get('habitacion', '?')
+    
+    # ✅ CORREGIDO: Calcular tiempo esperando
     created_at = ticket.get("created_at")
     if created_at:
-        if isinstance(created_at, str):
+        try:
             from dateutil import parser
-            created_at = parser.parse(created_at)
-        
-        from datetime import datetime
-        tiempo_mins = int((datetime.now(created_at.tzinfo) - created_at).total_seconds() / 60)
+            if isinstance(created_at, str):
+                created_at = parser.parse(created_at)
+            tiempo_mins = int((datetime.now(created_at.tzinfo) - created_at).total_seconds() / 60)
+        except:
+            tiempo_mins = 0
     else:
         tiempo_mins = 0
-
+    
     send_whatsapp(
         from_phone,
         f"📋 Siguiente ticket:\n\n"
@@ -379,22 +383,23 @@ def mostrar_en_proceso(from_phone: str) -> None:
             "BAJA": "🟢"
         }.get(ticket.get("prioridad", "MEDIA"), "🟡")
         
-        # ✅ Extraer trabajador desde huesped_whatsapp
+        # ✅ CORREGIDO: Extraer trabajador desde huesped_whatsapp
         huesped_whatsapp = ticket.get("huesped_whatsapp", "")
         if "|" in huesped_whatsapp:
-            worker_phone, worker_name = huesped_whatsapp.split("|", 1)
+            worker_phone, trabajador = huesped_whatsapp.split("|", 1)
         else:
-            worker_name = "?"
-
-        # ✅ Calcular tiempo desde started_at
+            trabajador = "?"
+        
+        # ✅ CORREGIDO: Calcular tiempo desde started_at
         started_at = ticket.get("started_at")
         if started_at:
-            if isinstance(started_at, str):
+            try:
                 from dateutil import parser
-                started_at = parser.parse(started_at)
-            
-            from datetime import datetime
-            tiempo = int((datetime.now(started_at.tzinfo) - started_at).total_seconds() / 60)
+                if isinstance(started_at, str):
+                    started_at = parser.parse(started_at)
+                tiempo = int((datetime.now(started_at.tzinfo) - started_at).total_seconds() / 60)
+            except:
+                tiempo = 0
         else:
             tiempo = 0
         
@@ -415,14 +420,24 @@ def mostrar_en_proceso(from_phone: str) -> None:
 def mostrar_retrasados(from_phone: str) -> None:
     """Muestra solo tickets retrasados (>10 min)."""
     from gateway_app.services.tickets_db import obtener_tickets_por_estado
-    from datetime import datetime
     
     tickets = obtener_tickets_por_estado("EN_CURSO")
     now = datetime.now()
-    retrasados = [
-        t for t in tickets 
-        if t.get("started_at") and (now - t["started_at"]).total_seconds() / 60 > 10
-    ]
+    
+    # ✅ CORREGIDO: Filtrar con manejo de errores
+    retrasados = []
+    for t in tickets:
+        started_at = t.get("started_at")
+        if started_at:
+            try:
+                from dateutil import parser
+                if isinstance(started_at, str):
+                    started_at = parser.parse(started_at)
+                tiempo_mins = (datetime.now(started_at.tzinfo) - started_at).total_seconds() / 60
+                if tiempo_mins > 10:
+                    retrasados.append(t)
+            except:
+                pass
     
     if not retrasados:
         send_whatsapp(from_phone, "✅ No hay tickets retrasados")
@@ -431,31 +446,34 @@ def mostrar_retrasados(from_phone: str) -> None:
     lineas = [f"⏰ {len(retrasados)} tickets retrasados:\n"]
     
     for ticket in retrasados:
+        # ✅ CORREGIDO: Extraer habitación
         hab = ticket.get('ubicacion') or ticket.get('habitacion', '?')
-        # ✅ Extraer trabajador
+        
+        # ✅ CORREGIDO: Extraer trabajador
         huesped_whatsapp = ticket.get("huesped_whatsapp", "")
         if "|" in huesped_whatsapp:
-            worker_phone, worker_name = huesped_whatsapp.split("|", 1)
+            worker_phone, trabajador = huesped_whatsapp.split("|", 1)
         else:
-            worker_name = "Sin asignar"
-
-        # ✅ Calcular tiempo desde created_at (no started_at para retrasados)
+            trabajador = "Sin asignar"
+        
+        # ✅ CORREGIDO: Calcular tiempo
         created_at = ticket.get("created_at")
         if created_at:
-            if isinstance(created_at, str):
+            try:
                 from dateutil import parser
-                created_at = parser.parse(created_at)
-            
-            from datetime import datetime
-            tiempo = int((datetime.now(created_at.tzinfo) - created_at).total_seconds() / 60)
+                if isinstance(created_at, str):
+                    created_at = parser.parse(created_at)
+                tiempo = int((datetime.now(created_at.tzinfo) - created_at).total_seconds() / 60)
+            except:
+                tiempo = 0
         else:
             tiempo = 0
-
+        
         lineas.append(
-            f"⚠️ #{ticket['id']} · Hab. {hab} · {worker_name} · {tiempo} min"
+            f"⚠️ #{ticket['id']} · Hab. {hab} · {trabajador} · {tiempo} min"
         )
-    lineas.append("\n💡 Di: 'reasignar [#] a [nombre]'")
     
+    lineas.append("\n💡 Di: 'reasignar [#] a [nombre]'")
     send_whatsapp(from_phone, "\n".join(lineas))
 
 
