@@ -14,12 +14,13 @@ from datetime import date, datetime
 from .state_simple import (
     get_user_state,
     reset_ticket_draft,
+    persist_user_state,  # ✅ AGREGADO
     MENU,
     VIENDO_TICKETS,
     TRABAJANDO,
     REPORTANDO_HAB,
     REPORTANDO_DETALLE,
-    CONFIRMANDO_REPORTE  # NUEVO
+    CONFIRMANDO_REPORTE
 )
 from .ui_simple import (
     texto_menu_simple,
@@ -33,7 +34,7 @@ from .ui_simple import (
     texto_pedir_habitacion,
     texto_pedir_detalle,
     texto_ticket_creado,
-    texto_confirmar_reporte  # NUEVO
+    texto_confirmar_reporte
 )
 from .intents import (
     detectar_reporte_directo,
@@ -96,12 +97,12 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
         
         # 2) Comando global: Menú
         if raw in ['m', 'menu', 'menú', 'volver']:
-            reset_ticket_draft(from_phone)  # NUEVO: Limpiar draft al volver
+            reset_ticket_draft(from_phone)
             send_whatsapp(from_phone, texto_menu_simple())
             state["state"] = MENU
             return
         
-                # ✅ 2.3) COMANDO GLOBAL: Finalizar ticket (desde cualquier estado)
+        # ✅ 2.3) COMANDO GLOBAL: Finalizar ticket (desde cualquier estado)
         if raw in ['fin', 'finalizar', 'terminar', 'listo', 'terminado', 'completar']:
             # Buscar si tiene ticket EN_CURSO en BD (fuente de verdad)
             from gateway_app.services.tickets_db import obtener_tickets_asignados_a
@@ -113,8 +114,7 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
                 ticket = tickets_en_curso[0]
                 state["ticket_activo_id"] = ticket["id"]
                 state["state"] = TRABAJANDO
-                from gateway_app.flows.housekeeping.state_simple import persist_state
-                persist_state(from_phone, state)
+                persist_user_state(from_phone, state)  # ✅ CORREGIDO
                 
                 # Ahora finalizar
                 finalizar_ticket(from_phone)
@@ -233,8 +233,7 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
     )
     finally:
         # Persist full state at end of processing
-        from .state_simple import persist_user_state
-        persist_user_state(from_phone, state)
+        persist_user_state(from_phone, state)  # ✅ CORREGIDO
 
 
 def handle_menu(from_phone: str, raw: str) -> None:
@@ -395,8 +394,7 @@ def tomar_ticket(from_phone: str) -> None:
         state["state"] = TRABAJANDO
         
         # ✅ PERSISTIR ESTADO EN BD
-        from gateway_app.flows.housekeeping.state_simple import persist_state
-        persist_state(from_phone, state)
+        persist_user_state(from_phone, state)  # ✅ CORREGIDO
         
         # Notificar al worker
         prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(
@@ -450,8 +448,7 @@ def finalizar_ticket(from_phone: str) -> None:
         state["state"] = MENU
         
         # Persistir estado
-        from gateway_app.flows.housekeeping.state_simple import persist_state
-        persist_state(from_phone, state)
+        persist_user_state(from_phone, state)  # ✅ CORREGIDO
         
         # Notificar
         send_whatsapp(
@@ -641,7 +638,7 @@ def handle_confirmando_reporte(from_phone: str, raw: str) -> None:
         send_whatsapp(from_phone, "❌ Reporte cancelado")
         return
     
-        # Volver al menú
+    # Volver al menú
     if raw in ['m', 'menu', 'menú', 'volver']:
         reset_ticket_draft(from_phone)
         send_whatsapp(from_phone, texto_menu_simple())
