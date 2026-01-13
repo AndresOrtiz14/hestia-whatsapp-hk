@@ -32,25 +32,16 @@ def texto_saludo_supervisor() -> str:
 💡 Todo funciona con audio también."""
 
 
-def texto_tickets_pendientes_simple(tickets: list) -> str:
-    """
-    Muestra tareas pendientes de forma simple.
-    
-    Args:
-        tickets: Lista de tickets
-    
-    Returns:
-        Texto formateado
-    """
+def texto_tickets_pendientes_simple(tickets: List[Dict]) -> str:
     if not tickets:
-        return "✅ No hay tareas pendientes"
+        return "✅ No hay tickets pendientes"
     
-    lineas = [f"📋 {len(tickets)} tareas pendientes:\n"]
+    lineas = [f"📋 {len(tickets)} pendiente(s):\n"]
     
-    for ticket in tickets[:5]:  # Máximo 5
-        prioridad = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(
-            ticket.get("prioridad", "MEDIA"), "🟡"
-        )
+    for ticket in tickets[:10]:
+        prioridad = ticket.get("prioridad", "MEDIA")
+        prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
+        
         hab = ticket.get('ubicacion') or ticket.get('habitacion', '?')
         detalle = ticket.get('detalle', '')[:30]
         lineas.append(f"{prioridad_emoji} #{ticket['id']} · Hab. {hab} · {detalle}")

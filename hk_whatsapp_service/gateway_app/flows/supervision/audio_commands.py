@@ -209,15 +209,22 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
     prioridad = detect_priority(text)
     
     # Detectar verbos de acción (con tolerancia a errores de transcripción)
-    es_asignar = any(word in text_lower for word in [
-        'asignar', 'asigna', 'asina',  # ← typo común de Whisper
-        'derivar', 'deriva', 
-        'mandar', 'manda',
-        'enviar', 'envia',
-        'encargar', 'encarga', 'encargale', 'encárgale',  # NUEVO
-        'delegar', 'delega', 'delegale', 'delégale',      # NUEVO
-        'que lo resuelva', 'que lo haga', 'que lo vea',   # NUEVO
-        'que la resuelva', 'que la haga', 'que la vea'    # NUEVO
+    # Normalizar texto para comparación (quitar tildes)
+    import unicodedata
+    text_normalized = ''.join(
+        c for c in unicodedata.normalize('NFD', text_lower)
+        if unicodedata.category(c) != 'Mn'
+    )
+
+    es_asignar = any(word in text_normalized for word in [
+        'asignar', 'asigna', 'asina', 'asignalo', 'asignala',  # Sin tildes
+        'derivar', 'deriva', 'derivalo', 'derivala',
+        'mandar', 'manda', 'mandalo', 'mandala',
+        'enviar', 'envia', 'envialo', 'enviala',
+        'encargar', 'encarga', 'encargale',
+        'delegar', 'delega', 'delegale',
+        'que lo resuelva', 'que lo haga', 'que lo vea',
+        'que la resuelva', 'que la haga', 'que la vea'
     ])
     es_reasignar = any(word in text_lower for word in [
         'reasignar', 'reasigna',
@@ -249,17 +256,6 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
             # Muy probablemente es un ticket ID, no habitación
             tiene_contexto_habitacion = False
         
-        if tiene_contexto_habitacion:
-            # Es habitación, no ticket ID - continuar a siguiente patrón
-            pass
-        else:
-            # Es ticket ID real
-            return {
-                "intent": "asignar_ticket",
-                "ticket_id": ticket_id,
-                "worker": worker,
-                "text": text
-            }
         if tiene_contexto_habitacion:
             # Es habitación, no ticket ID - continuar a siguiente patrón
             pass
