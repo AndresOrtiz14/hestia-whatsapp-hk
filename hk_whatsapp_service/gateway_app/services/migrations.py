@@ -209,7 +209,7 @@ def seed_workers():
             "role": "mucama"  # ← AGREGAR ESTE CAMPO
         },
         {
-            "username": "Adriana DA Test", 
+            "username": "Adriana DA Tes", 
             "telefono": "56990763262",
             "email": "adriana.test@hestia.local",
             "area": "HOUSEKEEPING",
