@@ -202,30 +202,30 @@ def seed_workers():
     
     workers_data = [
         {
-            "username": "Seba Fruns Test",
-            "telefono": "56996107169",
-            "email": "seba.test@hestia.local",
+            "username": "Viveros DA Test",
+            "telefono": "56926296499",
+            "email": "viveros.test@hestia.local",
             "area": "HOUSEKEEPING",
             "role": "mucama"  # ← AGREGAR ESTE CAMPO
         },
         {
-            "username": "Javier Pozo Test", 
-            "telefono": "4915221417651",
-            "email": "javier.test@hestia.local",
+            "username": "Adriana DA Test", 
+            "telefono": "56990763262",
+            "email": "adriana.test@hestia.local",
+            "area": "HOUSEKEEPING",
+            "role": "mucama"  # ← AGREGAR ESTE CAMPO
+        },
+        {
+            "username": "Solange DA Test",
+            "telefono": "56989692965",
+            "email": "solange.test@hestia.local",
             "area": "MANTENCION",
             "role": "mantencion"  # ← AGREGAR ESTE CAMPO
         },
         {
-            "username": "Pedro Arriagada Test",
-            "telefono": "56983001018",
-            "email": "pedro.test@hestia.local",
-            "area": "MANTENCION",
-            "role": "mantencion"  # ← AGREGAR ESTE CAMPO
-        },
-        {
-            "username": "Andres Ortiz Test",
-            "telefono": "56956326272",
-            "email": "andres.test@hestia.local",
+            "username": "Teresa DA Test",
+            "telefono": "56957636794",
+            "email": "teresa.test@hestia.local",
             "area": "HOUSEKEEPING",
             "role": "mucama"  # ← AGREGAR ESTE CAMPO
         }
