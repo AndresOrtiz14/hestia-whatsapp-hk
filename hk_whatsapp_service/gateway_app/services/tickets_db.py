@@ -152,8 +152,8 @@ def asignar_ticket(ticket_id: int, asignado_a_phone: str, asignado_a_nombre: str
 
 def obtener_tickets_asignados_a(phone: str) -> List[Dict[str, Any]]:
     """
-    Retorna tickets asignados al worker, detectando por huesped_whatsapp LIKE '{phone}%'
-    y estados activos.
+    Retorna tickets asignados al worker.
+    Busca en huesped_whatsapp (formato: "phone|nombre" cuando está asignado).
     """
     table = "public.tickets" if using_pg() else "tickets"
 
@@ -161,12 +161,22 @@ def obtener_tickets_asignados_a(phone: str) -> List[Dict[str, Any]]:
     SELECT *
     FROM {table}
     WHERE huesped_whatsapp LIKE ?
-      AND estado IN ('PENDIENTE', 'ASIGNADO', 'ACEPTADO', 'EN_CURSO', 'PAUSADO')
-    ORDER BY created_at ASC
+      AND estado IN ('ASIGNADO', 'EN_CURSO', 'PAUSADO')
+      AND deleted_at IS NULL
+    ORDER BY 
+        CASE prioridad
+            WHEN 'ALTA' THEN 1
+            WHEN 'MEDIA' THEN 2
+            WHEN 'BAJA' THEN 3
+            ELSE 4
+        END,
+        created_at ASC
     """
 
     try:
-        return fetchall(sql, [f"{phone}%"])
+        tickets = fetchall(sql, [f"{phone}|%"])
+        logger.info(f"📋 Encontrados {len(tickets)} tickets para {phone}")
+        return tickets
     except Exception as e:
         logger.exception("Error obteniendo tickets asignados: %s", e)
         return []
@@ -191,3 +201,30 @@ def obtener_ticket_por_id(ticket_id: int) -> Optional[Dict[str, Any]]:
     except Exception as e:
         logger.exception("Error obteniendo ticket por id: %s", e)
         return None
+
+def actualizar_estado_ticket(ticket_id: int, nuevo_estado: str) -> bool:
+    """
+    Actualiza el estado de un ticket.
+    
+    Args:
+        ticket_id: ID del ticket
+        nuevo_estado: Nuevo estado (ASIGNADO, EN_CURSO, PAUSADO, RESUELTO)
+    
+    Returns:
+        True si se actualizó correctamente
+    """
+    table = "public.tickets" if using_pg() else "tickets"
+    
+    sql = f"""
+        UPDATE {table}
+        SET estado = ?
+        WHERE id = ?
+    """
+    
+    try:
+        execute(sql, [nuevo_estado, ticket_id], commit=True)
+        logger.info(f"✅ Ticket #{ticket_id} actualizado a {nuevo_estado}")
+        return True
+    except Exception as e:
+        logger.exception(f"❌ Error actualizando estado de ticket: {e}")
+        return False

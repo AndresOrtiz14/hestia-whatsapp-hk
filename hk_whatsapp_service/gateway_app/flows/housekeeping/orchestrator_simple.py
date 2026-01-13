@@ -297,43 +297,72 @@ def mostrar_tickets(from_phone: str) -> None:
 
     state["state"] = VIENDO_TICKETS
 
-
-
 def tomar_ticket(from_phone: str) -> None:
     """
-    Toma el ticket de mayor prioridad.
+    Toma el ticket de mayor prioridad asignado al worker.
+    Actualiza estado en BD: ASIGNADO → EN_CURSO
     
     Args:
-        from_phone: Número de teléfono
+        from_phone: Número de teléfono del worker
     """
     verificar_turno_activo(from_phone)
     state = get_user_state(from_phone)
     
     # Si ya tiene ticket activo
-    if state.get("ticket_activo"):
-        send_whatsapp(
-            from_phone,
-            f"⚠️ Ya tienes el ticket #{state['ticket_activo']['id']} en progreso\n\n"
-            "💡 'fin' para terminarlo"
-        )
-        return
+    if state.get("ticket_activo_id"):
+        from gateway_app.services.tickets_db import obtener_ticket_por_id
+        ticket = obtener_ticket_por_id(state["ticket_activo_id"])
+        if ticket:
+            send_whatsapp(
+                from_phone,
+                f"⚠️ Ya tienes el ticket #{ticket['id']} en progreso\n\n"
+                "💡 'fin' para terminarlo"
+            )
+            return
     
-    # Buscar mejor ticket
-    mis_tickets = [t for t in DEMO_TICKETS if t.get("asignado_a") == from_phone]
-    ticket = elegir_mejor_ticket(mis_tickets)
+    # ✅ Buscar tickets asignados desde BD
+    from gateway_app.services.tickets_db import obtener_tickets_asignados_a, actualizar_estado_ticket
+    from gateway_app.services.db import execute
     
-    if not ticket:
+    tickets = obtener_tickets_asignados_a(from_phone)
+    
+    if not tickets:
         send_whatsapp(from_phone, "✅ No tienes tickets pendientes")
         return
     
-    # Iniciar ticket
-    ticket["started_at"] = datetime.now().isoformat()
-    ticket["estado"] = "en_progreso"
-    state["ticket_activo"] = ticket
-    state["state"] = TRABAJANDO
+    # Tomar el primer ticket (ya viene ordenado por prioridad)
+    ticket = tickets[0]
+    ticket_id = ticket["id"]
     
-    mensaje = texto_ticket_en_progreso(ticket)
-    send_whatsapp(from_phone, mensaje)
+    # ✅ Actualizar estado en BD: ASIGNADO → EN_CURSO
+    if actualizar_estado_ticket(ticket_id, "EN_CURSO"):
+        # Registrar timestamps
+        from datetime import datetime
+        execute(
+            "UPDATE public.tickets SET started_at = ?, accepted_at = ? WHERE id = ?",
+            [datetime.now(), datetime.now(), ticket_id],
+            commit=True
+        )
+        
+        # Actualizar estado local
+        state["ticket_activo_id"] = ticket_id
+        state["state"] = TRABAJANDO
+        
+        # Notificar al worker
+        prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(
+            ticket.get("prioridad", "MEDIA"), "🟡"
+        )
+        hab = ticket.get("ubicacion") or ticket.get("habitacion", "?")
+        
+        send_whatsapp(
+            from_phone,
+            f"✅ Tarea tomada\n\n"
+            f"{prioridad_emoji} #{ticket_id} · Hab. {hab}\n"
+            f"{ticket.get('detalle', 'Sin detalle')}\n\n"
+            f"💡 Di 'fin' cuando termines"
+        )
+    else:
+        send_whatsapp(from_phone, "❌ Error tomando tarea. Intenta de nuevo.")
 
 
 # Continúa en la siguiente parte...
