@@ -143,19 +143,15 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
             return
         
         # 2.5) NUEVO: Navegación directa de menú (desde cualquier estado)
-        # Permite escribir 1, 2, 3 para navegar sin volver al menú
-        if raw in ['1', '2', '3'] and state.get("state") not in [REPORTANDO_HAB, REPORTANDO_DETALLE, CONFIRMANDO_REPORTE]:
-            # Solo si NO está en medio de un reporte
-            if raw == '1':
-                mostrar_tickets(from_phone)
-                return
-            elif raw == '2':
-                iniciar_reporte(from_phone)
-                return
-            elif raw == '3':
-                send_whatsapp(from_phone, texto_ayuda())
-                state["state"] = MENU
-                return
+        # Permite escribir 1, 2, 3, 4 para navegar sin volver al menú
+        # IMPORTANTE: Respeta el estado del turno
+        if raw in ['1', '2', '3', '4'] and state.get("state") not in [REPORTANDO_HAB, REPORTANDO_DETALLE, CONFIRMANDO_REPORTE]:
+            turno_activo = state.get("turno_activo", False)
+            
+            # Solo si NO está en medio de un reporte, delegar a handle_menu
+            # que sabe cómo manejar las opciones según el turno
+            handle_menu(from_phone, raw)
+            return
         
         # 3) Si tiene ticket activo, priorizar comandos de trabajo
         if state.get("ticket_activo"):
