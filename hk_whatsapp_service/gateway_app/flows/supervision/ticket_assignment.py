@@ -1,63 +1,175 @@
 """
-Módulo simplificado de asignación - solo scoring.
-Para sistema sin menú complejo.
+Sistema de asignación de tickets a workers con scoring inteligente.
+VERSIÓN MEJORADA: Prioriza workers según área del ticket.
 """
 
-from typing import Dict, Any
-
-
-def calcular_score_worker(worker: Dict[str, Any]) -> int:
+def calcular_score_worker(worker: dict, ticket: dict = None) -> int:
     """
-    Calcula el score de recomendación para un worker.
+    Calcula score de un worker para asignar ticket.
+    Mayor score = más apropiado.
     
     Args:
-        worker: Datos del worker
+        worker: Datos del worker desde BD
+        ticket: Datos del ticket (opcional, para match de área)
     
     Returns:
-        Score de 0 a 100
+        Score total (0-500)
+    
+    Factores considerados:
+    - Match de área (CRÍTICO): +200 si coincide, -100 si no
+    - Estado disponible: +50
+    - Ocupado: -30
+    - En pausa: -100
+    - Carga de trabajo: -10 por cada ticket asignado
+    - Turno activo: +30
     """
-    score = 100
+    score = 100  # Base
     
-    # Penalizar si está ocupado
-    if worker.get("estado") == "ocupada" or worker.get("ticket_activo"):
-        score -= 50
+    # ✅ NUEVO: Match de área (FACTOR MÁS IMPORTANTE)
+    if ticket:
+        ticket_ubicacion = ticket.get("habitacion") or ticket.get("ubicacion", "")
+        worker_area = (worker.get("area") or "HOUSEKEEPING").upper()
+        
+        # Detectar si el ticket es de habitación o área común
+        is_habitacion = False
+        if ticket_ubicacion:
+            # Limpiar y verificar
+            ubicacion_str = str(ticket_ubicacion).strip()
+            if ubicacion_str.isdigit():
+                num = int(ubicacion_str)
+                if 100 <= num <= 9999:
+                    is_habitacion = True
+        
+        if is_habitacion:
+            # ✅ Ticket de habitación → Priorizar HOUSEKEEPING
+            if worker_area in ["HOUSEKEEPING", "HK"]:
+                score += 200  # BONUS GRANDE
+            else:
+                score -= 50  # Penalización leve (puede ayudar pero no es ideal)
+        else:
+            # ✅ Ticket de área común → Priorizar AREAS_COMUNES o MANTENIMIENTO
+            if worker_area in ["AREAS_COMUNES", "ÁREAS_COMUNES", "AC", "MANTENIMIENTO", "MANTENCIÓN", "MT"]:
+                score += 200  # BONUS GRANDE
+            elif worker_area in ["HOUSEKEEPING", "HK"]:
+                score -= 100  # Penalización mayor (no es su especialidad)
     
-    # Penalizar si está en pausa
-    if worker.get("estado") == "en_pausa":
+    # Estado: Disponible (no ocupada, no pausada)
+    if not worker.get("ocupada", False) and not worker.get("pausada", False):
+        score += 50
+    
+    # Ocupada
+    if worker.get("ocupada", False):
         score -= 30
     
-    # Bonus si ha completado pocos tickets hoy (balanceo)
-    tickets_hoy = worker.get("tickets_completados_hoy", 0)
-    score += (10 - tickets_hoy) * 5
+    # En pausa
+    if worker.get("pausada", False):
+        score -= 100
     
-    # Bonus si tiene buen promedio de tiempo
-    promedio = worker.get("promedio_tiempo_resolucion", 20)
-    if promedio < 15:
-        score += 20
+    # Carga de trabajo (menos tickets = mejor)
+    tickets_asignados = worker.get("tickets_asignados", 0)
+    score -= tickets_asignados * 10
     
-    return max(0, min(100, score))
+    # Turno activo
+    if worker.get("turno_activo", False):
+        score += 30
+    else:
+        score -= 50  # Penalización si no tiene turno activo
+    
+    return max(score, 0)  # No permitir scores negativos
 
 
-def confirmar_asignacion(from_phone: str, ticket_id: int, worker: Dict[str, Any]) -> None:
+def elegir_mejor_worker(workers: list, ticket: dict = None) -> dict:
     """
-    Confirma asignación (versión simplificada).
+    Elige el mejor worker de una lista según scoring.
+    
+    Args:
+        workers: Lista de workers
+        ticket: Datos del ticket (opcional)
+    
+    Returns:
+        Worker con mayor score
+    """
+    if not workers:
+        return None
+    
+    workers_con_score = []
+    for worker in workers:
+        score = calcular_score_worker(worker, ticket)
+        workers_con_score.append((worker, score))
+    
+    # Ordenar por score descendente
+    workers_con_score.sort(key=lambda x: x[1], reverse=True)
+    
+    # Retornar el primero (mayor score)
+    return workers_con_score[0][0]
+
+
+def ordenar_workers_por_score(workers: list, ticket: dict = None) -> list:
+    """
+    Ordena workers por score.
+    
+    Args:
+        workers: Lista de workers
+        ticket: Datos del ticket (opcional)
+    
+    Returns:
+        Lista de workers ordenados por score (mayor primero)
+    """
+    if not workers:
+        return []
+    
+    workers_con_score = []
+    for worker in workers:
+        score = calcular_score_worker(worker, ticket)
+        workers_con_score.append({**worker, "score": score})
+    
+    # Ordenar por score descendente
+    workers_con_score.sort(key=lambda w: w["score"], reverse=True)
+    
+    return workers_con_score
+
+
+def confirmar_asignacion(from_phone: str, ticket_id: int, worker: dict) -> None:
+    """
+    Confirma la asignación de un ticket a un worker.
     
     Args:
         from_phone: Teléfono del supervisor
         ticket_id: ID del ticket
         worker: Datos del worker
     """
-    from .outgoing import send_whatsapp
+    from gateway_app.flows.supervision.outgoing import send_whatsapp
+    from gateway_app.services.tickets_db import obtener_ticket_por_id
+    from .ubicacion_helpers import formatear_ubicacion_con_emoji, get_area_emoji, get_area_short
     
-    # TODO: Actualizar en BD
-    # TODO: Notificar a worker
+    # Obtener datos del ticket
+    ticket = obtener_ticket_por_id(ticket_id)
     
+    if not ticket:
+        send_whatsapp(from_phone, f"❌ No encontré el ticket #{ticket_id}")
+        return
+    
+    # Formatear ubicación con emoji apropiado
+    ubicacion = ticket.get("ubicacion") or ticket.get("habitacion", "?")
+    ubicacion_fmt = formatear_ubicacion_con_emoji(ubicacion)
+    
+    # Datos del worker
     worker_nombre = worker.get("nombre_completo", worker.get("nombre", "?"))
-    mensaje = f"✅ Tarea #{ticket_id} → {worker_nombre}"
-    mensaje += "\n\n💡 En producción: se notificaría al trabajador"
+    worker_area = worker.get("area", "HOUSEKEEPING")
+    area_emoji = get_area_emoji(worker_area)
+    area_short = get_area_short(worker_area)
+    
+    # Prioridad
+    prioridad = ticket.get("prioridad", "MEDIA")
+    prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
+    
+    # Mensaje al supervisor
+    mensaje = (
+        f"✅ Tarea #{ticket_id} asignada\n\n"
+        f"{ubicacion_fmt}\n"
+        f"📝 Problema: {ticket.get('detalle', 'Sin detalle')}\n"
+        f"{prioridad_emoji} Prioridad: {prioridad}\n"
+        f"👤 Asignado a: {worker_nombre} ({area_emoji} {area_short})"
+    )
     
     send_whatsapp(from_phone, mensaje)
-
-
-# Alias para retrocompatibilidad
-calcular_score_mucama = calcular_score_worker
