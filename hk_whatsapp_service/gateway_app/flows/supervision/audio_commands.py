@@ -1,6 +1,7 @@
 """
 Procesamiento de comandos de audio para supervisión.
 Detecta intenciones en transcripciones de voz.
+VERSIÓN CON SOPORTE PARA ÁREAS COMUNES.
 """
 
 import re
@@ -26,15 +27,15 @@ def extract_ticket_id(text: str) -> Optional[int]:
     """
     # Buscar patrones como "ticket 1503", "1503", "el 1503", "asignar el 1503", "reasignar 12"
     patterns = [
-        r'reasignar\s+(?:el\s+|la\s+)?#?(\d{1,4})',  # ✅ NUEVO: Detectar "reasignar 12"
+        r'reasignar\s+(?:el\s+|la\s+)?#?(\d{1,4})',
         r'ticket\s*#?\s*(\d+)',
         r'número\s*#?\s*(\d+)',
         r'el\s+#?(\d+)',
         r'la\s+#?(\d+)',
-        r'asignar\s+(?:el\s+|la\s+)?#?(\d{1,4})',  # ✅ CAMBIADO: Permite 1-4 dígitos
+        r'asignar\s+(?:el\s+|la\s+)?#?(\d{1,4})',
         r'derivar\s+(?:el\s+|la\s+)?#?(\d{1,4})',
         r'mandar\s+(?:el\s+|la\s+)?#?(\d{1,4})',
-        r'#(\d{1,4})',  # ✅ CAMBIADO: Permite 1-4 dígitos
+        r'#(\d{1,4})',
         r'\b(\d{3,4})\b',  # 3-4 dígitos solos
     ]
     
@@ -44,7 +45,6 @@ def extract_ticket_id(text: str) -> Optional[int]:
         match = re.search(pattern, text_lower)
         if match:
             ticket_id = int(match.group(1))
-            # ✅ VALIDACIÓN: Solo tickets válidos (1-9999)
             if 1 <= ticket_id <= 9999:
                 return ticket_id
     
@@ -86,19 +86,19 @@ def extract_worker_name(text: str) -> Optional[str]:
         'ricardo',
         'roberto',
         'beto',
-        'seba',  # ✅ NUEVO
-        'javier',  # ✅ NUEVO
-        'andres', 'andrés'  # ✅ NUEVO
+        'seba',
+        'javier',
+        'andres', 'andrés'
     ]
     
     text_lower = text.lower()
     
-    # NUEVO: Detectar múltiples patrones de asignación
+    # Detectar múltiples patrones de asignación
     patrones = [
-        r'\b(?:a|para)\s+(\w+)',                    # "a María", "para Pedro"
-        r'que\s+lo\s+(?:resuelva|haga|vea)\s+(\w+)', # "que lo resuelva María"
-        r'que\s+la\s+(?:resuelva|haga|vea)\s+(\w+)', # "que la resuelva María"
-        r'(?:encarga|delega)(?:le)?\s+a\s+(\w+)',   # "encargale a Pedro"
+        r'\b(?:a|para)\s+(\w+)',
+        r'que\s+lo\s+(?:resuelva|haga|vea)\s+(\w+)',
+        r'que\s+la\s+(?:resuelva|haga|vea)\s+(\w+)',
+        r'(?:encarga|delega)(?:le)?\s+a\s+(\w+)',
     ]
     
     for patron in patrones:
@@ -107,25 +107,17 @@ def extract_worker_name(text: str) -> Optional[str]:
             posible_nombre = match.group(1)
             if posible_nombre in nombres:
                 return posible_nombre.capitalize()
-            # Buscar en texto original (capitalizado)
             for palabra in text.split():
                 if palabra.lower() == posible_nombre and len(palabra) >= 3:
                     return palabra
     
-    # Buscar nombre completo como palabra
     for nombre in nombres:
-        # Buscar palabra completa (evitar "maría" en "mariano")
         if re.search(r'\b' + re.escape(nombre) + r'\b', text_lower):
-            # Retornar capitalizado
             return nombre.capitalize()
     
-    # Fallback: buscar cualquier palabra que parezca nombre (>=3 letras, capitalizada en original)
-    # Útil para nombres no en la lista
     palabras = text.split()
     for palabra in palabras:
-        # Si la palabra original estaba capitalizada y tiene >=3 letras
         if palabra and len(palabra) >= 3 and palabra[0].isupper():
-            # Verificar que no sea una palabra común
             palabras_comunes = ['Hab', 'Habitación', 'Cuarto', 'Ticket', 'El', 'La', 'Un', 'Una', 'Pieza']
             if palabra not in palabras_comunes:
                 return palabra
@@ -152,6 +144,7 @@ def extract_habitacion(text: str) -> Optional[str]:
         r'habitación\s*(\d{3,4})',
         r'cuarto\s*(\d{3,4})',
         r'pieza\s*(\d{3,4})',
+        r'hab\s+(\d{3,4})',
         r'la\s+(\d{3,4})',
         r'número\s+(\d{3,4})',
     ]
@@ -162,6 +155,139 @@ def extract_habitacion(text: str) -> Optional[str]:
         match = re.search(pattern, text_lower)
         if match:
             return match.group(1)
+    
+    return None
+
+
+def extract_area_comun(text: str) -> Optional[str]:
+    """
+    ✅ NUEVA FUNCIÓN: Extrae área común del texto.
+    
+    Áreas soportadas:
+    - Ascensor (con piso opcional)
+    - Cafetería / Comedor
+    - Lobby / Recepción
+    - Pasillo (con piso)
+    - Hub, Terraza, Estacionamiento, Escalera, etc.
+    
+    Args:
+        text: Texto transcrito
+    
+    Returns:
+        Área formateada o None
+    
+    Ejemplos:
+        "ascensor piso 3" -> "Ascensor Piso 3"
+        "ascensor 2" -> "Ascensor Piso 2"
+        "el ascensor no funciona" -> "Ascensor"
+        "cafeteria" -> "Cafetería"
+        "lobby" -> "Lobby"
+    """
+    text_lower = text.lower()
+    
+    # Diccionario de áreas con sus patrones y formateadores
+    areas = {
+        # Ascensor (detecta "ascensor", "ascensor 2", "ascensor piso 3")
+        r'ascensor(?:\s+(?:del\s+)?(?:piso\s+)?(\d+))?': 
+            lambda m: f"Ascensor{f' Piso {m.group(1)}' if m.group(1) else ''}",
+        
+        # Cafetería / Comedor
+        r'cafeteria|cafetería|comedor': 
+            lambda m: "Cafetería",
+        
+        # Lobby / Recepción
+        r'lobby|recepcion|recepción|entrada|hall': 
+            lambda m: "Lobby",
+        
+        # Pasillo
+        r'pasillo(?:\s+(?:del\s+)?(?:piso\s+)?(\d+))?': 
+            lambda m: f"Pasillo{f' Piso {m.group(1)}' if m.group(1) else ''}",
+        
+        # Hub
+        r'\bhub\b': 
+            lambda m: "Hub",
+        
+        # Terraza
+        r'terraza': 
+            lambda m: "Terraza",
+        
+        # Estacionamiento
+        r'estacionamiento|parking|garage|garaje': 
+            lambda m: "Estacionamiento",
+        
+        # Escalera
+        r'escalera(?:s)?(?:\s+(?:del\s+)?(?:piso\s+)?(\d+))?': 
+            lambda m: f"Escalera{f' Piso {m.group(1)}' if m.group(1) else ''}",
+        
+        # Gimnasio
+        r'gimnasio|gym': 
+            lambda m: "Gimnasio",
+        
+        # Spa
+        r'\bspa\b': 
+            lambda m: "Spa",
+        
+        # Sala de reuniones
+        r'sala\s+(?:de\s+)?reuniones?|sala\s+(?:de\s+)?juntas?': 
+            lambda m: "Sala de Reuniones",
+        
+        # Baño público
+        r'baño\s+público|baños?\s+públicos?|servicios?\s+higiénicos?': 
+            lambda m: "Baño Público",
+        
+        # Piscina
+        r'piscina|alberca': 
+            lambda m: "Piscina",
+        
+        # Jardín
+        r'jardin|jardín|patio': 
+            lambda m: "Jardín",
+        
+        # Bar / Restaurant
+        r'\bbar\b|restaurant|restaurante': 
+            lambda m: "Bar/Restaurant",
+        
+        # Roof
+        r'roof|azotea|techo': 
+            lambda m: "Roof",
+        
+        # Lavandería
+        r'lavanderia|lavandería|laundry': 
+            lambda m: "Lavandería",
+        
+        # Bodega
+        r'bodega|almacen|almacén|storage': 
+            lambda m: "Bodega",
+    }
+    
+    for pattern, formatter in areas.items():
+        match = re.search(pattern, text_lower)
+        if match:
+            return formatter(match)
+    
+    return None
+
+
+def extract_ubicacion_generica(text: str) -> Optional[str]:
+    """
+    ✅ NUEVA FUNCIÓN: Extrae ubicación genérica (habitación o área común).
+    Intenta primero con habitación, luego con área común.
+    
+    Args:
+        text: Texto del usuario
+    
+    Returns:
+        Ubicación extraída o None
+    """
+    # Primero intentar con habitación
+    habitacion = extract_habitacion(text)
+    if habitacion:
+        return habitacion
+    
+    # Si no es habitación, intentar con área común
+    area = extract_area_comun(text)
+    if area:
+        return area
     
     return None
 
@@ -204,7 +330,7 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
     Tipos de intención:
         - "asignar_ticket": Asignar ticket existente
         - "reasignar_ticket": Reasignar ticket a otro worker
-        - "crear_ticket": Crear nuevo ticket
+        - "crear_ticket": Crear nuevo ticket (habitación o área común)
         - "crear_y_asignar": Crear y asignar en un solo comando
         - "ver_estado": Ver tickets o workers
         - "unknown": No se detectó intención clara
@@ -214,11 +340,10 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
     # Extraer componentes
     ticket_id = extract_ticket_id(text)
     worker = extract_worker_name(text)
-    habitacion = extract_habitacion(text)
+    ubicacion = extract_ubicacion_generica(text)  # ✅ MODIFICADO: Genérica
     prioridad = detect_priority(text)
     
-    # Detectar verbos de acción (con tolerancia a errores de transcripción)
-    # Normalizar texto para comparación (quitar tildes)
+    # Detectar verbos de acción
     import unicodedata
     text_normalized = ''.join(
         c for c in unicodedata.normalize('NFD', text_lower)
@@ -226,7 +351,7 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
     )
 
     es_asignar = any(word in text_normalized for word in [
-        'asignar', 'asigna', 'asina', 'asignalo', 'asignala',  # Sin tildes
+        'asignar', 'asigna', 'asina', 'asignalo', 'asignala',
         'derivar', 'deriva', 'derivalo', 'derivala',
         'mandar', 'manda', 'mandalo', 'mandala',
         'enviar', 'envia', 'envialo', 'enviala',
@@ -236,7 +361,6 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
         'que la resuelva', 'que la haga', 'que la vea'
     ])
     
-    # ✅ MEJORADO: Detectar reasignación con más patrones
     es_reasignar = any(word in text_lower for word in [
         'reasignar', 'reasigna', 're asignar',
         'cambiar', 'cambia', 'cambiar a',
@@ -247,7 +371,15 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
     
     es_crear = any(word in text_lower for word in ['crear', 'nuevo', 'generar', 'registrar'])
     
-    # ✅ Patrón 0: "Reasignar ticket 12 a María" (PRIORIDAD MÁXIMA)
+    # ✅ NUEVO: Detectar si es un reporte directo (área + problema)
+    # Ej: "el ascensor no funciona", "cafetería derrame", "lobby luz fundida"
+    tiene_problema = any(word in text_lower for word in [
+        'no funciona', 'roto', 'rota', 'dañado', 'dañada', 'problema', 'falla',
+        'derrame', 'sucia', 'sucio', 'fundida', 'fundido', 'descompuesto',
+        'atascado', 'atorado', 'luz', 'agua', 'baño'
+    ])
+    
+    # Patrón 0: "Reasignar ticket 12 a María" (PRIORIDAD MÁXIMA)
     if es_reasignar and ticket_id and worker:
         return {
             "intent": "reasignar_ticket",
@@ -257,24 +389,17 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
         }
     
     # Patrón 1: "Asignar ticket 1503 a María"
-    # IMPORTANTE: Solo si NO hay contexto de habitación Y NO es reasignación
     if es_asignar and ticket_id and worker and not es_reasignar:
-        # Verificar si es habitación (tiene palabras como "la", "hab", "habitación")
         tiene_contexto_habitacion = any(word in text.lower() for word in [
             'la ', 'el ', 'hab ', 'habitacion', 'habitación', 'cuarto', 'pieza'
         ])
         
-        # ✅ NUEVO: También verificar que el número sea un ticket ID real
-        # (tickets empiezan en 1, habitaciones típicamente 100+)
         if ticket_id and ticket_id < 100:
-            # Muy probablemente es un ticket ID, no habitación
             tiene_contexto_habitacion = False
         
         if tiene_contexto_habitacion:
-            # Es habitación, no ticket ID - continuar a siguiente patrón
             pass
         else:
-            # Es ticket ID real
             return {
                 "intent": "asignar_ticket",
                 "ticket_id": ticket_id,
@@ -282,38 +407,61 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
                 "text": text
             }
     
-    # Patrón 2: "Habitación 420 limpieza urgente asignar a Pedro"
-    if habitacion and es_asignar and worker:
-        # Extraer detalle (todo excepto habitación, asignar y nombre)
+    # ✅ MODIFICADO: Patrón 2 - Crear ticket con ubicación genérica y asignar
+    # "Habitación 420 limpieza urgente asignar a Pedro"
+    # "Ascensor piso 3 no funciona asignar a Pedro"
+    if ubicacion and es_asignar and worker:
+        # Extraer detalle (todo excepto ubicación, asignar y nombre)
         detalle = text_lower
+        
+        # Limpiar habitación si la hay
         detalle = re.sub(r'habitación\s*\d+', '', detalle)
+        detalle = re.sub(r'hab\s*\d+', '', detalle)
         detalle = re.sub(r'cuarto\s*\d+', '', detalle)
+        
+        # Limpiar área común si la hay
+        if ubicacion:
+            ubicacion_lower = ubicacion.lower()
+            for word in ubicacion_lower.split():
+                detalle = detalle.replace(word, '')
+        
+        # Limpiar comandos
         detalle = re.sub(r'asignar.*', '', detalle)
         detalle = re.sub(r'derivar.*', '', detalle)
         detalle = detalle.strip()
         
         return {
             "intent": "crear_y_asignar",
-            "habitacion": habitacion,
-            "detalle": detalle if detalle else "Solicitud de housekeeping",
+            "ubicacion": ubicacion,  # ✅ MODIFICADO: Genérico
+            "detalle": detalle if detalle else "Solicitud de operaciones",
             "prioridad": prioridad,
             "worker": worker,
             "text": text
         }
     
-    # Patrón 3: "Habitación 305 necesita toallas" o "Hab 1302 faltan toallas. A Daniela"
-    if habitacion:
-        # Extraer detalle limpiando la habitación y comandos
+    # ✅ MODIFICADO: Patrón 3 - Crear ticket con ubicación genérica
+    # "Habitación 305 necesita toallas"
+    # "El ascensor no funciona"
+    # "Cafetería derrame urgente"
+    if ubicacion:
+        # Extraer detalle limpiando la ubicación y comandos
         detalle = text_lower
+        
+        # Limpiar habitaciones
         detalle = re.sub(r'habitación\s*\d+', '', detalle)
         detalle = re.sub(r'cuarto\s*\d+', '', detalle)
         detalle = re.sub(r'pieza\s*\d+', '', detalle)
         detalle = re.sub(r'hab\s*\d+', '', detalle)
         detalle = re.sub(r'^(la|el)\s+', '', detalle.strip())
         
+        # Limpiar área común
+        if ubicacion:
+            ubicacion_lower = ubicacion.lower()
+            for word in ubicacion_lower.split():
+                detalle = detalle.replace(word, '')
+        
         # Si hay nombre después de "a [nombre]", extraerlo y limpiar
         if worker:
-            # Limpiar el nombre del detalle
             detalle = re.sub(r'\s*\.?\s*a\s+\w+\s*$', '', detalle, flags=re.IGNORECASE)
             detalle = re.sub(r'\s*para\s+\w+\s*$', '', detalle, flags=re.IGNORECASE)
             detalle = re.sub(r'\s*\.?\s*que\s+lo\s+(?:resuelva|haga|vea)\s+\w+\s*$', '', detalle, flags=re.IGNORECASE)
@@ -321,7 +469,6 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
             detalle = re.sub(r'\s*\.?\s*(?:encarga|delega)(?:le)?\s+a\s+\w+\s*$', '', detalle, flags=re.IGNORECASE)
             detalle = re.sub(r'\s*\.?\s*(?:encárgale|delégale)\s+a\s+\w+\s*$', '', detalle, flags=re.IGNORECASE)
             
-            # Si hay "asignar" o similar, es crear_y_asignar
             if es_asignar or es_reasignar:
                 detalle = re.sub(r'asignar.*', '', detalle)
                 detalle = re.sub(r'derivar.*', '', detalle)
@@ -330,18 +477,17 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
                 
                 return {
                     "intent": "crear_y_asignar",
-                    "habitacion": habitacion,
+                    "ubicacion": ubicacion,  # ✅ MODIFICADO
                     "detalle": detalle if detalle else "Solicitud de operaciones",
                     "prioridad": prioridad,
                     "worker": worker,
                     "text": text
                 }
             else:
-                # No hay verbo explícito pero hay "a [nombre]" → crear_y_asignar
                 detalle = detalle.strip()
                 return {
                     "intent": "crear_y_asignar",
-                    "habitacion": habitacion,
+                    "ubicacion": ubicacion,  # ✅ MODIFICADO
                     "detalle": detalle if detalle else "Solicitud de operaciones",
                     "prioridad": prioridad,
                     "worker": worker,
@@ -350,13 +496,16 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
         else:
             # No hay nombre: solo crear ticket
             detalle = detalle.strip()
-            return {
-                "intent": "crear_ticket",
-                "habitacion": habitacion,
-                "detalle": detalle if detalle else "Solicitud de operaciones",
-                "prioridad": prioridad,
-                "text": text
-            }
+            
+            # Si tiene detalle o palabras de problema, es crear ticket
+            if detalle or tiene_problema:
+                return {
+                    "intent": "crear_ticket",
+                    "ubicacion": ubicacion,  # ✅ MODIFICADO
+                    "detalle": detalle if detalle else "Problema reportado",
+                    "prioridad": prioridad,
+                    "text": text
+                }
     
     # Patrón 4: Solo asignar (sin especificar ticket)
     if es_asignar and worker and not ticket_id:
@@ -382,7 +531,7 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
         "components": {
             "ticket_id": ticket_id,
             "worker": worker,
-            "habitacion": habitacion,
+            "ubicacion": ubicacion,  # ✅ MODIFICADO
             "prioridad": prioridad
         }
     }

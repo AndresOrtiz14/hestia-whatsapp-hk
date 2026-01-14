@@ -999,7 +999,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 send_whatsapp(
                     from_phone,
                     f"✅ Tarea #{ticket_id} reasignada\n\n"
-                    f"🛏️ Habitación: {ubicacion}\n"
+                    f"📍 Ubicación: {ubicacion}\n"  # ✅ MODIFICADO
                     f"📝 Problema: {detalle}\n"
                     f"{prioridad_emoji} Prioridad: {prioridad}\n"
                     f"👤 Reasignado a: {worker_nombre_completo}"
@@ -1010,7 +1010,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 send_whatsapp_text(
                     to=worker_phone,  # ✅ Parámetro con nombre
                     body=f"📋 Nueva tarea asignada\n\n"
-                         f"#{ticket_id} · Hab. {ubicacion}\n"
+                         f"#{ticket_id} · {ubicacion}\n"
                          f"{detalle}\n"
                          f"{prioridad_emoji} Prioridad: {prioridad}\n\n"
                          f"💡 Responde 'tomar' para aceptar"
@@ -1042,8 +1042,9 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             return True
         
     # Caso 2: Crear y asignar
+# Caso 2: Crear y asignar
     if intent == "crear_y_asignar":
-        habitacion = intent_data["habitacion"]
+        ubicacion = intent_data.get("ubicacion", intent_data.get("habitacion"))  # ✅ MODIFICADO
         detalle = intent_data["detalle"]
         prioridad = intent_data["prioridad"]
         nombre_trabajador = intent_data["worker"]
@@ -1053,7 +1054,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         
         try:
             ticket = crear_ticket(
-                habitacion=habitacion,
+                habitacion=ubicacion,  # ✅ MODIFICADO: Genérico
                 detalle=detalle,
                 prioridad=prioridad,
                 creado_por=from_phone,
@@ -1072,7 +1073,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             coincidencias = buscar_workers_por_nombre(nombre_trabajador)
             
             if len(coincidencias) == 1:
-                # ✅ PEDIR CONFIRMACIÓN (no asignar todavía)
+                # ✅ PEDIR CONFIRMACIÓN
                 worker = coincidencias[0]
                 worker_phone = worker.get("telefono")
                 worker_nombre = worker.get("nombre_completo") or worker.get("username")
@@ -1088,7 +1089,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                     "tipo": "crear_y_asignar",
                     "ticket_id": ticket_id,
                     "worker": worker,
-                    "habitacion": habitacion,
+                    "ubicacion": ubicacion,  # ✅ MODIFICADO
                     "detalle": detalle,
                     "prioridad": prioridad
                 }
@@ -1097,14 +1098,13 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 send_whatsapp(
                     from_phone,
                     f"✅ Tarea #{ticket_id} creada\n\n"
-                    f"🏨 Habitación: {habitacion}\n"
+                    f"📍 Ubicación: {ubicacion}\n"  # ✅ MODIFICADO
                     f"📝 Problema: {detalle}\n"
                     f"{prioridad_emoji} Prioridad: {prioridad}\n\n"
                     f"📋 Asignar a:\n"
                     f"{estado_emoji} {worker_nombre}\n\n"
                     f"💡 Escribe 'sí' para confirmar o 'no' para cancelar"
                 )
-                
                 return True
             
             elif len(coincidencias) > 1:
@@ -1173,7 +1173,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
 
     # Caso 3: Solo crear
     if intent == "crear_ticket":
-        habitacion = intent_data["habitacion"]
+        ubicacion = intent_data.get("ubicacion", intent_data.get("habitacion"))  # ✅ MODIFICADO
         detalle = intent_data["detalle"]
         prioridad = intent_data["prioridad"]
         
@@ -1182,7 +1182,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         
         try:
             ticket = crear_ticket(
-                habitacion=habitacion,
+                habitacion=ubicacion,  # ✅ MODIFICADO: Genérico
                 detalle=detalle,
                 prioridad=prioridad,
                 creado_por=from_phone,
@@ -1196,7 +1196,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 send_whatsapp(
                     from_phone,
                     f"✅ Tarea #{ticket_id} creada\n\n"
-                    f"🏨 Habitación: {habitacion}\n"
+                    f"📍 Ubicación: {ubicacion}\n"  # ✅ MODIFICADO: Sin "Habitación"
                     f"📝 Problema: {detalle}\n"
                     f"{prioridad_emoji} Prioridad: {prioridad}\n\n"
                     f"💡 Di 'asignar {ticket_id} a [nombre]'"
