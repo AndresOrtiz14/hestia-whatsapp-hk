@@ -52,9 +52,17 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
     try:
         raw = (text or "").strip().lower()
         logger.info(f"👔 SUP | {from_phone} | Comando: '{raw[:30]}...'")
+
+        # ✅ AGREGAR: Obtener estado
+        state = get_supervisor_state(from_phone)
         
         # 1) Comando: Saludo (siempre responde)
         if raw in ['hola', 'hi', 'hello', 'buenas', 'buenos dias', 'buenas tardes']:
+            # ✅ LIMPIAR ESTADO
+            state["esperando_asignacion"] = False
+            state["ticket_seleccionado"] = None
+            state["seleccion_mucamas"] = None
+
             send_whatsapp(from_phone, texto_saludo_supervisor())
             return
         
@@ -239,6 +247,19 @@ def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
         return False
     
     raw = text.strip().lower()
+
+    # ✅ NUEVO: Si detecta ubicación (habitación o área), no es nombre de worker
+    from .audio_commands import extract_habitacion, extract_area_comun
+    
+    habitacion = extract_habitacion(text)
+    area = extract_area_comun(text)
+    
+    if habitacion or area:
+        # Es un nuevo comando de crear ticket, no una asignación
+        logger.info(f"🔄 SUP | Cancelando asignación - detectado nuevo ticket")
+        state["esperando_asignacion"] = False
+        state["ticket_seleccionado"] = None
+        return False  # Procesar como comando normal
     
     # NUEVO: Permitir cancelar
     if raw in ["cancelar", "cancel", "salir", "atras", "atrás", "volver"]:
@@ -247,12 +268,24 @@ def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
         send_whatsapp(from_phone, "❌ Asignación cancelada")
         return True
     
-    # NUEVO: Permitir comandos globales
-    if raw in ["pendientes", "urgente", "urgentes", "retrasados", "help", "ayuda"]:
-        # Cancelar selección y dejar que otros comandos se ejecuten
+    # ✅ NUEVO: Detectar comandos que indican nueva tarea (no asignación)
+    comandos_nuevos = [
+        "pendientes", "urgente", "urgentes", "retrasados", 
+        "help", "ayuda", "en curso", "hola"
+    ]
+    
+    # ✅ NUEVO: Detectar intents de crear ticket
+    tiene_ubicacion = False
+    from .audio_commands import extract_habitacion, extract_area_comun
+    
+    if extract_habitacion(text) or extract_area_comun(text):
+        tiene_ubicacion = True
+    
+    # Si es comando nuevo o tiene ubicación, salir del flujo de asignación
+    if raw in comandos_nuevos or tiene_ubicacion:
         state["esperando_asignacion"] = False
         state["ticket_seleccionado"] = None
-        return False  # Devolver False para que se procese el comando
+        return False  # ✅ Dejar que se procese como comando normal
     
     worker = None
     
