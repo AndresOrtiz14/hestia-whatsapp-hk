@@ -170,34 +170,35 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
         persist_supervisor_state(from_phone, state)
 
 def mostrar_opciones_workers(from_phone: str, workers: list, ticket_id: int) -> None:
-    """Muestra opciones de workers para asignar, con área y estado."""
+    """Muestra opciones de workers con área y estado, priorizados por scoring."""
+    from .ticket_assignment import calcular_score_worker
     from gateway_app.services.tickets_db import obtener_ticket_por_id
     
-    # Obtener ticket para scoring
+    # ✅ Obtener ticket para scoring correcto
     ticket = obtener_ticket_por_id(ticket_id)
     
-    # Filtrar solo workers con turno activo
+    # ✅ Filtrar: Solo turno activo
     workers_activos = [w for w in workers if w.get("turno_activo", False)]
     
     if not workers_activos:
-        send_whatsapp(from_phone, "⚠️ No hay workers con turno activo disponibles")
+        send_whatsapp(from_phone, "⚠️ No hay workers con turno activo")
         return
     
-    # Calcular scores y ordenar
-    workers_scored = []
-    for worker in workers_activos:
-        score = calcular_score_worker(worker, ticket)
-        workers_scored.append((worker, score))
+    # Calcular scores CON ticket
+    workers_con_score = []
+    for w in workers_activos:
+        score = calcular_score_worker(w, ticket)  # ✅ Con ticket para bonus de área
+        workers_con_score.append({**w, "score": score})
     
-    workers_scored.sort(key=lambda x: x[1], reverse=True)
+    workers_con_score.sort(key=lambda w: w["score"], reverse=True)
     
     # Top 5 (aumentado de 3)
-    top_workers = [w for w, s in workers_scored[:5]]
+    top_5 = workers_con_score[:5]
     
     lineas = [f"🎯 {len(workers_activos)} worker(s) con turno activo:\n"]
     
-    for i, worker in enumerate(top_workers, 1):
-        # Estado
+    for i, worker in enumerate(top_5, 1):
+        # ✅ Estado emoji
         if worker.get("ocupada"):
             estado_emoji = "⚠️"
         elif worker.get("pausada"):
@@ -205,13 +206,34 @@ def mostrar_opciones_workers(from_phone: str, workers: list, ticket_id: int) -> 
         else:
             estado_emoji = "✅"
         
-        # Área
-        area = worker.get("area", "HOUSEKEEPING")
-        area_emoji = get_area_emoji(area)
-        area_short = get_area_short(area)
+        # ✅ Área
+        area = (worker.get("area") or "HOUSEKEEPING").upper()
+        
+        area_emoji = {
+            "HOUSEKEEPING": "🏠",
+            "HK": "🏠",
+            "AREAS_COMUNES": "📍",
+            "ÁREAS_COMUNES": "📍",
+            "AC": "📍",
+            "MANTENIMIENTO": "🔧",
+            "MANTENCIÓN": "🔧",
+            "MT": "🔧"
+        }.get(area, "👤")
+        
+        area_short = {
+            "HOUSEKEEPING": "HK",
+            "HK": "HK",
+            "AREAS_COMUNES": "AC",
+            "ÁREAS_COMUNES": "AC",
+            "AC": "AC",
+            "MANTENIMIENTO": "MT",
+            "MANTENCIÓN": "MT",
+            "MT": "MT"
+        }.get(area, area[:2])
         
         nombre = worker.get("nombre_completo", "?")
         
+        # ✅ Formato: "1. ✅ Nombre (🏠 HK)"
         lineas.append(
             f"{i}. {estado_emoji} {nombre} ({area_emoji} {area_short})"
         )
