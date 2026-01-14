@@ -50,6 +50,15 @@ from .outgoing import send_whatsapp
 from .demo_tickets import DEMO_TICKETS, elegir_mejor_ticket
 from gateway_app.services.tickets_db import obtener_tickets_asignados_a
 
+# ✅ NUEVO: Soporte para áreas comunes
+from .areas_comunes_helpers import (
+    obtener_area_worker,
+    extraer_ubicacion_generica,
+    detectar_reporte_directo_adaptado,
+    get_texto_por_area,
+    formatear_ubicacion_para_mensaje
+)
+
 def verificar_turno_activo(from_phone: str) -> bool:
     """
     Verifica si el turno está activo. Si no, lo inicia automáticamente.
@@ -82,6 +91,14 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
     try:
         raw = (text or "").strip().lower()
         logger.info(f"🏨 HK | {from_phone} | Comando: '{raw[:30]}...'")
+        
+        # ✅ NUEVO: Detectar y guardar área del worker
+        if "area_worker" not in state:
+            area_worker = obtener_area_worker(from_phone)
+            state["area_worker"] = area_worker
+            logger.info(f"📍 Worker {from_phone} detectado como área: {area_worker}")
+        else:
+            area_worker = state["area_worker"]
 
         # ✅ 0) COMANDO GLOBAL MÁS PRIORITARIO: Menú (SIEMPRE funciona, incluso en errores)
         if raw in ['m', 'menu', 'menú', 'volver', 'salir', 'reiniciar', 'reset']:
@@ -167,12 +184,13 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
             handle_menu(from_phone, raw)
             return
         
-        # 3) Detectar reporte directo (ej: "hab 305 fuga de agua")
+        # 3) Detectar reporte directo adaptado al área del worker
         current_state = state.get("state")
         if current_state not in [REPORTANDO_HAB, REPORTANDO_DETALLE, CONFIRMANDO_REPORTE]:
-            reporte = detectar_reporte_directo(text)
+            # ✅ MODIFICADO: Usa detección adaptada
+            reporte = detectar_reporte_directo_adaptado(text, area_worker)
             if reporte:
-                crear_ticket_directo(from_phone, reporte)
+                crear_ticket_directo(from_phone, reporte, area_worker)
                 return
         
         # 4) Comandos globales
@@ -676,41 +694,55 @@ def iniciar_reporte(from_phone: str) -> None:
     state = get_user_state(from_phone)
     reset_ticket_draft(from_phone)
     
+    # ✅ MODIFICADO: Mensaje adaptado al área del worker
+    area_worker = state.get("area_worker", "HOUSEKEEPING")
+    mensaje = get_texto_por_area(area_worker, "ubicacion_pregunta")
+    
     state["state"] = REPORTANDO_HAB
-    send_whatsapp(from_phone, texto_pedir_habitacion())
+    send_whatsapp(from_phone, mensaje)
 
 
 def handle_reportando_habitacion(from_phone: str, text: str) -> None:
     """
-    Maneja la respuesta cuando está pidiendo habitación.
+    Maneja la respuesta cuando está pidiendo ubicación (habitación o área).
     """
     state = get_user_state(from_phone)
+    area_worker = state.get("area_worker", "HOUSEKEEPING")
     
-    from .intents import detectar_reporte_directo
-    reporte_completo = detectar_reporte_directo(text)
+    # ✅ MODIFICADO: Detectar reporte completo adaptado
+    reporte_completo = detectar_reporte_directo_adaptado(text, area_worker)
     
     if reporte_completo:
-        state["ticket_draft"]["habitacion"] = reporte_completo["habitacion"]
+        state["ticket_draft"]["ubicacion"] = reporte_completo["ubicacion"]
         state["ticket_draft"]["detalle"] = reporte_completo["detalle"]
         state["ticket_draft"]["prioridad"] = reporte_completo["prioridad"]
         state["state"] = CONFIRMANDO_REPORTE
         
-        mensaje = texto_confirmar_reporte(
-            reporte_completo["habitacion"],
+        # ✅ MODIFICADO: Confirmación adaptada
+        mensaje = texto_confirmar_reporte_adaptado(
+            reporte_completo["ubicacion"],
             reporte_completo["detalle"],
-            reporte_completo["prioridad"]
+            reporte_completo["prioridad"],
+            area_worker
         )
         send_whatsapp(from_phone, mensaje)
         return
     
-    from .intents import extraer_habitacion
-    habitacion = extraer_habitacion(text)
+    # ✅ MODIFICADO: Extracción adaptada
+    ubicacion = extraer_ubicacion_generica(text, area_worker)
     
-    if not habitacion:
-        send_whatsapp(from_phone, "❌ No entendí el número\n\n💡 Di 'M' para volver al menú o escribe de nuevo la habitación")
+    if not ubicacion:
+        # ✅ MODIFICADO: Mensaje de error adaptado
+        ejemplo = get_texto_por_area(area_worker, "ubicacion_ejemplo")
+        send_whatsapp(
+            from_phone, 
+            f"❌ No entendí la ubicación\n\n"
+            f"💡 Ejemplo: {ejemplo}\n"
+            f"O di 'M' para volver al menú"
+        )
         return
     
-    state["ticket_draft"]["habitacion"] = habitacion
+    state["ticket_draft"]["ubicacion"] = ubicacion
     state["state"] = REPORTANDO_DETALLE
     
     send_whatsapp(from_phone, texto_pedir_detalle())
@@ -722,15 +754,18 @@ def handle_reportando_detalle(from_phone: str, text: str) -> None:
     """
     state = get_user_state(from_phone)
     draft = state["ticket_draft"]
+    area_worker = state.get("area_worker", "HOUSEKEEPING")
     
     draft["detalle"] = text
     draft["prioridad"] = detectar_prioridad(text)
     state["state"] = CONFIRMANDO_REPORTE
     
-    mensaje = texto_confirmar_reporte(
-        draft["habitacion"],
+    # ✅ MODIFICADO: Usar campo genérico y función adaptada
+    mensaje = texto_confirmar_reporte_adaptado(
+        draft.get("ubicacion", draft.get("habitacion", "?")),  # Compatibilidad
         draft["detalle"],
-        draft["prioridad"]
+        draft["prioridad"],
+        area_worker
     )
     send_whatsapp(from_phone, mensaje)
 
@@ -748,9 +783,12 @@ def handle_confirmando_reporte(from_phone: str, raw: str) -> None:
         crear_ticket_desde_draft(from_phone)
         return
     
-    if raw in ['editar', 'cambiar', 'modificar', 'editar habitacion', 'editar habitación']:
+    if raw in ['editar', 'cambiar', 'modificar', 'editar ubicacion', 'editar ubicación', 'editar habitacion', 'editar habitación']:
+        # ✅ MODIFICADO: Mensaje adaptado
+        area_worker = state.get("area_worker", "HOUSEKEEPING")
+        mensaje = get_texto_por_area(area_worker, "ubicacion_pregunta")
         state["state"] = REPORTANDO_HAB
-        send_whatsapp(from_phone, texto_pedir_habitacion())
+        send_whatsapp(from_phone, mensaje)
         return
     
     if raw in ['editar detalle', 'cambiar detalle']:
@@ -778,22 +816,28 @@ def handle_confirmando_reporte(from_phone: str, raw: str) -> None:
     send_whatsapp(from_phone, "❌ No entendí\n\n" + mensaje)
 
 
-def crear_ticket_directo(from_phone: str, reporte: dict) -> None:
+def crear_ticket_directo(from_phone: str, reporte: dict, area_worker: str = "HOUSEKEEPING") -> None:
     """
     Crea ticket desde reporte directo (texto/audio) y lo guarda en public.tickets.
+    
+    Args:
+        from_phone: Teléfono del worker
+        reporte: Dict con ubicacion, detalle, prioridad
+        area_worker: Área del worker
     """
     from gateway_app.services.tickets_db import crear_ticket, obtener_tickets_asignados_a
 
 
     try:
+        # ✅ MODIFICADO: Usar campo genérico "ubicacion"
         ticket = crear_ticket(
-            habitacion=reporte["habitacion"],
+            habitacion=reporte["ubicacion"],  # Se guarda en campo habitacion como ubicación genérica
             detalle=reporte["detalle"],
             prioridad=reporte["prioridad"],
             creado_por=from_phone,
             origen="trabajador",
             canal_origen="WHATSAPP_BOT_HOUSEKEEPING",
-            area="HOUSEKEEPING",
+            area=area_worker,  # ✅ MODIFICADO: Usa área real del worker
         )
 
         if not ticket:
@@ -801,8 +845,17 @@ def crear_ticket_directo(from_phone: str, reporte: dict) -> None:
             return
 
         ticket_id = ticket["id"]
-        mensaje = texto_ticket_creado(ticket_id, reporte["habitacion"], reporte["prioridad"])
-        send_whatsapp(from_phone, mensaje)
+        
+        # ✅ MODIFICADO: Mensaje con ubicación formateada
+        ubicacion_fmt = formatear_ubicacion_para_mensaje(reporte["ubicacion"], area_worker)
+        prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(reporte["prioridad"], "🟡")
+        
+        send_whatsapp(
+            from_phone,
+            f"✅ Reporte #{ticket_id} creado\n\n"
+            f"{ubicacion_fmt}\n"
+            f"{prioridad_emoji} Prioridad: {reporte['prioridad']}"
+        )
 
         state = get_user_state(from_phone)
         state["state"] = MENU
@@ -829,7 +882,10 @@ def crear_ticket_desde_draft(from_phone: str) -> None:
     draft = state.get("ticket_draft") or {}
     logger.info("HK_CREATE_FROM_DRAFT from=%s draft=%s", from_phone, draft)
 
-    if not draft.get("habitacion") or not draft.get("detalle"):
+    # ✅ MODIFICADO: Verificar ubicacion O habitacion (compatibilidad)
+    ubicacion = draft.get("ubicacion", draft.get("habitacion"))
+    
+    if not ubicacion or not draft.get("detalle"):
         logger.warning("HK_CREATE_FROM_DRAFT missing_fields from=%s draft=%s", from_phone, draft)
         send_whatsapp(from_phone, "❌ Error: Falta información del reporte\n\n💡 Di 'M' para volver al menú")
         reset_ticket_draft(from_phone)
@@ -837,14 +893,17 @@ def crear_ticket_desde_draft(from_phone: str) -> None:
         return
 
     try:
+        # ✅ NUEVO: Obtener área del worker
+        area_worker = state.get("area_worker", "HOUSEKEEPING")
+        
         ticket = tickets_db.crear_ticket(
-            habitacion=draft["habitacion"],
+            habitacion=ubicacion,  # ✅ MODIFICADO: Usar ubicacion genérica
             detalle=draft["detalle"],
             prioridad=draft["prioridad"],
             creado_por=from_phone,
             origen="trabajador",
             canal_origen="WHATSAPP_BOT_HOUSEKEEPING",
-            area="HOUSEKEEPING",
+            area=area_worker,  # ✅ MODIFICADO: Área real del worker
         )
 
         logger.info(
@@ -863,8 +922,17 @@ def crear_ticket_desde_draft(from_phone: str) -> None:
         ticket_id = ticket["id"]
         logger.info("HK_CREATE_FROM_DRAFT created_id=%s from=%s", ticket_id, from_phone)
 
-        mensaje = texto_ticket_creado(ticket_id, draft["habitacion"], draft["prioridad"])
-        send_whatsapp(from_phone, mensaje)
+        # ✅ MODIFICADO: Mensaje con ubicación formateada
+        ubicacion_fmt = formatear_ubicacion_para_mensaje(ubicacion, area_worker)
+        prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(draft["prioridad"], "🟡")
+        
+        send_whatsapp(
+            from_phone,
+            f"✅ Ticket #{ticket_id} creado\n\n"
+            f"{ubicacion_fmt}\n"
+            f"📝 {draft['detalle']}\n"
+            f"{prioridad_emoji} Prioridad: {draft['prioridad']}"
+        )
 
         import os
         supervisor_phones = os.getenv("SUPERVISOR_PHONES", "").split(",")
@@ -874,16 +942,15 @@ def crear_ticket_desde_draft(from_phone: str) -> None:
             from gateway_app.services.whatsapp_client import send_whatsapp_text
             from gateway_app.services.workers_db import buscar_worker_por_telefono
             
-            prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(draft["prioridad"], "🟡")
-            
             worker = buscar_worker_por_telefono(from_phone)
             worker_nombre = worker.get("nombre_completo") if worker else "Trabajador"
             
+            # ✅ MODIFICADO: Notificación con ubicación adaptada
             for supervisor_phone in supervisor_phones:
                 send_whatsapp_text(
                     to=supervisor_phone,
                     body=f"📋 Nuevo reporte de {worker_nombre}\n\n"
-                         f"#{ticket_id} · Hab. {draft['habitacion']}\n"
+                         f"#{ticket_id} · {ubicacion}\n"  # ✅ Sin "Hab." hardcodeado
                          f"{draft['detalle']}\n"
                          f"{prioridad_emoji} Prioridad: {draft['prioridad']}\n\n"
                          f"💡 Di 'asignar {ticket_id} a [nombre]' para derivar"

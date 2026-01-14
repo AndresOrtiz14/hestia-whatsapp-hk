@@ -258,3 +258,32 @@ def texto_confirmar_reporte(habitacion: str, detalle: str, prioridad: str) -> st
 ✏️ O 'editar' para cambiar
 ❌ O 'no' para cancelar
 🏨 O 'M' para volver al Menú"""
+
+def texto_confirmar_reporte_adaptado(ubicacion: str, detalle: str, prioridad: str, area_worker: str) -> str:
+    """
+    Texto de confirmación adaptado al área del worker.
+    
+    Args:
+        ubicacion: Habitación o área
+        detalle: Descripción del problema
+        prioridad: ALTA, MEDIA o BAJA
+        area_worker: Área del worker
+    
+    Returns:
+        Mensaje de confirmación
+    """
+    from .areas_comunes_helpers import get_texto_por_area
+    
+    prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
+    ubicacion_label = get_texto_por_area(area_worker, "ubicacion_label")
+    
+    return (
+        f"✅ Confirma el reporte:\n\n"
+        f"{ubicacion_label}: {ubicacion}\n"
+        f"📝 Problema: {detalle}\n"
+        f"{prioridad_emoji} Prioridad: {prioridad}\n\n"
+        f"💡 Responde:\n"
+        f"• 'sí' para confirmar\n"
+        f"• 'editar' para cambiar\n"
+        f"• 'cancelar' para abortar"
+    )
