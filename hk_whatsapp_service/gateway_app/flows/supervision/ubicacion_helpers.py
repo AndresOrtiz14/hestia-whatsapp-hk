@@ -2,77 +2,132 @@
 Helper para formatear ubicaciones con emoji apropiado.
 Diferencia entre habitaciones y áreas comunes.
 """
+# gateway_app/flows/housekeeping/ubicacion_helpers.py
+from __future__ import annotations
 
-def formatear_ubicacion_con_emoji(ubicacion: str) -> str:
+import re
+import unicodedata
+from typing import Optional
+
+# Canonical areas (lo que tú quieres “como verdad”)
+AREA_HOUSEKEEPING = "HOUSEKEEPING"
+AREA_MANTENIMIENTO = "MANTENIMIENTO"
+AREA_AREAS_COMUNES = "AREAS_COMUNES"
+
+# Synonyms -> canonical
+_AREA_SYNONYMS = {
+    # Housekeeping
+    "hk": AREA_HOUSEKEEPING,
+    "housekeeping": AREA_HOUSEKEEPING,
+
+    # Mantenimiento
+    "mt": AREA_MANTENIMIENTO,
+    "mantenimiento": AREA_MANTENIMIENTO,
+    "mantencion": AREA_MANTENIMIENTO,   # sin tilde
+    "mantencion ": AREA_MANTENIMIENTO,
+    "mantencion.": AREA_MANTENIMIENTO,
+    "mantencion,": AREA_MANTENIMIENTO,
+    "mantencion/": AREA_MANTENIMIENTO,
+    "mantencion-": AREA_MANTENIMIENTO,
+    "mantencion_": AREA_MANTENIMIENTO,
+    "mantencion;": AREA_MANTENIMIENTO,
+    "mantencion:": AREA_MANTENIMIENTO,
+    "mantencion)": AREA_MANTENIMIENTO,
+    "mantencion(": AREA_MANTENIMIENTO,
+
+    # Áreas comunes
+    "ac": AREA_AREAS_COMUNES,
+    "areas comunes": AREA_AREAS_COMUNES,
+    "areas_comunes": AREA_AREAS_COMUNES,
+    "areascomunes": AREA_AREAS_COMUNES,
+}
+
+_AREA_EMOJI = {
+    AREA_HOUSEKEEPING: "🏠",
+    AREA_MANTENIMIENTO: "🔧",
+    AREA_AREAS_COMUNES: "📍",
+}
+
+_AREA_SHORT = {
+    AREA_HOUSEKEEPING: "HK",
+    AREA_MANTENIMIENTO: "MT",
+    AREA_AREAS_COMUNES: "AC",
+}
+
+
+def _strip_accents(s: str) -> str:
+    """Remueve tildes/diacríticos para comparar de forma estable."""
+    return "".join(
+        c for c in unicodedata.normalize("NFKD", s)
+        if not unicodedata.combining(c)
+    )
+
+
+def _clean(s: str) -> str:
+    """Normaliza texto: lower, sin tildes, espacios colapsados, sin ruido."""
+    s = (s or "").strip()
+    if not s:
+        return ""
+    s = _strip_accents(s).lower()
+
+    # Reemplazos comunes
+    s = s.replace("-", " ").replace("_", " ")
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def normalize_area(area: Optional[str], default: str = AREA_HOUSEKEEPING) -> str:
     """
-    Agrega emoji apropiado según tipo de ubicación.
-    
-    Args:
-        ubicacion: "305" o "Ascensor Piso 2"
-    
-    Returns:
-        "🏠 Habitación 305" o "📍 Ascensor Piso 2"
-    
-    Examples:
-        >>> formatear_ubicacion_con_emoji("305")
-        "🏠 Habitación 305"
-        
-        >>> formatear_ubicacion_con_emoji("1503")
-        "🏠 Habitación 1503"
-        
-        >>> formatear_ubicacion_con_emoji("Ascensor Piso 2")
-        "📍 Ascensor Piso 2"
-        
-        >>> formatear_ubicacion_con_emoji("Cafetería")
-        "📍 Cafetería"
+    Devuelve el nombre canónico del área.
+    - "Mantención" / "MANTENCION" -> "MANTENIMIENTO"
+    - "Áreas comunes" / "AC" -> "AREAS_COMUNES"
+    - None -> default
     """
-    # Si es número de 3-4 dígitos, es habitación
-    if ubicacion and ubicacion.strip().isdigit():
-        num = int(ubicacion.strip())
+    raw = _clean(area)
+    if not raw:
+        return default
+
+    # Algunas entradas vienen como "MANTENCIÓN (turno)" o similares
+    # Tomamos solo la parte principal si hay paréntesis
+    raw = raw.split("(")[0].strip()
+
+    # Mapeo directo
+    if raw in _AREA_SYNONYMS:
+        return _AREA_SYNONYMS[raw]
+
+    # Casos más “sucios”: si contiene la palabra
+    if "mantenc" in raw or "mantenim" in raw:
+        return AREA_MANTENIMIENTO
+    if "area comun" in raw or "areas comun" in raw:
+        return AREA_AREAS_COMUNES
+    if "house" in raw or raw == "hk":
+        return AREA_HOUSEKEEPING
+
+    return default
+
+
+def get_area_emoji(area: Optional[str]) -> str:
+    canon = normalize_area(area)
+    return _AREA_EMOJI.get(canon, "👤")
+
+
+def get_area_short(area: Optional[str]) -> str:
+    canon = normalize_area(area)
+    return _AREA_SHORT.get(canon, canon[:2])
+
+
+def formatear_ubicacion_con_emoji(ubicacion: Optional[str]) -> str:
+    """
+    - Si ubicacion es dígito: "🏠 Habitación 305"
+    - Si no: "📍 Ascensor Piso 2"
+    """
+    if not ubicacion:
+        return "📍 Sin ubicación"
+
+    u = str(ubicacion).strip()
+    if u.isdigit():
+        num = int(u)
         if 100 <= num <= 9999:
-            return f"🏠 Habitación {ubicacion}"
-    
-    # Si no, es área común
-    return f"📍 {ubicacion}"
+            return f"🏠 Habitación {u}"
 
-
-def get_area_emoji(area: str) -> str:
-    """
-    Obtiene emoji según área del worker.
-    
-    Args:
-        area: "HOUSEKEEPING", "AREAS_COMUNES", "MANTENIMIENTO"
-    
-    Returns:
-        Emoji correspondiente
-    """
-    area_upper = (area or "HOUSEKEEPING").upper()
-    
-    return {
-        "HOUSEKEEPING": "🏠",
-        "AREAS_COMUNES": "📍",
-        "ÁREAS_COMUNES": "📍",
-        "MANTENIMIENTO": "🔧",
-        "MANTENCIÓN": "🔧",
-    }.get(area_upper, "👤")
-
-
-def get_area_short(area: str) -> str:
-    """
-    Obtiene abreviación del área.
-    
-    Args:
-        area: "HOUSEKEEPING", "AREAS_COMUNES", "MANTENIMIENTO"
-    
-    Returns:
-        Abreviación (HK, AC, MT)
-    """
-    area_upper = (area or "HOUSEKEEPING").upper()
-    
-    return {
-        "HOUSEKEEPING": "HK",
-        "AREAS_COMUNES": "AC",
-        "ÁREAS_COMUNES": "AC",
-        "MANTENIMIENTO": "MT",
-        "MANTENCIÓN": "MT",
-    }.get(area_upper, area[:2].upper())
+    return f"📍 {u}"

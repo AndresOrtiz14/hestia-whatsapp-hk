@@ -2,6 +2,7 @@
 Sistema de asignación de tickets a workers con scoring inteligente.
 VERSIÓN MEJORADA: Prioriza workers según área del ticket.
 """
+from .ubicacion_helpers import normalize_area
 
 def calcular_score_worker(worker: dict, ticket: dict = None) -> int:
     """
@@ -28,7 +29,7 @@ def calcular_score_worker(worker: dict, ticket: dict = None) -> int:
     # ✅ NUEVO: Match de área (FACTOR MÁS IMPORTANTE)
     if ticket:
         ticket_ubicacion = ticket.get("habitacion") or ticket.get("ubicacion", "")
-        worker_area = (worker.get("area") or "HOUSEKEEPING").upper()
+        worker_area = normalize_area(worker.get("area"))
         
         # Detectar si el ticket es de habitación o área común
         is_habitacion = False
@@ -140,7 +141,7 @@ def confirmar_asignacion(from_phone: str, ticket_id: int, worker: dict) -> None:
     """
     from gateway_app.flows.supervision.outgoing import send_whatsapp
     from gateway_app.services.tickets_db import obtener_ticket_por_id
-    from .ubicacion_helpers import formatear_ubicacion_con_emoji, get_area_emoji, get_area_short
+    from .ubicacion_helpers import normalize_area
     
     # Obtener datos del ticket
     ticket = obtener_ticket_por_id(ticket_id)
@@ -155,7 +156,7 @@ def confirmar_asignacion(from_phone: str, ticket_id: int, worker: dict) -> None:
     
     # Datos del worker
     worker_nombre = worker.get("nombre_completo", worker.get("nombre", "?"))
-    worker_area = worker.get("area", "HOUSEKEEPING")
+    worker_area = normalize_area(worker.get("area"))
     area_emoji = get_area_emoji(worker_area)
     area_short = get_area_short(worker_area)
     

@@ -23,30 +23,6 @@ from .ui_simple import (
 )
 from .outgoing import send_whatsapp
 
-def formatear_ubicacion_con_emoji(ubicacion: str) -> str:
-    """
-    Agrega emoji apropiado según tipo de ubicación.
-    
-    Args:
-        ubicacion: "305" o "Ascensor Piso 2"
-    
-    Returns:
-        "🏠 Habitación 305" o "📍 Ascensor Piso 2"
-    """
-    if not ubicacion:
-        return "📍 Sin ubicación"
-    
-    ubicacion = str(ubicacion).strip()
-    
-    # Si es número de 3-4 dígitos, es habitación
-    if ubicacion.isdigit():
-        num = int(ubicacion)
-        if 100 <= num <= 9999:
-            return f"🏠 Habitación {ubicacion}"
-    
-    # Si no, es área común
-    return f"📍 {ubicacion}"
-
 def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
     state = get_supervisor_state(from_phone)
     try:
@@ -206,30 +182,10 @@ def mostrar_opciones_workers(from_phone: str, workers: list, ticket_id: int) -> 
         else:
             estado_emoji = "✅"
         
-        # ✅ Área
-        area = (worker.get("area") or "HOUSEKEEPING").upper()
-        
-        area_emoji = {
-            "HOUSEKEEPING": "🏠",
-            "HK": "🏠",
-            "AREAS_COMUNES": "📍",
-            "ÁREAS_COMUNES": "📍",
-            "AC": "📍",
-            "MANTENIMIENTO": "🔧",
-            "MANTENCIÓN": "🔧",
-            "MT": "🔧"
-        }.get(area, "👤")
-        
-        area_short = {
-            "HOUSEKEEPING": "HK",
-            "HK": "HK",
-            "AREAS_COMUNES": "AC",
-            "ÁREAS_COMUNES": "AC",
-            "AC": "AC",
-            "MANTENIMIENTO": "MT",
-            "MANTENCIÓN": "MT",
-            "MT": "MT"
-        }.get(area, area[:2])
+        # ✅ Área (usa helpers)
+        area_raw = worker.get("area")
+        area_emoji = get_area_emoji(area_raw)
+        area_short = get_area_short(area_raw)
         
         nombre = worker.get("nombre_completo", "?")
         
@@ -511,7 +467,7 @@ def asignar_siguiente(from_phone: str) -> None:
     all_workers = obtener_todos_workers()
     workers_con_score = []
     for worker in all_workers:
-        score = calcular_score_worker(worker)
+        score = calcular_score_worker(worker, ticket)
 
         workers_con_score.append({**worker, "score": score})
     
@@ -702,7 +658,7 @@ def mostrar_info_ticket(from_phone: str, ticket_id: int) -> None:
     
     lineas = [
         f"{estado_emoji} Tarea #{ticket_id}\n",
-        f"🏨 Habitación: {ticket['habitacion']}",
+        f"📍 Ubicación: {ticket.get('ubicacion') or ticket.get('habitacion') or '?'}",
         f"📝 Detalle: {ticket['detalle']}",
         f"{prioridad_emoji} Prioridad: {ticket.get('prioridad', 'MEDIA')}",
         f"📊 Estado: {estado_actual}"
@@ -840,7 +796,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 send_whatsapp(
                     from_phone,
                     f"✅ Tarea #{ticket_id} asignada\n\n"
-                    f"🏨 Habitación: {habitacion}\n"
+                    f"📍 Ubicación: {ticket.get('ubicacion') or ticket.get('habitacion') or '?'}\n"
                     f"📝 Problema: {detalle}\n"
                     f"{prioridad_emoji} Prioridad: {prioridad}\n"
                     f"👤 Asignado a: {worker_nombre}"
@@ -851,7 +807,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 send_whatsapp_text(
                     to=worker_phone,
                     body=f"📋 Nueva tarea asignada\n\n"
-                        f"#{ticket_id} · Hab. {habitacion}\n"
+                        f"#{ticket_id} · {ticket.get('ubicacion') or ticket.get('habitacion') or '?'}\n"
                         f"{detalle}\n"
                         f"{prioridad_emoji} Prioridad: {prioridad}\n\n"
                         f"💡 Responde 'tomar' para aceptar"
@@ -997,7 +953,8 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
     if state.get("confirmacion_pendiente"):
         conf = state["confirmacion_pendiente"]
         
-        if text.lower().strip() in ['sí', 'si', 'yes', 'ok', 'confirmar', 'dale']:
+        raw_conf = text.lower().strip()
+        if raw_conf in ['sí', 'si', 'yes', 'ok', 'confirmar', 'dale']:
             # Confirmar
             ticket_id = conf["ticket_id"]
             worker = conf["worker"]
@@ -1018,7 +975,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 send_whatsapp(
                     from_phone,
                     f"✅ Tarea #{ticket_id} asignada\n\n"
-                    f"🏨 Habitación: {habitacion}\n"
+                    f"📍 Ubicación: {ticket.get('ubicacion') or ticket.get('habitacion') or '?'}\n"
                     f"📝 Problema: {detalle}\n"
                     f"{prioridad_emoji} Prioridad: {prioridad}\n"
                     f"👤 Asignado a: {worker_nombre}"
@@ -1041,6 +998,11 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 send_whatsapp(from_phone, "❌ Error asignando. Intenta de nuevo.")
                 state.pop("confirmacion_pendiente", None)
                 return True
+            
+        if raw_conf in ['no', 'cancelar', 'cancel', 'rechazar']:
+            send_whatsapp(from_phone, "✅ OK. No asigno por ahora (la tarea quedó creada).")
+            state.pop("confirmacion_pendiente", None)
+            return True
     
     # Si está esperando asignación y dice un nombre
     if state.get("esperando_asignacion"):
@@ -1228,9 +1190,8 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             mensaje = formato_lista_workers(candidatas)
             send_whatsapp(from_phone, mensaje)
             return True
-        
+    
     # Caso 2: Crear y asignar
-# Caso 2: Crear y asignar
     if intent == "crear_y_asignar":
         ubicacion = intent_data.get("ubicacion", intent_data.get("habitacion"))  # ✅ MODIFICADO
         detalle = intent_data["detalle"]
@@ -1287,11 +1248,13 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
 
                 send_whatsapp(
                     from_phone,
-                    f"✅ Tarea #{ticket_id} reasignada\n\n"
+                    f"🟦 Confirmar asignación\n\n"
+                    f"📋 Tarea #{ticket_id} creada\n"
                     f"{ubicacion_fmt}\n"
-                    f"📝 Problema: {detalle}\n"
-                    f"{prioridad_emoji} Prioridad: {prioridad}\n"
-                    f"👤 Reasignado a: {worker_nombre_completo}"
+                    f"📝 {detalle}\n"
+                    f"{prioridad_emoji} Prioridad: {prioridad}\n\n"
+                    f"👤 ¿Asignar a: {worker_nombre}?\n"
+                    f"Responde: 'si' / 'no'"
                 )
                 return True
             
@@ -1303,7 +1266,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 send_whatsapp(
                     from_phone,
                     f"✅ Tarea #{ticket_id} creada\n\n"
-                    f"🏨 Habitación: {habitacion}\n"
+                    f"📍 Ubicación: {ticket.get('ubicacion') or ticket.get('habitacion') or '?'}\n"
                     f"📝 Problema: {detalle}\n"
                     f"{prioridad_emoji} Prioridad: {prioridad}\n\n"
                     f"📋 Encontré {len(coincidencias)} personas con '{nombre_trabajador}':"
@@ -1467,7 +1430,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                     send_whatsapp(
                         from_phone,
                         f"✅ Tarea #{ticket_id} asignada\n\n"
-                        f"🛏️ Habitación: {habitacion}\n"
+                        f"📍 Ubicación: {ticket.get('ubicacion') or ticket.get('habitacion') or '?'}",
                         f"📝 Problema: {detalle}\n"
                         f"{prioridad_emoji} Prioridad: {prioridad}\n"
                         f"👤 Asignado a: {worker_nombre_completo}"
@@ -1478,7 +1441,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                     send_whatsapp_text(
                         to=worker_phone,
                         body=f"📋 Nueva tarea asignada\n\n"
-                            f"#{ticket_id} · Hab. {habitacion}\n"
+                            f"#{ticket_id} · {ticket.get('ubicacion') or ticket.get('habitacion') or '?'}\n"
                             f"{detalle}\n"
                             f"{prioridad_emoji} Prioridad: {prioridad}\n\n"
                             f"💡 Responde 'tomar' para aceptar"
