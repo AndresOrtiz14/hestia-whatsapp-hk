@@ -5,9 +5,10 @@ import logging
 
 from .ticket_assignment import calcular_score_worker
 from gateway_app.services.workers_db import buscar_worker_por_nombre, obtener_todos_workers
-from gateway_app.services.tickets_db import obtener_tickets_asignados_a, obtener_ticket_por_id
+from gateway_app.services.tickets_db import obtener_tickets_asignados_a, obtener_ticket_por_id, asignar_ticket
 from .ticket_assignment import formatear_ubicacion_con_emoji
 from .state import get_supervisor_state, persist_supervisor_state
+from gateway_app.services import tickets_db
 from .ubicacion_helpers import (
     get_area_emoji,
     get_area_short
@@ -960,6 +961,56 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             )
             return True
     
+    # ============================================================
+    # (NUEVO) Si estoy esperando que el supervisor elija un worker (1..N)
+    # ============================================================
+    sel = state.get("seleccion_worker_pendiente")
+    if sel:
+        raw = (text or "").strip().lower()
+
+        # cancelar selección
+        if raw in {"cancelar", "cancel", "no"}:
+            state.pop("seleccion_worker_pendiente", None)
+            persist_supervisor_state(from_phone, state)
+            send_whatsapp(from_phone, "✅ OK, cancelé la selección.")
+            return True
+
+        # elegir por número
+        if raw.isdigit():
+            idx = int(raw) - 1
+            workers = sel.get("workers") or []
+            if 0 <= idx < len(workers):
+                worker = workers[idx]
+
+                # Construir confirmación pendiente (aquí se “activa” el si/no)
+                state["confirmacion_pendiente"] = {
+                    "ticket_id": sel.get("ticket_id"),
+                    "worker": worker,
+                    # pasar contexto para que NO se pierda ubicación/detalle
+                    "ubicacion": sel.get("ubicacion"),
+                    "habitacion": sel.get("habitacion"),
+                    "detalle": sel.get("detalle"),
+                    "prioridad": sel.get("prioridad", "MEDIA"),
+                }
+
+                # ya no estamos en selección
+                state.pop("seleccion_worker_pendiente", None)
+                persist_supervisor_state(from_phone, state)
+
+                worker_nombre = worker.get("nombre_completo") or worker.get("username") or "Sin nombre"
+                send_whatsapp(
+                    from_phone,
+                    f"❓ Confirmas asignar a *{worker_nombre}*?\n\nResponde 'si' o 'no' (o 'cancelar')."
+                )
+                return True
+
+            send_whatsapp(from_phone, "❌ Número inválido. Responde con un número de la lista o 'cancelar'.")
+            return True
+
+        # si responde otra cosa mientras está en selección
+        send_whatsapp(from_phone, "💡 Responde con el número de la lista (ej: 1) o 'cancelar'.")
+        return True
+
     # Si está esperando confirmación (sí/no)
     conf = state.get("confirmacion_pendiente")
     if conf:
@@ -1095,42 +1146,77 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
     # Caso 1: Asignar ticket existente
     if intent == "asignar_ticket":
         ticket_id = intent_data["ticket_id"]
-        worker_nombre = intent_data["worker"]
-        worker_nombre = normalizar_nombre(worker_nombre)
-        
-        # Buscar con sistema inteligente
+        worker_query = normalizar_nombre(intent_data["worker"])
+
         from gateway_app.services.workers_db import buscar_workers_por_nombre
-        candidatas = buscar_workers_por_nombre(worker_nombre)
- 
+        from gateway_app.services.tickets_db import obtener_ticket_por_id
+
+        candidatas = buscar_workers_por_nombre(worker_query) or []
+
         if not candidatas:
             send_whatsapp(
                 from_phone,
-                f"❌ No encontré a '{worker_nombre}'\n\n"
-                "💡 Verifica el nombre"
+                f"❌ No encontré a '{worker_query}'\n\n💡 Verifica el nombre"
             )
             return True
-        
+
+        # Traer ticket para armar confirmaciones con datos reales
+        ticket = obtener_ticket_por_id(ticket_id) or {}
+        detalle = ticket.get("detalle") or ticket.get("descripcion") or "Tarea asignada"
+        prioridad = str(ticket.get("prioridad") or "MEDIA").upper()
+        ubicacion = ticket.get("ubicacion") or ticket.get("habitacion") or "?"
+
+        # Limpieza preventiva de estados viejos
+        state.pop("seleccion_worker_pendiente", None)
+        state.pop("confirmacion_pendiente", None)
+
+        # Caso A: 1 match -> pedir SI/NO
         if len(candidatas) == 1:
-            # Solo una: confirmar
             worker = candidatas[0]
+
             state["confirmacion_pendiente"] = {
                 "tipo": "asignar",
                 "ticket_id": ticket_id,
-                "worker": worker
+                "worker": worker,
+                "detalle": detalle,
+                "prioridad": prioridad,
+                "ubicacion": ubicacion,
             }
-            mensaje = formato_lista_workers([worker])
-            send_whatsapp(from_phone, mensaje)
+            persist_supervisor_state(from_phone, state)
+
+            worker_nombre = worker.get("nombre_completo") or worker.get("username") or "Sin nombre"
+            ubicacion_fmt = formatear_ubicacion_con_emoji(str(ubicacion))
+
+            send_whatsapp(
+                from_phone,
+                "🟦 Confirmar asignación\n\n"
+                f"📋 Tarea #{ticket_id}\n"
+                f"{ubicacion_fmt}\n"
+                f"📝 Problema: {detalle}\n\n"
+                f"👤 ¿Asignar a: {worker_nombre}?\n\n"
+                "Responde: 'si' / 'no' (o 'cancelar')"
+            )
             return True
-        else:
-            # Múltiples: pedir que elija
-            state["seleccion_mucamas"] = {
-                "tipo": "asignar",
-                "ticket_id": ticket_id,
-                "candidatas": candidatas
-            }
-            mensaje = formato_lista_workers(candidatas)
-            send_whatsapp(from_phone, mensaje)
-            return True
+
+        # Caso B: múltiples -> pedir número
+        candidatas_top = candidatas[:5]
+        state["seleccion_worker_pendiente"] = {
+            "tipo": "asignar",
+            "ticket_id": ticket_id,
+            "workers": candidatas_top,
+            "detalle": detalle,
+            "prioridad": prioridad,
+            "ubicacion": ubicacion,
+        }
+        persist_supervisor_state(from_phone, state)
+
+        send_whatsapp(
+            from_phone,
+            formato_lista_workers(candidatas_top) + "\n\n"
+            "💡 Responde con el número (1-5) o 'cancelar'."
+        )
+        return True
+
     
     # Caso 1.5: Reasignar ticket existente
     if intent == "reasignar_ticket":

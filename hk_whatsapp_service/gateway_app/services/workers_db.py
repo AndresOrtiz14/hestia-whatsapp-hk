@@ -205,11 +205,13 @@ def buscar_worker_por_nombre(nombre: str) -> Optional[Dict[str, Any]]:
             username as nombre_completo,
             telefono,
             area,
-            activo
+            activo,
+            turno_activo
         FROM public.users
         WHERE activo = true
-          AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES')
-        ORDER BY username
+        AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES')
+        AND LOWER(username) LIKE LOWER(?)
+        LIMIT 1
     """
 
     try:
@@ -254,28 +256,34 @@ def buscar_workers_por_nombre(nombre: str) -> List[Dict[str, Any]]:
     if not nombre_norm:
         return []
 
+    # OJO: como vamos a filtrar "accent-insensitive" en Python,
+    # no usamos LIKE (?) en SQL para no depender de parámetros.
     sql = """
         SELECT 
             id,
             username as nombre_completo,
             telefono,
             area,
-            activo
+            activo,
+            turno_activo
         FROM public.users
         WHERE activo = true
-          AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO')
+        AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES')
         ORDER BY username
     """
 
     try:
-        # 1) Traemos candidatos (son pocos, no duele)
-        workers = fetchall(sql, [])
+        # 1) Traemos candidatos (activos + áreas válidas)
+        workers = fetchall(sql)  # <- sin params
 
         # 2) Filtramos “accent-insensitive” en Python
         matches = []
         for w in (workers or []):
             nombre_worker = _norm(w.get("nombre_completo") or "")
             if nombre_norm in nombre_worker:
+                # ✅ Normalizaciones clave para evitar "❓" y tener área consistente
+                w["turno_activo"] = bool(w.get("turno_activo", False))
+                w["area"] = normalizar_area(w.get("area") or "HOUSEKEEPING")
                 matches.append(w)
 
         logger.info(f"👥 {len(matches)} workers encontrados con '{nombre}'")
@@ -290,12 +298,6 @@ def buscar_workers_por_nombre(nombre: str) -> List[Dict[str, Any]]:
 def buscar_worker_por_telefono(telefono: str) -> Optional[Dict[str, Any]]:
     """
     Busca un worker por número de teléfono.
-    
-    Args:
-        telefono: Número de teléfono (ej: "56996107169")
-    
-    Returns:
-        Worker encontrado o None
     """
     sql = """
         SELECT 
@@ -303,22 +305,29 @@ def buscar_worker_por_telefono(telefono: str) -> Optional[Dict[str, Any]]:
             username as nombre_completo,
             telefono,
             area,
-            activo
+            activo,
+            turno_activo
         FROM public.users
         WHERE activo = true
-        AND area IN ('HOUSEKEEPING', 'MANTENCION')
+        AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES')
         AND telefono = ?
         LIMIT 1
     """
-    
+
     try:
         worker = fetchone(sql, [telefono])
+
         if worker:
+            # ✅ Normalizaciones clave para que no salga "❓"
+            worker["turno_activo"] = bool(worker.get("turno_activo", False))
+            worker["area"] = normalizar_area(worker.get("area") or "HOUSEKEEPING")
+
             logger.info(f"✅ Worker encontrado por teléfono: {worker['nombre_completo']}")
         else:
             logger.info(f"⚠️ No se encontró worker con teléfono: {telefono}")
+
         return worker
+
     except Exception as e:
         logger.exception(f"❌ Error buscando worker por teléfono: {e}")
         return None
-    

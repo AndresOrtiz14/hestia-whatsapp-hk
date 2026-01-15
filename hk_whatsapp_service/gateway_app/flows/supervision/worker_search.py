@@ -103,16 +103,51 @@ def buscar_workers(nombre_query: str, workers: List[Dict[str, Any]], rol: str = 
     
     return candidatos
 
+def _estado_emoji(worker: dict) -> str:
+    # Fuente de verdad: turno_activo desde users
+    if not worker.get("turno_activo"):
+        return "⛔"  # fuera de turno
+    # flags efímeros desde runtime
+    if worker.get("pausada"):
+        return "⏸️"
+    if worker.get("ocupada") or worker.get("ticket_activo"):
+        return "🔴"
+    return "✅"
 
-def formato_lista_workers(workers):
+
+def _estado_emoji(w: dict) -> str:
+    """
+    Emoji de estado del worker:
+    - ⛔ fuera de turno
+    - ⏸️ en pausa
+    - 🔴 ocupada (tiene ticket activo / ocupada)
+    - ✅ disponible
+    """
+    turno = w.get("turno_activo")
+    # Si no viene turno_activo, lo tratamos como False para no mostrar ❓
+    # (ideal: que SI venga desde BD)
+    if turno is not True:
+        return "⛔"
+
+    if w.get("pausada"):
+        return "⏸️"
+
+    if w.get("ocupada") or w.get("ticket_activo"):
+        return "🔴"
+
+    return "✅"
+
+
+def formato_lista_workers(workers, max_mostrar: int = 5):
     # Blindaje: a veces llega dict en vez de lista
     if not workers:
         return "❌ No encontré workers."
     if isinstance(workers, dict):
         workers = [workers]
 
-    lines = []
-    for idx, w in enumerate(workers, start=1):
+    lines = ["📋 Encontré a:"]
+
+    for idx, w in enumerate(workers[:max_mostrar], start=1):
         nombre = w.get("nombre_completo") or w.get("username") or "Sin nombre"
 
         # Normaliza área
@@ -122,44 +157,20 @@ def formato_lista_workers(workers):
         area_emoji = get_area_emoji(area_norm)
         area_tag = get_area_tag(area_norm)
 
-        # Si tienes turno_activo disponible en ese dict, muéstralo; si no, no rompe.
-        turno = w.get("turno_activo")
-        turno_icon = "✅" if turno else ("⛔" if turno is False else "❓")
+        estado_icon = _estado_emoji(w)
 
-        lines.append(f"{idx}. {turno_icon} {nombre} ({area_emoji} {area_tag})")
-
-    return "📋 Encontré a:\n" + "\n".join(lines)
-    
-    # Múltiples resultados
-    lineas = [f"📋 Encontré {len(workers)} personas:\n"]
-    
-    for i, worker in enumerate(workers[:max_mostrar], 1):
-        estado_emoji = {
-            "disponible": "✅",
-            "ocupada": "🔴",
-            "en_pausa": "⏸️"
-        }.get(worker.get("estado"), "❓")
-        
-        # Info adicional según estado
+        # (opcional) info extra si quieres
         info_extra = ""
-        if worker.get("estado") == "ocupada" and worker.get("ticket_activo"):
-            info_extra = f" (en ticket #{worker['ticket_activo']})"
-        elif worker.get("promedio_tiempo_resolucion"):
-            info_extra = f" ({worker['promedio_tiempo_resolucion']:.0f} min promedio)"
-        
-        lineas.append(
-            f"{i}. {estado_emoji} {worker['nombre_completo']}{info_extra}"
-        )
-    
+        if (w.get("ocupada") or w.get("ticket_activo")) and w.get("ticket_activo"):
+            info_extra = f" (ticket #{w['ticket_activo']})"
+
+        lines.append(f"{idx}. {estado_icon} {nombre} ({area_emoji} {area_tag}){info_extra}")
+
     if len(workers) > max_mostrar:
-        lineas.append(f"\n... y {len(workers) - max_mostrar} más")
-    
-    lineas.append(f"\n💡 Escribe:")
-    lineas.append(f"• Número (1-{min(len(workers), max_mostrar)})")
-    lineas.append(f"• Apellido completo")
-    lineas.append(f"• 'Cancelar' para abortar")
-    
-    return "\n".join(lineas)
+        lines.append(f"\n... y {len(workers) - max_mostrar} más")
+
+    lines.append("\n💡 Responde con un número (1-{}), o 'cancelar'.".format(min(len(workers), max_mostrar)))
+    return "\n".join(lines)
 
 
 def manejar_seleccion_worker(
