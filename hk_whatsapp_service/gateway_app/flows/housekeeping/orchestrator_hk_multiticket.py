@@ -966,6 +966,8 @@ def crear_ticket_desde_draft(from_phone: str) -> None:
         reset_ticket_draft(from_phone)
         state["state"] = MENU
 
+
+from gateway_app.services.workers_db import activar_turno_por_telefono, desactivar_turno_por_telefono
 def iniciar_turno(from_phone: str) -> None:
     """
     Inicia el turno del trabajador.
@@ -977,10 +979,14 @@ def iniciar_turno(from_phone: str) -> None:
         send_whatsapp(from_phone, "⚠️ Tu turno ya está activo\n\n💡 Di 'M' para volver al menú")
         return
     
+    ok = activar_turno_por_telefono(from_phone)
+    if not ok:
+        send_whatsapp(from_phone, "❌ No pude activar tu turno en el sistema (usuario no encontrado).")
+        return
+    
     state["turno_activo"] = True
     state["turno_inicio"] = datetime.now().isoformat()
     state["turno_fin"] = None
-    
     from .ui_simple import texto_menu_simple
     send_whatsapp(
         from_phone,
@@ -1003,6 +1009,8 @@ def terminar_turno(from_phone: str) -> None:
         send_whatsapp(from_phone, "⚠️ No tienes turno activo\n\n💡 Di 'M' para volver al menú")
         return
     
+    desactivar_turno_por_telefono(from_phone)
+
     # Verificar si tiene tickets activos
     tickets = obtener_tickets_asignados_a(from_phone)
     tickets_activos = [t for t in tickets if t.get('estado') == 'EN_CURSO']

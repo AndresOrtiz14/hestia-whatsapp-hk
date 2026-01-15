@@ -4,7 +4,7 @@ Consultas de workers desde Supabase.
 import logging
 from typing import List, Dict, Any, Optional
 
-from gateway_app.services.db import fetchall, fetchone
+from gateway_app.services.db import fetchall, fetchone, execute, using_pg
 
 import os
 from gateway_app.services.db import execute
@@ -38,8 +38,7 @@ def activar_turno_por_telefono(phone: str) -> bool:
         """
         UPDATE public.users
         SET turno_activo = ?,
-            turno_updated_at = now(),
-            turno_started_at = now()
+            turno_updated_at = now()
         WHERE telefono = ?
         RETURNING id;
         """,
@@ -159,68 +158,39 @@ def obtener_runtime_sessions_por_telefonos(phones: list[str]) -> dict[str, dict]
         logger.exception("No pude importar supabase client en workers_db")
         return {}
 
-    try:
-        q = supabase.table("runtime_sessions").select("phone,data")
-        # compatibilidad supabase-py: in_() es lo típico, pero cubrimos fallback
-        try:
-            resp = q.in_("phone", phones).execute()
-        except Exception:
-            resp = q.filter("phone", "in", phones).execute()
-
-        rows = getattr(resp, "data", None) or []
-        return {r.get("phone"): (r.get("data") or {}) for r in rows if r.get("phone")}
-    except Exception:
-        logger.exception("Error consultando runtime_sessions")
-        return {}
-
-
 def obtener_todos_workers() -> List[Dict[str, Any]]:
-    """
-    Obtiene todos los trabajadores activos.
-    
-    Returns:
-        Lista de workers desde BD
-    """
-    sql = """
-        SELECT 
+    workers = fetchall("""
+        SELECT
             id,
             username as nombre_completo,
             telefono,
             area,
-            activo
+            activo,
+            turno_activo,
+            turno_updated_at
         FROM public.users
         WHERE activo = true
         AND area IN ('HOUSEKEEPING', 'MANTENCION')
         ORDER BY username
-    """
-    
-    try:
-        workers = fetchall(sql)
-        # ✅ enriquecer con runtime_sessions SIN romper deploy si falla
-        phones = [w.get("telefono") for w in workers if w.get("telefono")]
-        sessions = obtener_runtime_sessions_por_telefonos(phones)
+    """)
 
-        for w in workers:
-            phone = w.get("telefono")
-            data = sessions.get(phone, {}) or {}
+    phones = [w.get("telefono") for w in workers if w.get("telefono")]
+    sessions = obtener_runtime_sessions_por_telefonos(phones)  # si falla, {}
 
-            # Turno/estado desde runtime_sessions (si existe)
-            w["turno_activo"] = bool(data.get("turno_activo", False))
-            w["pausada"] = bool(data.get("pausada", False))
-            w["ocupada"] = bool(data.get("ocupada", False))
+    for w in workers:
+        phone = w.get("telefono")
+        data = sessions.get(phone, {}) or {}
 
-            # Área desde users.area (preferente) o runtime, y normalizar nombres
-            w["area"] = normalizar_area(w.get("area") or data.get("area") or "HOUSEKEEPING")
+        # ✅ Turno desde BD (no desde runtime)
+        w["turno_activo"] = bool(w.get("turno_activo"))
 
-        logger.info(
-        f"👥 {len(workers)} workers; turno_activo={sum(1 for w in workers if w.get('turno_activo'))}; "
-        f"areas_sample={[w.get('area') for w in workers[:5]]}"
-    )
-        return workers
-    except Exception as e:
-        logger.exception(f"❌ Error obteniendo workers: {e}")
-        return []
+        # ✅ flags efímeros desde runtime
+        w["pausada"] = bool(data.get("pausada", False))
+        w["ocupada"] = bool(data.get("ocupada", False))
 
+        w["area"] = normalizar_area(w.get("area") or data.get("area") or "HOUSEKEEPING")
+
+    return workers
 
 
 def buscar_worker_por_nombre(nombre: str) -> Optional[Dict[str, Any]]:
