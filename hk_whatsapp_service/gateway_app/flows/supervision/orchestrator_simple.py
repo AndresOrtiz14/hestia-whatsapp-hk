@@ -1383,6 +1383,8 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                     from gateway_app.services.workers_db import obtener_todos_workers
                     workers = obtener_todos_workers()
                     mostrar_opciones_workers(from_phone, workers, ticket_id)
+                    
+                    return True
                 except Exception as e:
                     logger.exception(f"⚠️ No pude mostrar recomendaciones de workers: {e}")
                     # No abortar: el ticket ya se creó. Opcional: no enviar nada extra.

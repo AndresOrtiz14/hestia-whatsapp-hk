@@ -24,6 +24,7 @@ sup_outgoing.SEND_IMPL = lambda to, body: send_whatsapp_text(to=to, body=body)
 from gateway_app.flows.housekeeping.message_handler import handle_hk_message_with_audio
 from gateway_app.flows.supervision import handle_supervisor_message
 
+from gateway_app.services.db import fetchone, execute, using_pg
 
 # Configuración: Detectar rol por número de teléfono
 # Lee desde variable de entorno SUPERVISOR_PHONES
@@ -65,6 +66,39 @@ def get_user_role(phone: str) -> str:
     logger.info(f"👷 {phone} reconocido como HOUSEKEEPER")
     return "housekeeper"
 
+def is_duplicate_wamid(wamid: str) -> bool:
+    """
+    Retorna True si ya habíamos procesado este mensaje (dedupe por wamid).
+    Inserta el wamid en runtime_wamids si es primera vez.
+    """
+    if not wamid:
+        return False
+
+    try:
+        if using_pg():
+            # Si inserta -> retorna fila; si ya existía -> retorna None
+            row = fetchone(
+                """
+                INSERT INTO public.runtime_wamids (id)
+                VALUES (?)
+                ON CONFLICT (id) DO NOTHING
+                RETURNING id
+                """,
+                (wamid,),
+            )
+            return row is None
+        else:
+            # SQLite fallback (sin RETURNING)
+            row = fetchone("SELECT id FROM runtime_wamids WHERE id = ?", (wamid,))
+            if row:
+                return True
+            execute("INSERT INTO runtime_wamids (id) VALUES (?)", (wamid,))
+            return False
+
+    except Exception:
+        logger.exception("⚠️ Error deduplicando wamid=%s (continuando sin dedupe)", wamid)
+        return False
+
 
 @bp.get("/webhook")
 def verify():
@@ -103,6 +137,13 @@ def inbound():
             return jsonify(ok=True), 200
 
         msg = messages[0]
+        
+        # ✅ DEDUPE: ignorar retries/redelivery de Meta
+        wamid = msg.get("id")
+        if is_duplicate_wamid(wamid):
+            logger.info("🔁 Ignorando mensaje duplicado wamid=%s", wamid)
+            return jsonify(ok=True), 200
+
         from_phone = msg.get("from")
         msg_type = msg.get("type")
 
