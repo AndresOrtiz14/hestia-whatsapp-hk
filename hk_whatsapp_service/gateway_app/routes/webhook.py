@@ -141,9 +141,8 @@ def inbound():
         # ✅ DEDUPE: ignorar retries/redelivery de Meta
         wamid = msg.get("id")
         if is_duplicate_wamid(wamid):
-            logger.info("🔁 Ignorando mensaje duplicado wamid=%s", wamid)
             return jsonify(ok=True), 200
-
+        
         from_phone = msg.get("from")
         msg_type = msg.get("type")
 
@@ -228,11 +227,14 @@ def inbound():
         logger.info(f"   ✅ Procesado correctamente")
         logger.info("=" * 60)
         return jsonify(ok=True), 200
-
+        
+    
     except Exception as e:
-        logger.exception(f"❌ ERROR procesando webhook: {str(e)}")
-        # Siempre retornar 200 para que WhatsApp no reintente
-        return jsonify(ok=False, error=str(e)), 200
+        # permitir reintento si falló el procesamiento
+        if wamid:
+            from gateway_app.services.db import execute
+            execute("DELETE FROM public.runtime_wamids WHERE id = ?", (wamid,), commit=True)
+        raise
 
 @bp.route("/db-status", methods=["GET"])
 def db_status():

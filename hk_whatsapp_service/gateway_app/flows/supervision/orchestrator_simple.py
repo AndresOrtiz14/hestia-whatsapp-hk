@@ -6,8 +6,8 @@ import logging
 from .ticket_assignment import calcular_score_worker
 from gateway_app.services.workers_db import buscar_worker_por_nombre, obtener_todos_workers
 from gateway_app.services.tickets_db import obtener_tickets_asignados_a
+from .ticket_assignment import formatear_ubicacion_con_emoji
 from .ubicacion_helpers import (
-    formatear_ubicacion_con_emoji,
     get_area_emoji,
     get_area_short
 )

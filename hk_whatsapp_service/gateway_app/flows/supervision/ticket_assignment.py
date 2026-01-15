@@ -129,6 +129,24 @@ def ordenar_workers_por_score(workers: list, ticket: dict = None) -> list:
     
     return workers_con_score
 
+import re
+
+def formatear_ubicacion_con_emoji(ubicacion: str) -> str:
+    """
+    Formatea ubicación con emoji para mensajes del supervisor/worker.
+    Regla simple:
+    - Si es número (habitación): 🏨 Habitación: XXX
+    - Si es texto (área común u otra): 📍 <texto>
+    """
+    u = (ubicacion or "").strip()
+    if not u:
+        return "📍 Ubicación: ?"
+
+    if re.fullmatch(r"\d{3,4}", u):
+        return f"🏨 Habitación: {u}"
+
+    return f"📍 {u}"
+
 
 def confirmar_asignacion(from_phone: str, ticket_id: int, worker: dict) -> None:
     """
