@@ -1378,28 +1378,14 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 state["ticket_seleccionado"] = ticket_id
                 state["esperando_asignacion"] = True
                 
-                # Mostrar recomendaciones
-                from gateway_app.services.workers_db import buscar_workers_por_nombre
-
-                from .ticket_assignment import calcular_score_worker
-                from .ui_simple import texto_recomendaciones_simple
-                
-                from gateway_app.services.workers_db import obtener_todos_workers
-                workers = obtener_todos_workers()
-
-                workers_con_score = []
-                for worker in workers:
-                    score = calcular_score_worker(worker)
-                    workers_con_score.append({**worker, "score": score})
-                
-                workers_con_score.sort(key=lambda w: w["score"], reverse=True)
-                
-                mensaje_rec = workers = obtener_todos_workers()
-                mostrar_opciones_workers(from_phone, workers, ticket_id)
-                state["ticket_seleccionado"] = ticket_id
-                state["esperando_asignacion"] = True
-
-                return True
+                # ✅ Recomendaciones (no deben romper el flujo si falla algo)
+                try:
+                    from gateway_app.services.workers_db import obtener_todos_workers
+                    workers = obtener_todos_workers()
+                    mostrar_opciones_workers(from_phone, workers, ticket_id)
+                except Exception as e:
+                    logger.exception(f"⚠️ No pude mostrar recomendaciones de workers: {e}")
+                    # No abortar: el ticket ya se creó. Opcional: no enviar nada extra.
             else:
                 send_whatsapp(from_phone, "❌ Error creando tarea. Intenta de nuevo.")
                 return True
