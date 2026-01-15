@@ -9,6 +9,9 @@ from gateway_app.services.db import fetchall, fetchone, execute, using_pg
 import os
 from gateway_app.services.db import execute
 
+import re
+import unicodedata
+
 logger = logging.getLogger(__name__)
 
 def normalizar_area(area: str) -> str:
@@ -24,6 +27,15 @@ def normalizar_area(area: str) -> str:
 def _normalize_phone(phone: str) -> str:
     # deja solo dígitos (ajusta si tú guardas con '+')
     return "".join(ch for ch in (phone or "").strip() if ch.isdigit())
+
+def _norm(s: str) -> str:
+    if not s:
+        return ""
+    s = s.strip().lower()
+    s = unicodedata.normalize("NFD", s)
+    s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")  # quita tildes
+    s = re.sub(r"\s+", " ", s)
+    return s
 
 def activar_turno_por_telefono(phone: str) -> bool:
     if not using_pg():
@@ -180,14 +192,13 @@ def obtener_todos_workers() -> List[Dict[str, Any]]:
 
 def buscar_worker_por_nombre(nombre: str) -> Optional[Dict[str, Any]]:
     """
-    Busca un worker por nombre (case-insensitive).
-    
-    Args:
-        nombre: Nombre o parte del nombre
-    
-    Returns:
-        Worker encontrado o None
+    Busca un worker por nombre (case-insensitive + sin tildes).
+    Retorna el mejor match (no necesariamente el primero alfabético).
     """
+    nombre_norm = _norm(nombre)
+    if not nombre_norm:
+        return None
+
     sql = """
         SELECT 
             id,
@@ -197,16 +208,39 @@ def buscar_worker_por_nombre(nombre: str) -> Optional[Dict[str, Any]]:
             activo
         FROM public.users
         WHERE activo = true
-        AND area IN ('HOUSEKEEPING', 'MANTENCION')
-        AND LOWER(username) LIKE LOWER(?)
-        LIMIT 1
+          AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES')
+        ORDER BY username
     """
-    
+
     try:
-        worker = fetchone(sql, [f"%{nombre}%"])
-        if worker:
-            logger.info(f"✅ Worker encontrado: {worker['nombre_completo']}")
-        return worker
+        workers = fetchall(sql, []) or []
+
+        # Filtrar candidatos por nombre normalizado
+        candidatos: List[Dict[str, Any]] = []
+        for w in workers:
+            w_norm = _norm(w.get("nombre_completo") or "")
+            if nombre_norm in w_norm:
+                candidatos.append(w)
+
+        if not candidatos:
+            logger.info(f"👥 0 workers encontrados con '{nombre}'")
+            return None
+
+        # Ranking: exact match > startswith > contains
+        def score(w: Dict[str, Any]) -> int:
+            w_norm = _norm(w.get("nombre_completo") or "")
+            if w_norm == nombre_norm:
+                return 3
+            if w_norm.startswith(nombre_norm):
+                return 2
+            return 1
+
+        candidatos.sort(key=lambda w: (score(w), (w.get("nombre_completo") or "").lower()), reverse=True)
+        elegido = candidatos[0]
+
+        logger.info(f"✅ Worker encontrado: {elegido.get('nombre_completo')}")
+        return elegido
+
     except Exception as e:
         logger.exception(f"❌ Error buscando worker: {e}")
         return None
@@ -214,14 +248,12 @@ def buscar_worker_por_nombre(nombre: str) -> Optional[Dict[str, Any]]:
 
 def buscar_workers_por_nombre(nombre: str) -> List[Dict[str, Any]]:
     """
-    Busca múltiples workers que coincidan con el nombre.
-    
-    Args:
-        nombre: Nombre o parte del nombre
-    
-    Returns:
-        Lista de workers que coinciden
+    Busca múltiples workers que coincidan con el nombre (match sin tildes).
     """
+    nombre_norm = _norm(nombre)
+    if not nombre_norm:
+        return []
+
     sql = """
         SELECT 
             id,
@@ -231,18 +263,28 @@ def buscar_workers_por_nombre(nombre: str) -> List[Dict[str, Any]]:
             activo
         FROM public.users
         WHERE activo = true
-        AND area IN ('HOUSEKEEPING', 'MANTENCION')
-        AND LOWER(username) LIKE LOWER(?)
+          AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO')
         ORDER BY username
     """
-    
+
     try:
-        workers = fetchall(sql, [f"%{nombre}%"])
-        logger.info(f"👥 {len(workers)} workers encontrados con '{nombre}'")
-        return workers
+        # 1) Traemos candidatos (son pocos, no duele)
+        workers = fetchall(sql, [])
+
+        # 2) Filtramos “accent-insensitive” en Python
+        matches = []
+        for w in (workers or []):
+            nombre_worker = _norm(w.get("nombre_completo") or "")
+            if nombre_norm in nombre_worker:
+                matches.append(w)
+
+        logger.info(f"👥 {len(matches)} workers encontrados con '{nombre}'")
+        return matches
+
     except Exception as e:
         logger.exception(f"❌ Error buscando workers: {e}")
         return []
+
 
 
 def buscar_worker_por_telefono(telefono: str) -> Optional[Dict[str, Any]]:
