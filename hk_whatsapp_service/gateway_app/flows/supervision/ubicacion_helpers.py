@@ -9,7 +9,7 @@ import re
 import unicodedata
 from typing import Optional
 
-from hk_whatsapp_service.gateway_app.services.workers_db import normalizar_area
+from gateway_app.services.workers_db import normalizar_area
 
 # Canonical areas (lo que tú quieres “como verdad”)
 AREA_HOUSEKEEPING = "HOUSEKEEPING"
