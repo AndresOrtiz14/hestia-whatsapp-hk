@@ -8,8 +8,7 @@ Soporta múltiples roles: housekeeping, mantenimiento, conserjería, etc.
 from typing import List, Dict, Any, Optional
 from difflib import SequenceMatcher
 
-from hk_whatsapp_service.gateway_app.flows.supervision.ubicacion_helpers import get_area_emoji, get_area_tag
-
+from gateway_app.flows.supervision.ubicacion_helpers import get_area_emoji, get_area_tag
 
 def similarity(a: str, b: str) -> float:
     """
