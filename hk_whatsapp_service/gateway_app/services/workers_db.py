@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional
 from gateway_app.services.db import fetchall, fetchone
 
 import os
-import logging
+from gateway_app.services.db import execute
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,50 @@ def normalizar_area(area: str) -> str:
     if a == "HK":
         return "HOUSEKEEPING"
     return a or "HOUSEKEEPING"
+
+def _normalize_phone(phone: str) -> str:
+    # deja solo dígitos (ajusta si tú guardas con '+')
+    return "".join(ch for ch in (phone or "").strip() if ch.isdigit())
+
+def activar_turno_por_telefono(phone: str) -> bool:
+    if not using_pg():
+        logger.warning("Turno no activado: no hay DATABASE_URL (modo SQLite).")
+        return False
+
+    phone_n = _normalize_phone(phone)
+    if not phone_n:
+        return False
+
+    row = fetchone(
+        """
+        UPDATE public.users
+        SET turno_activo = ?,
+            turno_updated_at = now(),
+            turno_started_at = now()
+        WHERE telefono = ?
+        RETURNING id;
+        """,
+        (True, phone_n),
+    )
+
+    if row:
+        logger.info("✅ Turno activado: telefono=%s user_id=%s", phone_n, row["id"])
+        return True
+
+    logger.warning("⚠️ No se activó turno: no existe user con telefono=%s", phone_n)
+    return False
+
+def desactivar_turno_por_telefono(phone: str) -> bool:
+    phone_n = _normalize_phone(phone)
+    if not phone_n:
+        return False
+
+    execute(
+        "UPDATE public.users SET turno_activo = ?, turno_updated_at = now() WHERE telefono = ?",
+        (False, phone_n),
+    )
+    return True
+
 
 
 def _get_pg_conn():
