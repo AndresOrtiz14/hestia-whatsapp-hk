@@ -5,7 +5,7 @@ import logging
 
 from .ticket_assignment import calcular_score_worker
 from gateway_app.services.workers_db import buscar_worker_por_nombre, obtener_todos_workers
-from gateway_app.services.tickets_db import obtener_tickets_asignados_a
+from gateway_app.services.tickets_db import obtener_tickets_asignados_a, obtener_ticket_por_id
 from .ticket_assignment import formatear_ubicacion_con_emoji
 from .state import get_supervisor_state, persist_supervisor_state
 from .ubicacion_helpers import (
@@ -986,21 +986,36 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             from gateway_app.services.tickets_db import asignar_ticket
 
             if asignar_ticket(ticket_id, worker_phone, worker_nombre):
-                habitacion = conf.get("habitacion", "?")
-                detalle = conf.get("detalle", "Tarea asignada")
-                prioridad = conf.get("prioridad", "MEDIA")
+                ticket = obtener_ticket_por_id(ticket_id) or {}
+                # Tomar datos reales del ticket (con fallback al conf)
+                detalle = (
+                    ticket.get("detalle")
+                    or ticket.get("descripcion")
+                    or conf.get("detalle")
+                    or "Tarea asignada"
+                )
+                prioridad = (ticket.get("prioridad") or conf.get("prioridad") or "MEDIA")
+                prioridad = str(prioridad).upper()
                 prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
 
-                ubicacion = conf.get("ubicacion") or conf.get("habitacion") or habitacion or "?"
-                ubicacion_fmt = formatear_ubicacion_con_emoji(ubicacion)
-
+                ubicacion = (
+                    ticket.get("ubicacion")
+                    or ticket.get("habitacion")
+                    or conf.get("ubicacion")
+                    or conf.get("habitacion")
+                    or "?"
+                )
+                ubicacion_fmt = formatear_ubicacion_con_emoji(str(ubicacion))
+                worker_area = worker.get("area") or ""
+                area_tag = {"HOUSEKEEPING":"HK","MANTENCION":"MT","MANTENIMIENTO":"MT","AREAS_COMUNES":"AC"}.get(worker_area, worker_area or "?")
+                area_emoji = {"HOUSEKEEPING":"🧹","MANTENCION":"🔧","MANTENIMIENTO":"🔧","AREAS_COMUNES":"🏢"}.get(worker_area, "👤")
                 send_whatsapp(
                     from_phone,
                     f"✅ Tarea #{ticket_id} asignada\n\n"
                     f"{ubicacion_fmt}\n"
                     f"📝 Problema: {detalle}\n"
                     f"{prioridad_emoji} Prioridad: {prioridad}\n"
-                    f"👤 Asignado a: {worker_nombre}"
+                    f"👤 Asignado a: {worker_nombre} ({area_emoji} {area_tag})"
                 )
 
                 send_whatsapp_text(

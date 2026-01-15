@@ -9,6 +9,8 @@ import re
 import unicodedata
 from typing import Optional
 
+from hk_whatsapp_service.gateway_app.services.workers_db import normalizar_area
+
 # Canonical areas (lo que tú quieres “como verdad”)
 AREA_HOUSEKEEPING = "HOUSEKEEPING"
 AREA_MANTENIMIENTO = "MANTENIMIENTO"
@@ -105,11 +107,23 @@ def normalize_area(area: Optional[str], default: str = AREA_HOUSEKEEPING) -> str
 
     return default
 
+def get_area_emoji(area: str) -> str:
+    a = normalizar_area(area or "")
+    return {
+        "HOUSEKEEPING": "🧹",
+        "MANTENCION": "🔧",
+        "MANTENIMIENTO": "🔧",
+        "AREAS_COMUNES": "🏢",
+    }.get(a, "👤")
 
-def get_area_emoji(area: Optional[str]) -> str:
-    canon = normalize_area(area)
-    return _AREA_EMOJI.get(canon, "👤")
-
+def get_area_tag(area: str) -> str:
+    a = normalizar_area(area or "")
+    return {
+        "HOUSEKEEPING": "HK",
+        "MANTENCION": "MT",
+        "MANTENIMIENTO": "MT",
+        "AREAS_COMUNES": "AC",
+    }.get(a, "?")
 
 def get_area_short(area: Optional[str]) -> str:
     canon = normalize_area(area)

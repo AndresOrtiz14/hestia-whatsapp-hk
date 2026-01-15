@@ -8,6 +8,8 @@ Soporta múltiples roles: housekeeping, mantenimiento, conserjería, etc.
 from typing import List, Dict, Any, Optional
 from difflib import SequenceMatcher
 
+from hk_whatsapp_service.gateway_app.flows.supervision.ubicacion_helpers import get_area_emoji, get_area_tag
+
 
 def similarity(a: str, b: str) -> float:
     """
@@ -117,17 +119,19 @@ def formato_lista_workers(workers: List[Dict[str, Any]], max_mostrar: int = 5) -
     
     if len(workers) == 1:
         # Solo una: confirmar directamente
+        worker_area = worker.get("area")
+        area_emoji = get_area_emoji(worker_area)
+        area_tag = get_area_tag(worker_area)
         worker = workers[0]
         estado_emoji = {
             "disponible": "✅",
             "ocupada": "🔴",
             "en_pausa": "⏸️"
         }.get(worker.get("estado"), "❓")
-        
-        return f"""📋 Encontré a:
-{estado_emoji} {worker['nombre_completo']}
 
-💡 Escribe 'sí' para confirmar o 'no' para cancelar"""
+        return f"""📋 Encontré a:
+        {estado_emoji} 📋 Encontré a:\n{area_emoji} {worker['nombre_completo']} ({area_tag})\n\n"
+        "💡 Escribe 'sí' para confirmar o 'no' para cancelar"""
     
     # Múltiples resultados
     lineas = [f"📋 Encontré {len(workers)} personas:\n"]
