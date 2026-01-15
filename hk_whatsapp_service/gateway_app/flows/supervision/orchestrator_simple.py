@@ -7,6 +7,7 @@ from .ticket_assignment import calcular_score_worker
 from gateway_app.services.workers_db import buscar_worker_por_nombre, obtener_todos_workers
 from gateway_app.services.tickets_db import obtener_tickets_asignados_a
 from .ticket_assignment import formatear_ubicacion_con_emoji
+from .state import get_supervisor_state, persist_supervisor_state
 from .ubicacion_helpers import (
     get_area_emoji,
     get_area_short
@@ -800,27 +801,29 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             if asignar_ticket(ticket_id, worker_phone, worker_nombre):
                 prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
                 
-                # Notificar supervisor
+                ubicacion = seleccion_info.get("ubicacion") or seleccion_info.get("habitacion") or "?"
+                ubicacion_fmt = formatear_ubicacion_con_emoji(ubicacion)
+
                 send_whatsapp(
                     from_phone,
                     f"✅ Tarea #{ticket_id} asignada\n\n"
-                    f"📍 Ubicación: {ticket.get('ubicacion') or ticket.get('habitacion') or '?'}\n"
+                    f"{ubicacion_fmt}\n"
                     f"📝 Problema: {detalle}\n"
                     f"{prioridad_emoji} Prioridad: {prioridad}\n"
                     f"👤 Asignado a: {worker_nombre}"
                 )
-                
-                # Notificar trabajador
-                from gateway_app.services.whatsapp_client import send_whatsapp_text
+
                 send_whatsapp_text(
                     to=worker_phone,
-                    body=f"📋 Nueva tarea asignada\n\n"
-                        f"#{ticket_id} · {ticket.get('ubicacion') or ticket.get('habitacion') or '?'}\n"
+                    body=(
+                        "📋 Nueva tarea asignada\n\n"
+                        f"#{ticket_id} · {ubicacion_fmt}\n"
                         f"{detalle}\n"
                         f"{prioridad_emoji} Prioridad: {prioridad}\n\n"
-                        f"💡 Responde 'tomar' para aceptar"
+                        "💡 Responde 'tomar' para aceptar"
+                    )
                 )
-                    
+
                 # ✅ NUEVO: Notificar al worker original si es reasignación
                 if seleccion_info.get("tipo") == "reasignar":
                     worker_original = seleccion_info.get("worker_original", {})
@@ -979,38 +982,47 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 prioridad = conf.get("prioridad", "MEDIA")
                 prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
                 
-                # 1. Notificar al SUPERVISOR
+                ubicacion = conf.get("ubicacion") or conf.get("habitacion") or habitacion or "?"
+                ubicacion_fmt = formatear_ubicacion_con_emoji(ubicacion)
+
+
                 send_whatsapp(
                     from_phone,
                     f"✅ Tarea #{ticket_id} asignada\n\n"
-                    f"📍 Ubicación: {ticket.get('ubicacion') or ticket.get('habitacion') or '?'}\n"
+                    f"{ubicacion_fmt}\n"
                     f"📝 Problema: {detalle}\n"
                     f"{prioridad_emoji} Prioridad: {prioridad}\n"
                     f"👤 Asignado a: {worker_nombre}"
                 )
-                
-                # 2. Notificar al TRABAJADOR
-                from gateway_app.services.whatsapp_client import send_whatsapp_text
+
                 send_whatsapp_text(
                     to=worker_phone,
-                    body=f"📋 Nueva tarea asignada\n\n"
-                        f"#{ticket_id} · Hab. {habitacion}\n"
+                    body=(
+                        "📋 Nueva tarea asignada\n\n"
+                        f"#{ticket_id} · {ubicacion_fmt}\n"
                         f"{detalle}\n"
                         f"{prioridad_emoji} Prioridad: {prioridad}\n\n"
-                        f"💡 Responde 'tomar' para aceptar"
+                        "💡 Responde 'tomar' para aceptar"
+                    )
                 )
                 
                 state.pop("confirmacion_pendiente", None)
+                persist_supervisor_state(from_phone, state)
                 return True
             else:
                 send_whatsapp(from_phone, "❌ Error asignando. Intenta de nuevo.")
                 state.pop("confirmacion_pendiente", None)
+                persist_supervisor_state(from_phone, state)
                 return True
             
         if raw_conf in ['no', 'cancelar', 'cancel', 'rechazar']:
             send_whatsapp(from_phone, "✅ OK. No asigno por ahora (la tarea quedó creada).")
             state.pop("confirmacion_pendiente", None)
             return True
+        
+        send_whatsapp(from_phone, "❓ Responde 'si' o 'no' para confirmar la asignación (o 'cancelar').")
+        return True
+
     
     # Si está esperando asignación y dice un nombre
     if state.get("esperando_asignacion"):
