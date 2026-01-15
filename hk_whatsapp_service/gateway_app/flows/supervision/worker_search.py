@@ -102,35 +102,31 @@ def buscar_workers(nombre_query: str, workers: List[Dict[str, Any]], rol: str = 
     return candidatos
 
 
-def formato_lista_workers(workers: List[Dict[str, Any]], max_mostrar: int = 5) -> str:
-    """
-    Formatea lista de workers para mostrar al supervisor.
-    
-    Args:
-        workers: Lista de workers encontradas
-        max_mostrar: Máximo número a mostrar
-    
-    Returns:
-        Texto formateado
-    """
+def formato_lista_workers(workers):
+    # Blindaje: a veces llega dict en vez de lista
     if not workers:
-        return "❌ No encontré a nadie con ese nombre"
-    
-    if len(workers) == 1:
-        # Solo una: confirmar directamente
-        worker_area = worker.get("area")
-        area_emoji = get_area_emoji(worker_area)
-        area_tag = get_area_tag(worker_area)
-        worker = workers[0]
-        estado_emoji = {
-            "disponible": "✅",
-            "ocupada": "🔴",
-            "en_pausa": "⏸️"
-        }.get(worker.get("estado"), "❓")
+        return "❌ No encontré workers."
+    if isinstance(workers, dict):
+        workers = [workers]
 
-        return f"""📋 Encontré a:
-        {estado_emoji} 📋 Encontré a:\n{area_emoji} {worker['nombre_completo']} ({area_tag})\n\n"
-        "💡 Escribe 'sí' para confirmar o 'no' para cancelar"""
+    lines = []
+    for idx, w in enumerate(workers, start=1):
+        nombre = w.get("nombre_completo") or w.get("username") or "Sin nombre"
+
+        # Normaliza área
+        area_raw = w.get("area") or "HOUSEKEEPING"
+        area_norm = normalizar_area(area_raw)
+
+        area_emoji = get_area_emoji(area_norm)
+        area_tag = get_area_tag(area_norm)
+
+        # Si tienes turno_activo disponible en ese dict, muéstralo; si no, no rompe.
+        turno = w.get("turno_activo")
+        turno_icon = "✅" if turno else ("⛔" if turno is False else "❓")
+
+        lines.append(f"{idx}. {turno_icon} {nombre} ({area_emoji} {area_tag})")
+
+    return "📋 Encontré a:\n" + "\n".join(lines)
     
     # Múltiples resultados
     lineas = [f"📋 Encontré {len(workers)} personas:\n"]
