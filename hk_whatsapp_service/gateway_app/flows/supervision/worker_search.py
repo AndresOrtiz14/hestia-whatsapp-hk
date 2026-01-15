@@ -9,6 +9,8 @@ from typing import List, Dict, Any, Optional
 from difflib import SequenceMatcher
 
 from gateway_app.flows.supervision.ubicacion_helpers import get_area_emoji, get_area_tag
+from gateway_app.services.workers_db import normalizar_area
+
 
 def similarity(a: str, b: str) -> float:
     """
