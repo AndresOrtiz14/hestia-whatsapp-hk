@@ -8,7 +8,7 @@ except ImportError:
 
 # Notificaciones
 try:
-    from .orchestrator import (
+    from .orchestrator_simple import (
         notify_new_ticket_from_guest,
         notify_ticket_completed,
         notify_ticket_delayed

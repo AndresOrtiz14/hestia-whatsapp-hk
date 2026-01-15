@@ -288,10 +288,10 @@ def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
         # ✅ OBTENER TICKET para scoring
         ticket = obtener_ticket_por_id(ticket_id)
         
-        all_workers = obtener_todos_workers()
+        workers = obtener_todos_workers()
         
         # ✅ FILTRAR: Solo turno activo
-        workers_activos = [w for w in all_workers if w.get("turno_activo", False)]
+        workers_activos = [w for w in workers if w.get("turno_activo", False)]
 
         workers_con_score = []
         for w in workers_activos:
@@ -475,9 +475,9 @@ def asignar_siguiente(from_phone: str) -> None:
     )
     
     # Mostrar recomendaciones compactas (inline, no función externa)
-    all_workers = obtener_todos_workers()
+    workers = obtener_todos_workers()
     workers_con_score = []
-    for worker in all_workers:
+    for worker in workers:
         score = calcular_score_worker(worker, ticket)
 
         workers_con_score.append({**worker, "score": score})
@@ -1287,9 +1287,9 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 from .ui_simple import texto_recomendaciones_simple
                 from gateway_app.services.workers_db import obtener_todos_workers
                 
-                all_workers = obtener_todos_workers()
+                workers = obtener_todos_workers()
                 workers_con_score = []
-                for worker in all_workers:
+                for worker in workers:
                     score = calcular_score_worker(worker)
                     workers_con_score.append({**worker, "score": score})
                 
@@ -1320,9 +1320,9 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 from .ui_simple import texto_recomendaciones_simple
                 from gateway_app.services.workers_db import obtener_todos_workers
                 
-                all_workers = obtener_todos_workers()
+                workers = obtener_todos_workers()
                 workers_con_score = []
-                for worker in all_workers:
+                for worker in workers:
                     score = calcular_score_worker(worker)
                     workers_con_score.append({**worker, "score": score})
                 
@@ -1386,10 +1386,10 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 from .ui_simple import texto_recomendaciones_simple
                 
                 from gateway_app.services.workers_db import obtener_todos_workers
-                all_workers = obtener_todos_workers()
+                workers = obtener_todos_workers()
 
                 workers_con_score = []
-                for worker in all_workers:
+                for worker in workers:
                     score = calcular_score_worker(worker)
                     workers_con_score.append({**worker, "score": score})
                 

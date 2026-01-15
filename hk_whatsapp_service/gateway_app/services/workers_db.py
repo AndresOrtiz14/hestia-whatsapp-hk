@@ -3,9 +3,84 @@ Consultas de workers desde Supabase.
 """
 import logging
 from typing import List, Dict, Any, Optional
-from .db import USE_PG
 
 from gateway_app.services.db import fetchall, fetchone
+
+import os
+import logging
+
+logger = logging.getLogger(__name__)
+
+def normalizar_area(area: str) -> str:
+    a = (area or "").strip().upper()
+    if a in ("MANTENCION", "MANTENCIÓN"):
+        return "MANTENIMIENTO"
+    if a in ("AREAS COMUNES", "ÁREAS COMUNES", "AREAS_COMUNES", "AC"):
+        return "AREAS_COMUNES"
+    if a == "HK":
+        return "HOUSEKEEPING"
+    return a or "HOUSEKEEPING"
+
+
+def _get_pg_conn():
+    dsn = os.getenv("DATABASE_URL")
+    if not dsn:
+        raise RuntimeError("DATABASE_URL no está configurada")
+
+    # Intentar psycopg2 primero, fallback a psycopg (v3).
+    try:
+        import psycopg2  # type: ignore
+        return psycopg2.connect(dsn, sslmode="require")
+    except Exception:
+        try:
+            import psycopg  # type: ignore
+            return psycopg.connect(dsn, sslmode="require")
+        except Exception as e:
+            raise RuntimeError("No hay driver Postgres (psycopg2/psycopg)") from e
+
+
+def obtener_runtime_sessions_por_telefonos(phones: list[str]) -> dict[str, dict]:
+    """
+    Devuelve phone -> {turno_activo, ocupada, pausada, area} desde runtime_sessions.
+    Nunca debe botar la app: si falla, devuelve {}.
+    """
+    phones = [str(p).strip() for p in (phones or []) if p]
+    if not phones:
+        return {}
+
+    sql = """
+      SELECT
+        phone,
+        COALESCE((data->>'turno_activo')::boolean, NULL) AS turno_activo,
+        COALESCE((data->>'ocupada')::boolean, NULL)      AS ocupada,
+        COALESCE((data->>'pausada')::boolean, NULL)      AS pausada,
+        NULLIF(UPPER(data->>'area'), '')                 AS area
+      FROM runtime_sessions
+      WHERE phone = ANY(%s)
+    """
+
+    try:
+        conn = _get_pg_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute(sql, (phones,))
+            rows = cur.fetchall()
+            cur.close()
+        finally:
+            conn.close()
+
+        out: dict[str, dict] = {}
+        for phone, turno_activo, ocupada, pausada, area in rows:
+            out[str(phone)] = {
+                "turno_activo": turno_activo,  # puede venir None
+                "ocupada": ocupada,
+                "pausada": pausada,
+                "area": area,
+            }
+        return out
+    except Exception:
+        logger.exception("Error leyendo runtime_sessions; devolviendo {}")
+        return {}
 
 logger = logging.getLogger(__name__)
 
@@ -92,30 +167,15 @@ def obtener_todos_workers() -> List[Dict[str, Any]]:
 
             # Área desde users.area (preferente) o runtime, y normalizar nombres
             w["area"] = normalizar_area(w.get("area") or data.get("area") or "HOUSEKEEPING")
-        logger.info(f"👥 {len(workers)} workers activos desde BD")
+
+        logger.info(
+        f"👥 {len(workers)} workers; turno_activo={sum(1 for w in workers if w.get('turno_activo'))}; "
+        f"areas_sample={[w.get('area') for w in workers[:5]]}"
+    )
         return workers
     except Exception as e:
         logger.exception(f"❌ Error obteniendo workers: {e}")
         return []
-    # workers_db.py (idea mínima)
-# después de traer users/workers desde users table
-# 1) obtener runtime_sessions para esos teléfonos
-# 2) mezclar data en cada worker
-
-# Ejemplo conceptual:
-    sessions = obtener_runtime_sessions_por_telefonos(phones)  # dict phone -> data
-    for w in workers:
-        data = sessions.get(w["telefono"], {}) or {}
-        w["turno_activo"] = bool(data.get("turno_activo", False))
-        w["pausada"] = bool(data.get("pausada", False))
-        w["ocupada"] = bool(data.get("ocupada", False))
-        # área: usa users.area si existe, si no usa data.area, si no HK
-        w["area"] = w.get("area") or data.get("area") or "HOUSEKEEPING"
-
-    logger.info(
-        f"👥 {len(workers)} workers; turno_activo={sum(1 for w in workers if w.get('turno_activo'))}; "
-        f"areas_sample={[w.get('area') for w in workers[:5]]}"
-    )
 
 
 
