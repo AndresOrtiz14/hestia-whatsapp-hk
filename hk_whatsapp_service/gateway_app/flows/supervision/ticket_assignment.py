@@ -159,7 +159,12 @@ def confirmar_asignacion(from_phone: str, ticket_id: int, worker: dict) -> None:
     """
     from gateway_app.flows.supervision.outgoing import send_whatsapp
     from gateway_app.services.tickets_db import obtener_ticket_por_id
-    from .ubicacion_helpers import normalize_area
+    from .ubicacion_helpers import (
+    normalize_area,
+    get_area_emoji,
+    get_area_short,
+    formatear_ubicacion_con_emoji,
+)
     
     # Obtener datos del ticket
     ticket = obtener_ticket_por_id(ticket_id)

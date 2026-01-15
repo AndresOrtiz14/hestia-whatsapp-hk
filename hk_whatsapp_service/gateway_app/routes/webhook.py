@@ -195,7 +195,14 @@ def inbound():
             
             # Supervisor: Texto + Audio
             if msg_type == "text":
-                handle_supervisor_message(from_phone, message_data["text"])
+                try:
+                    handle_supervisor_message(from_phone, message_data["text"])
+                except Exception as e:
+                    logger.exception("❌ ERROR procesando webhook (pero respondo 200 para evitar retries): %s", e)
+                    # Opcional: avisar al supervisor
+                    # send_whatsapp(from_phone, "⚠️ Ocurrió un error interno. Intenta de nuevo.")
+                return jsonify(ok=True), 200
+
             elif msg_type in ["audio", "voice"]:
                 logger.info(f"   🔄 Transcribiendo audio...")
                 from gateway_app.flows.housekeeping.audio_integration import transcribe_hk_audio
