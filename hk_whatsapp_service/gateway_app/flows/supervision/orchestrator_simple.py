@@ -11,7 +11,6 @@ from .ubicacion_helpers import (
     get_area_emoji,
     get_area_short
 )
-from hk_whatsapp_service.gateway_app.flows.supervision import state
 
 logger = logging.getLogger(__name__)
 
