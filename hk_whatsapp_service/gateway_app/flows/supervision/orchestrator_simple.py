@@ -961,30 +961,38 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             return True
     
     # Si está esperando confirmación (sí/no)
-    if state.get("confirmacion_pendiente"):
-        conf = state["confirmacion_pendiente"]
-        
-        raw_conf = text.lower().strip()
-        if raw_conf in ['sí', 'si', 'yes', 'ok', 'confirmar', 'dale']:
-            # Confirmar
+    conf = state.get("confirmacion_pendiente")
+    if conf:
+        # Normalizar input para comparar
+        raw_conf = (text or "").strip().lower()
+        raw_conf_norm = (
+            raw_conf.replace("á", "a")
+                    .replace("é", "e")
+                    .replace("í", "i")
+                    .replace("ó", "o")
+                    .replace("ú", "u")
+        )
+
+        YES = {"si", "sí", "yes", "ok", "confirmar", "dale"}
+        NO  = {"no", "cancelar", "cancel", "rechazar"}
+
+        # Caso 1: el usuario respondió afirmativo
+        if raw_conf_norm in {w.replace("í","i") for w in YES} or raw_conf in YES:
             ticket_id = conf["ticket_id"]
             worker = conf["worker"]
             worker_phone = worker.get("telefono")
             worker_nombre = worker.get("nombre_completo") or worker.get("username")
-            
-            # ✅ ASIGNAR EN BD
+
             from gateway_app.services.tickets_db import asignar_ticket
-            
+
             if asignar_ticket(ticket_id, worker_phone, worker_nombre):
-                # Datos del ticket (si están disponibles en conf)
                 habitacion = conf.get("habitacion", "?")
                 detalle = conf.get("detalle", "Tarea asignada")
                 prioridad = conf.get("prioridad", "MEDIA")
                 prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
-                
+
                 ubicacion = conf.get("ubicacion") or conf.get("habitacion") or habitacion or "?"
                 ubicacion_fmt = formatear_ubicacion_con_emoji(ubicacion)
-
 
                 send_whatsapp(
                     from_phone,
@@ -1005,25 +1013,30 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                         "💡 Responde 'tomar' para aceptar"
                     )
                 )
-                
+
                 state.pop("confirmacion_pendiente", None)
                 persist_supervisor_state(from_phone, state)
                 return True
-            else:
-                send_whatsapp(from_phone, "❌ Error asignando. Intenta de nuevo.")
-                state.pop("confirmacion_pendiente", None)
-                persist_supervisor_state(from_phone, state)
-                return True
-            
-        if raw_conf in ['no', 'cancelar', 'cancel', 'rechazar']:
+
+            # error asignando
+            send_whatsapp(from_phone, "❌ Error asignando. Intenta de nuevo.")
+            state.pop("confirmacion_pendiente", None)
+            persist_supervisor_state(from_phone, state)
+            return True
+
+        # Caso 2: el usuario respondió negativo / cancelar
+        if raw_conf_norm in NO:
             send_whatsapp(from_phone, "✅ OK. No asigno por ahora (la tarea quedó creada).")
             state.pop("confirmacion_pendiente", None)
+            persist_supervisor_state(from_phone, state)
             return True
-        
-        send_whatsapp(from_phone, "❓ Responde 'si' o 'no' para confirmar la asignación (o 'cancelar').")
-        return True
 
-    
+        # Caso 3 (CLAVE): llegó un nuevo comando que NO es confirmación
+        # → cancelo la confirmación pendiente y dejo que el flujo siga con el nuevo texto
+        state.pop("confirmacion_pendiente", None)
+        persist_supervisor_state(from_phone, state)
+        # NO return aquí: seguimos con el flujo normal (crear ticket / recomendaciones / etc.)
+
     # Si está esperando asignación y dice un nombre
     if state.get("esperando_asignacion"):
         worker_nombre = intent_data.get("components", {}).get("worker") or text.strip()
