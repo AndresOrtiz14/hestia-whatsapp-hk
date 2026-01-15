@@ -3,7 +3,7 @@ Consultas de workers desde Supabase.
 """
 import logging
 from typing import List, Dict, Any, Optional
-from .supabase_client import supabase
+from .db import USE_PG
 
 from gateway_app.services.db import fetchall, fetchone
 
@@ -35,7 +35,7 @@ def obtener_runtime_sessions_por_telefonos(phones: list[str]) -> dict[str, dict]
     try:
         # Usa el MISMO cliente que ya uses en este archivo para consultar Supabase.
         # Ajusta el import si tu cliente se llama distinto.
-        from .supabase_client import supabase  # <-- cambia esto si en tu proyecto el cliente está en otro módulo
+        from .db import USE_PG  # <-- cambia esto si en tu proyecto el cliente está en otro módulo
     except Exception:
         logger.exception("No pude importar supabase client en workers_db")
         return {}
