@@ -139,3 +139,23 @@ def buscar_worker_por_telefono(telefono: str) -> Optional[Dict[str, Any]]:
     except Exception as e:
         logger.exception(f"❌ Error buscando worker por teléfono: {e}")
         return None
+    
+# workers_db.py (idea mínima)
+# después de traer users/workers desde users table
+# 1) obtener runtime_sessions para esos teléfonos
+# 2) mezclar data en cada worker
+
+# Ejemplo conceptual:
+sessions = obtener_runtime_sessions_por_telefonos(phones)  # dict phone -> data
+for w in workers:
+    data = sessions.get(w["telefono"], {}) or {}
+    w["turno_activo"] = bool(data.get("turno_activo", False))
+    w["pausada"] = bool(data.get("pausada", False))
+    w["ocupada"] = bool(data.get("ocupada", False))
+    # área: usa users.area si existe, si no usa data.area, si no HK
+    w["area"] = w.get("area") or data.get("area") or "HOUSEKEEPING"
+
+logger.info(
+    f"👥 {len(workers)} workers; turno_activo={sum(1 for w in workers if w.get('turno_activo'))}; "
+    f"areas_sample={[w.get('area') for w in workers[:5]]}"
+)

@@ -11,6 +11,7 @@ from .ubicacion_helpers import (
     get_area_emoji,
     get_area_short
 )
+from hk_whatsapp_service.gateway_app.flows.supervision import state
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,16 @@ from .ui_simple import (
     texto_urgentes
 )
 from .outgoing import send_whatsapp
+
+def infer_area_from_ubicacion(ubicacion: str) -> str:
+    if not ubicacion:
+        return "HOUSEKEEPING"
+    u = str(ubicacion).strip()
+    # Habitación si es número puro
+    if u.isdigit():
+        return "HOUSEKEEPING"
+    # Si no es número puro -> área común
+    return "AREAS_COMUNES"
 
 def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
     state = get_supervisor_state(from_phone)
@@ -473,10 +484,8 @@ def asignar_siguiente(from_phone: str) -> None:
     
     workers_con_score.sort(key=lambda m: m["score"], reverse=True)
     
-    mensaje = texto_recomendaciones_simple(workers_con_score)
-    send_whatsapp(from_phone, mensaje)
-    
-    # Guardar estado de asignación
+    workers = obtener_todos_workers()
+    mostrar_opciones_workers(from_phone, workers, ticket_id)
     state["esperando_asignacion"] = True
 
 
@@ -1202,10 +1211,12 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         from gateway_app.services.tickets_db import crear_ticket, asignar_ticket
         
         try:
+            area = infer_area_from_ubicacion(ubicacion)
             ticket = crear_ticket(
                 habitacion=ubicacion,  # ✅ MODIFICADO: Genérico
                 detalle=detalle,
                 prioridad=prioridad,
+                area=area,
                 creado_por=from_phone,
                 origen="supervisor"
             )
@@ -1283,8 +1294,11 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                     workers_con_score.append({**worker, "score": score})
                 
                 workers_con_score.sort(key=lambda w: w["score"], reverse=True)
-                mensaje_rec = texto_recomendaciones_simple(workers_con_score)
-                send_whatsapp(from_phone, mensaje_rec)
+                workers = obtener_todos_workers()
+                mostrar_opciones_workers(from_phone, workers, ticket_id)
+
+                state["ticket_seleccionado"] = ticket_id
+                state["esperando_asignacion"] = True
                 return True
             
             else:
@@ -1313,8 +1327,11 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                     workers_con_score.append({**worker, "score": score})
                 
                 workers_con_score.sort(key=lambda w: w["score"], reverse=True)
-                mensaje_rec = texto_recomendaciones_simple(workers_con_score)
-                send_whatsapp(from_phone, mensaje_rec)
+                workers = obtener_todos_workers()
+                mostrar_opciones_workers(from_phone, workers, ticket_id)
+
+                state["ticket_seleccionado"] = ticket_id
+                state["esperando_asignacion"] = True
                 return True
         
         except Exception as e:
@@ -1332,10 +1349,12 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         from gateway_app.services.tickets_db import crear_ticket
         
         try:
+            area = infer_area_from_ubicacion(ubicacion)
             ticket = crear_ticket(
                 habitacion=ubicacion,  # ✅ MODIFICADO: Genérico
                 detalle=detalle,
                 prioridad=prioridad,
+                area=area,
                 creado_por=from_phone,
                 origen="supervisor"
             )
@@ -1376,9 +1395,11 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 
                 workers_con_score.sort(key=lambda w: w["score"], reverse=True)
                 
-                mensaje_rec = texto_recomendaciones_simple(workers_con_score)
-                send_whatsapp(from_phone, mensaje_rec)
-                
+                mensaje_rec = workers = obtener_todos_workers()
+                mostrar_opciones_workers(from_phone, workers, ticket_id)
+                state["ticket_seleccionado"] = ticket_id
+                state["esperando_asignacion"] = True
+
                 return True
             else:
                 send_whatsapp(from_phone, "❌ Error creando tarea. Intenta de nuevo.")
