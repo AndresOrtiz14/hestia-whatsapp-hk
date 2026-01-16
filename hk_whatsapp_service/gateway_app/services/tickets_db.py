@@ -236,3 +236,17 @@ def actualizar_estado_ticket(ticket_id: int, nuevo_estado: str) -> bool:
     except Exception as e:
         logger.exception(f"❌ Error actualizando estado de ticket: {e}")
         return False
+    
+# ============================================================
+# COMPAT / ALIASES para orchestrator_hk_multiticket.py
+# (evita ImportError cuando el HK intenta "tomar")
+# ============================================================
+
+def actualizar_ticket_estado(ticket_id: int, nuevo_estado: str) -> bool:
+    """
+    Alias compatible con el orquestador HK.
+    Debe actualizar el estado del ticket (ej: ASIGNADO -> EN_CURSO).
+    """
+    # Si ya tienes una función equivalente, úsala aquí:
+    # Ejemplos típicos: actualizar_estado_ticket, set_ticket_estado, cambiar_estado_ticket
+    return actualizar_estado_ticket(ticket_id, nuevo_estado)
