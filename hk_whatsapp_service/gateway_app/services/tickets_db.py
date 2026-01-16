@@ -14,6 +14,7 @@ import logging
 from typing import Dict, Any, List, Optional
 
 from gateway_app.services.db import fetchone, fetchall, execute, using_pg
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +148,42 @@ def asignar_ticket(ticket_id: int, asignado_a_phone: str, asignado_a_nombre: str
         return True
     except Exception as e:
         logger.exception("Error asignando ticket: %s", e)
+        return False
+
+def _norm_phone(phone: str) -> str:
+    return re.sub(r"\D+", "", phone or "")
+
+def tomar_ticket_asignado(ticket_id: int, worker_phone: str) -> bool:
+    """
+    Marca un ticket como EN_CURSO SOLO si está asignado a ese worker_phone.
+    Esto evita bugs tipo "tomar 38 -> toma otro" y valida pertenencia en BD.
+    """
+    p = _norm_phone(worker_phone)
+    if not p:
+        return False
+
+    # Considera ambas variantes por si tu BD guarda con o sin '+'
+    p_plus = f"+{p}"
+
+    sql = """
+        UPDATE public.tickets
+        SET estado = 'EN_CURSO',
+            started_at = COALESCE(started_at, NOW())
+        WHERE id = ?
+          AND (worker_phone = ? OR worker_phone = ?)
+          AND estado IN ('ASIGNADO', 'PENDIENTE')
+    """
+
+    try:
+        # Ajusta el helper de ejecución al que uses:
+        # - si tienes execute(sql, params) que retorna rowcount, úsalo
+        # - si tienes run(sql, params) idem
+        rows = execute(sql, [ticket_id, p, p_plus])  # <-- asegúrate que execute devuelva filas afectadas
+        ok = bool(rows and rows > 0)
+        logger.info(f"✅ tomar_ticket_asignado ticket_id={ticket_id} phone={p} ok={ok} rows={rows}")
+        return ok
+    except Exception as e:
+        logger.exception(f"❌ Error tomando ticket {ticket_id} para {p}: {e}")
         return False
 
 

@@ -124,28 +124,24 @@ def maybe_handle_tomar_anywhere(from_phone: str, text: str, state: dict) -> bool
     )
     from .outgoing import send_whatsapp
 
-    # Helper: validar asignación al worker
-    def _asignado_a_mi(ticket: dict) -> bool:
-        w = (
-            ticket.get("worker_phone")
-            or ticket.get("worker_telefono")
-            or ticket.get("telefono_worker")
-            or ticket.get("assigned_to")
-            or ticket.get("asignado_a")
-        )
-        return str(w or "") == str(from_phone)
-
     # 1) Caso: "tomar <id>" o "aceptar <id>" o número directo en VIENDO_TICKETS
     if m:
         ticket_id = int(m.group(1))
 
-        ticket = obtener_ticket_por_id(ticket_id)
-        if not ticket:
-            send_whatsapp(from_phone, f"❌ No encontré la tarea #{ticket_id}.")
-            return True
+        # ✅ VALIDAR ASIGNACIÓN contra "mis tickets" (fuente consistente)
+        tickets_mios = obtener_tickets_por_worker(from_phone) or []
+        ticket = next(
+            (t for t in tickets_mios if str(t.get("id")) == str(ticket_id)),
+            None
+        )
 
-        if not _asignado_a_mi(ticket):
-            send_whatsapp(from_phone, f"❌ La tarea #{ticket_id} no está asignada a ti.")
+        # Si no está en mis tickets, ahí sí reviso si existe para dar mejor mensaje
+        if not ticket:
+            ticket_existe = obtener_ticket_por_id(ticket_id)
+            if not ticket_existe:
+                send_whatsapp(from_phone, f"❌ No encontré la tarea #{ticket_id}.")
+            else:
+                send_whatsapp(from_phone, f"❌ La tarea #{ticket_id} no está asignada a ti.")
             return True
 
         estado = str(ticket.get("estado") or "").upper()
@@ -153,14 +149,24 @@ def maybe_handle_tomar_anywhere(from_phone: str, text: str, state: dict) -> bool
             send_whatsapp(from_phone, f"✅ La tarea #{ticket_id} ya está resuelta.")
             return True
 
+        if estado == "EN_CURSO":
+            send_whatsapp(from_phone, f"⚙️ La tarea #{ticket_id} ya está en curso.")
+            return True
+
+        # Solo tiene sentido tomar si está ASIGNADO (o si tú permites PENDIENTE)
+        if estado != "ASIGNADO":
+            send_whatsapp(from_phone, f"⚠️ La tarea #{ticket_id} está en estado {estado} y no se puede 'tomar'.")
+            return True
+
         ok = actualizar_ticket_estado(ticket_id, "EN_CURSO")
         if not ok:
             send_whatsapp(from_phone, "❌ No pude tomar la tarea. Intenta de nuevo.")
             return True
 
-        # Marca estado runtime
+        # ✅ Marca estado runtime (importante: guarda el id activo)
         state["state"] = TRABAJANDO
-
+        state["ticket_activo_id"] = ticket_id
+        
         ubic = ticket.get("ubicacion") or ticket.get("habitacion") or "?"
         detalle = ticket.get("detalle") or ticket.get("descripcion") or "Sin detalle"
         prioridad = str(ticket.get("prioridad") or "MEDIA").upper()
