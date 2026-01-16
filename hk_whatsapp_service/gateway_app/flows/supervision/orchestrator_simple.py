@@ -8,6 +8,8 @@ from gateway_app.services.workers_db import buscar_worker_por_nombre, obtener_to
 from gateway_app.services.tickets_db import obtener_tickets_asignados_a, obtener_ticket_por_id, asignar_ticket
 from .ticket_assignment import formatear_ubicacion_con_emoji
 from .state import get_supervisor_state, persist_supervisor_state
+from gateway_app.services.whatsapp_client import send_whatsapp_text
+
 from gateway_app.services import tickets_db
 from .ubicacion_helpers import (
     get_area_emoji,
@@ -263,7 +265,6 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
             "• 'hab [#] [detalle]'"
         )
     finally:
-        from .state import persist_supervisor_state
         persist_supervisor_state(from_phone, state)
 
 def mostrar_opciones_workers(from_phone: str, workers: list, ticket_id: int) -> None:
@@ -933,9 +934,10 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             from gateway_app.services.tickets_db import asignar_ticket
             if asignar_ticket(ticket_id, worker_phone, worker_nombre):
                 prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
-                
                 ubicacion = seleccion_info.get("ubicacion") or seleccion_info.get("habitacion") or "?"
                 ubicacion_fmt = formatear_ubicacion_con_emoji(ubicacion)
+                ticket = obtener_ticket_por_id(ticket_id)
+                detalle = (ticket.get("detalle") or "—").strip()
 
                 send_whatsapp(
                     from_phone,

@@ -181,6 +181,14 @@ def obtener_tickets_asignados_a(phone: str) -> List[Dict[str, Any]]:
         logger.exception("Error obteniendo tickets asignados: %s", e)
         return []
 
+def obtener_tickets_por_worker(worker_phone: str):
+    """
+    Alias por compatibilidad.
+    Algunos orquestadores importan `obtener_tickets_por_worker`.
+    En este proyecto, la función real es `obtener_tickets_asignados_a`.
+    """
+    return obtener_tickets_asignados_a(worker_phone)
+
 
 def obtener_tickets_por_estado(estado: str) -> List[Dict[str, Any]]:
     table = "public.tickets" if using_pg() else "tickets"

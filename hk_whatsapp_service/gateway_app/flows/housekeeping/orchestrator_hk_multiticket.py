@@ -96,86 +96,84 @@ def _extract_ticket_id_any(s: str):
     return int(m.group(1)) if m else None
 
 def maybe_handle_tomar_anywhere(from_phone: str, text: str, state: dict) -> bool:
-    raw = _norm_txt(text)
+    raw = (text or "").strip().lower()
 
-    if not (raw == "tomar" or raw.startswith("tomar ")
-            or raw == "aceptar" or raw.startswith("aceptar ")):
+    # Solo gatillar si el user realmente está intentando "tomar"
+    if not (raw.startswith(("tomar", "aceptar", "tomo")) or (state.get("state") == "VIENDO_TICKETS" and raw.isdigit())):
         return False
 
-    # Ajusta estos imports a los nombres reales que tengas en tickets_db
-    from gateway_app.services.tickets_db import (
-        obtener_tickets_por_worker,
-        obtener_ticket_por_id,
-        actualizar_estado_ticket,
-    )
-    from gateway_app.services.whatsapp_client import send_whatsapp
+    # Parsear número si viene: "tomar 36"
+    ticket_num = None
+    if raw.isdigit():
+        ticket_num = int(raw)
+    else:
+        m = re.search(r"\b(\d{1,6})\b", raw)
+        if m:
+            ticket_num = int(m.group(1))
+
+    from gateway_app.services.tickets_db import obtener_tickets_por_worker, actualizar_ticket_estado
 
     tickets = obtener_tickets_por_worker(from_phone) or []
+    if not tickets:
+        send_whatsapp(from_phone, "✅ No tienes tareas asignadas ahora.\n💡 Di '1' para ver el menú.")
+        return True
 
-    tid = _extract_ticket_id_any(raw)
-    ticket = None
+    # Elegir ticket correcto
+    chosen = None
 
-    # 1) Si viene con número: se respeta sí o sí
-    if tid is not None:
-        ticket = next((t for t in tickets if int(t.get("id") or 0) == tid), None)
-        if not ticket:
-            send_whatsapp(
-                from_phone,
-                f"❌ No veo la tarea #{tid} en tu lista.\n\n"
-                "💡 Escribe '1' para ver tus tareas y copia el número exacto."
-            )
-            return True
-    else:
-        # 2) Si no viene número: tomar la única ASIGNADA
-        asignados = [t for t in tickets if str(t.get("estado") or "").upper() == "ASIGNADO"]
-        if len(asignados) == 1:
-            ticket = asignados[0]
-            tid = int(ticket["id"])
-        elif len(asignados) > 1:
-            lines = "\n".join(
-                [f"• #{t.get('id')} · {t.get('ubicacion') or t.get('habitacion') or '?'}"
-                 for t in asignados[:10]]
-            )
-            send_whatsapp(
-                from_phone,
-                "📋 Tienes varias tareas asignadas.\n"
-                "Responde con: 'tomar [#]'\n\n" + lines
-            )
-            return True
+    if ticket_num is not None:
+        ids = [t.get("id") for t in tickets]
+
+        # 1) Si coincide con un ID real en la lista, tomamos ese
+        if ticket_num in ids:
+            chosen = next(t for t in tickets if t.get("id") == ticket_num)
+
+        # 2) Si no coincide con ID, pero está viendo tickets, interpretamos como índice (1..N)
+        elif state.get("state") == "VIENDO_TICKETS" and 1 <= ticket_num <= len(tickets):
+            chosen = tickets[ticket_num - 1]
+
         else:
             send_whatsapp(
                 from_phone,
-                "❌ No tienes tareas asignadas pendientes de tomar.\n\n"
-                "💡 Escribe '1' para ver tus tareas o espera una asignación."
+                f"❌ No encuentro la tarea #{ticket_num} en tu lista.\n"
+                "💡 Escribe 'activos' o '1' para ver tus tareas."
             )
             return True
+    else:
+        # Sin número: tomar el primero ASIGNADO (si existe)
+        chosen = next((t for t in tickets if (t.get("estado") or "").upper() == "ASIGNADO"), tickets[0])
 
-    estado = str(ticket.get("estado") or "").upper()
-    if estado in {"EN_CURSO", "RESUELTO", "CERRADO"}:
-        send_whatsapp(from_phone, f"ℹ️ La tarea #{tid} ya está en estado {estado}.")
+    tid = chosen.get("id")
+    est = (chosen.get("estado") or "").upper()
+
+    # Si ya está en curso/pausado, no volvemos a "tomar"
+    if est != "ASIGNADO":
+        send_whatsapp(
+            from_phone,
+            f"ℹ️ La tarea #{tid} ya está en estado {est}.\n"
+            f"💡 Usa 'activos' o 'fin {tid}'."
+        )
         return True
 
-    ok = actualizar_estado_ticket(tid, "EN_CURSO")
-    if not ok:
-        send_whatsapp(from_phone, "❌ No pude marcar la tarea como EN CURSO. Intenta de nuevo.")
-        return True
+    # Marcar como EN_CURSO
+    actualizar_ticket_estado(tid, "EN_CURSO")
 
-    full = obtener_ticket_por_id(tid) or ticket or {}
-    detalle = full.get("detalle") or full.get("descripcion") or "(sin detalle)"
-    ubic = full.get("ubicacion") or full.get("habitacion") or "?"
-    prioridad = str(full.get("prioridad") or "MEDIA").upper()
-    pr_emoji = {"ALTA":"🔴","MEDIA":"🟡","BAJA":"🟢"}.get(prioridad,"🟡")
+    prioridad = (chosen.get("prioridad") or "MEDIA").upper()
+    pri_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
+    ubicacion = chosen.get("ubicacion") or chosen.get("habitacion") or "?"
+    detalle = (chosen.get("detalle") or "Sin detalle").strip()
 
     send_whatsapp(
         from_phone,
-        f"✅ Tarea tomada\n\n"
-        f"{pr_emoji} #{tid} · {ubic}\n"
+        "✅ Tarea tomada\n\n"
+        f"{pri_emoji} #{tid} · Hab. {ubicacion}\n"
         f"{detalle}\n\n"
         f"💡 'fin {tid}' cuando termines\n"
-        f"💡 'activos' para ver tus tareas"
+        "💡 'activos' para ver todas"
     )
 
     state["state"] = "TRABAJANDO"
+    persist_user_state(from_phone, state)
     return True
 
 def handle_hk_message_simple(from_phone: str, text: str) -> None:
@@ -259,11 +257,6 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
                 reanudar_ticket_especifico(from_phone, ticket_id)
             else:
                 send_whatsapp(from_phone, "💡 Indica qué tarea: 'reanudar [#]'")
-            return
-        
-        # ✅ 2.6) COMANDO GLOBAL: Tomar ticket
-        if raw in ['tomar', 'aceptar', 'tomo']:
-            tomar_ticket(from_phone)
             return
         
         # 2.7) Comandos de turno
