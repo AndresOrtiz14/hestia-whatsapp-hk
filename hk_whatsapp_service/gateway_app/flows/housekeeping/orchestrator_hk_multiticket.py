@@ -4,7 +4,7 @@ VERSIÓN MULTI-TICKET: Permite trabajar en varios tickets simultáneamente.
 """
 import logging
 
-from hk_whatsapp_service.gateway_app.flows.supervision import state
+from gateway_app.flows.supervision import state
 
 logger = logging.getLogger(__name__)
 
