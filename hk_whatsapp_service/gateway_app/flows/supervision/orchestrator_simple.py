@@ -119,6 +119,7 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
                     )
 
                     # 2) Notificación al worker
+                    from gateway_app.services.whatsapp_client import send_whatsapp_text
                     send_whatsapp_text(
                         to=worker_phone,
                         body=(
