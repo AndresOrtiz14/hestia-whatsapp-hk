@@ -4,6 +4,8 @@ VERSIÓN MULTI-TICKET: Permite trabajar en varios tickets simultáneamente.
 """
 import logging
 
+from hk_whatsapp_service.gateway_app.flows.supervision import state
+
 logger = logging.getLogger(__name__)
 
 from gateway_app.services.tickets_db import crear_ticket
@@ -96,84 +98,113 @@ def _extract_ticket_id_any(s: str):
     return int(m.group(1)) if m else None
 
 def maybe_handle_tomar_anywhere(from_phone: str, text: str, state: dict) -> bool:
+    """
+    Maneja 'tomar' desde cualquier estado.
+    Regla: si el mensaje incluye un número -> tomar ese ticket_id (no "el siguiente").
+    """
     raw = (text or "").strip().lower()
 
-    # Solo gatillar si el user realmente está intentando "tomar"
-    if not (raw.startswith(("tomar", "aceptar", "tomo")) or (state.get("state") == "VIENDO_TICKETS" and raw.isdigit())):
+    # Solo reaccionamos a comandos de tomar/aceptar o números directos (cuando están viendo tickets).
+    triggers = (
+        raw.startswith("tomar") or
+        raw.startswith("aceptar") or
+        raw in {"tomo", "tomarlo"} or
+        (raw.isdigit() and state.get("state") == VIENDO_TICKETS)
+    )
+    if not triggers:
         return False
 
-    # Parsear número si viene: "tomar 36"
-    ticket_num = None
-    if raw.isdigit():
-        ticket_num = int(raw)
-    else:
-        m = re.search(r"\b(\d{1,6})\b", raw)
-        if m:
-            ticket_num = int(m.group(1))
+    import re
+    m = re.search(r"\b(\d{1,6})\b", raw)
 
-    from gateway_app.services.tickets_db import obtener_tickets_por_worker, actualizar_ticket_estado
+    from gateway_app.services.tickets_db import (
+        obtener_ticket_por_id,
+        obtener_tickets_por_worker,
+        actualizar_ticket_estado,
+    )
+    from .outgoing import send_whatsapp
 
-    tickets = obtener_tickets_por_worker(from_phone) or []
-    if not tickets:
-        send_whatsapp(from_phone, "✅ No tienes tareas asignadas ahora.\n💡 Di '1' para ver el menú.")
-        return True
+    # Helper: validar asignación al worker
+    def _asignado_a_mi(ticket: dict) -> bool:
+        w = (
+            ticket.get("worker_phone")
+            or ticket.get("worker_telefono")
+            or ticket.get("telefono_worker")
+            or ticket.get("assigned_to")
+            or ticket.get("asignado_a")
+        )
+        return str(w or "") == str(from_phone)
 
-    # Elegir ticket correcto
-    chosen = None
+    # 1) Caso: "tomar <id>" o "aceptar <id>" o número directo en VIENDO_TICKETS
+    if m:
+        ticket_id = int(m.group(1))
 
-    if ticket_num is not None:
-        ids = [t.get("id") for t in tickets]
-
-        # 1) Si coincide con un ID real en la lista, tomamos ese
-        if ticket_num in ids:
-            chosen = next(t for t in tickets if t.get("id") == ticket_num)
-
-        # 2) Si no coincide con ID, pero está viendo tickets, interpretamos como índice (1..N)
-        elif state.get("state") == "VIENDO_TICKETS" and 1 <= ticket_num <= len(tickets):
-            chosen = tickets[ticket_num - 1]
-
-        else:
-            send_whatsapp(
-                from_phone,
-                f"❌ No encuentro la tarea #{ticket_num} en tu lista.\n"
-                "💡 Escribe 'activos' o '1' para ver tus tareas."
-            )
+        ticket = obtener_ticket_por_id(ticket_id)
+        if not ticket:
+            send_whatsapp(from_phone, f"❌ No encontré la tarea #{ticket_id}.")
             return True
-    else:
-        # Sin número: tomar el primero ASIGNADO (si existe)
-        chosen = next((t for t in tickets if (t.get("estado") or "").upper() == "ASIGNADO"), tickets[0])
 
-    tid = chosen.get("id")
-    est = (chosen.get("estado") or "").upper()
+        if not _asignado_a_mi(ticket):
+            send_whatsapp(from_phone, f"❌ La tarea #{ticket_id} no está asignada a ti.")
+            return True
 
-    # Si ya está en curso/pausado, no volvemos a "tomar"
-    if est != "ASIGNADO":
+        estado = str(ticket.get("estado") or "").upper()
+        if estado == "RESUELTO":
+            send_whatsapp(from_phone, f"✅ La tarea #{ticket_id} ya está resuelta.")
+            return True
+
+        ok = actualizar_ticket_estado(ticket_id, "EN_CURSO")
+        if not ok:
+            send_whatsapp(from_phone, "❌ No pude tomar la tarea. Intenta de nuevo.")
+            return True
+
+        # Marca estado runtime
+        state["state"] = TRABAJANDO
+
+        ubic = ticket.get("ubicacion") or ticket.get("habitacion") or "?"
+        detalle = ticket.get("detalle") or ticket.get("descripcion") or "Sin detalle"
+        prioridad = str(ticket.get("prioridad") or "MEDIA").upper()
+        p_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
+
+        # Conteo activos
+        tickets = obtener_tickets_por_worker(from_phone) or []
+        activos = [t for t in tickets if str(t.get("estado", "")).upper() == "EN_CURSO"]
+
         send_whatsapp(
             from_phone,
-            f"ℹ️ La tarea #{tid} ya está en estado {est}.\n"
-            f"💡 Usa 'activos' o 'fin {tid}'."
+            "✅ Tarea tomada\n\n"
+            f"{p_emoji} #{ticket_id} · Hab. {ubic}\n"
+            f"{detalle}\n\n"
+            f"📊 Tienes {len(activos)} tarea(s) activa(s)\n\n"
+            f"💡 'fin {ticket_id}' cuando termines\n"
+            "💡 'activos' para ver todas"
         )
         return True
 
-    # Marcar como EN_CURSO
-    actualizar_ticket_estado(tid, "EN_CURSO")
+    # 2) Caso: "tomar" sin número -> tomar SOLO si hay 1 ASIGNADO; si hay varios, pedir cuál
+    from gateway_app.services.tickets_db import obtener_tickets_por_worker
 
-    prioridad = (chosen.get("prioridad") or "MEDIA").upper()
-    pri_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
-    ubicacion = chosen.get("ubicacion") or chosen.get("habitacion") or "?"
-    detalle = (chosen.get("detalle") or "Sin detalle").strip()
+    tickets = obtener_tickets_por_worker(from_phone) or []
+    asignados = [t for t in tickets if str(t.get("estado", "")).upper() == "ASIGNADO"]
 
+    if not asignados:
+        send_whatsapp(from_phone, "✅ No tienes tareas ASIGNADAS para tomar ahora.")
+        return True
+
+    if len(asignados) == 1:
+        # Re-entrar usando el ID del único asignado (misma ruta que arriba)
+        unico_id = int(asignados[0]["id"])
+        return maybe_handle_tomar_anywhere(from_phone, f"tomar {unico_id}", state)
+
+    # Hay varios asignados: pedir ID explícito
+    ids = ", ".join([str(t.get("id")) for t in asignados[:8]])
     send_whatsapp(
         from_phone,
-        "✅ Tarea tomada\n\n"
-        f"{pri_emoji} #{tid} · Hab. {ubicacion}\n"
-        f"{detalle}\n\n"
-        f"💡 'fin {tid}' cuando termines\n"
-        "💡 'activos' para ver todas"
+        "📋 Tienes varias tareas asignadas.\n"
+        "Indica cuál quieres tomar:\n\n"
+        f"Ejemplo: 'tomar {asignados[0]['id']}'\n"
+        f"Asignadas: {ids}"
     )
-
-    state["state"] = "TRABAJANDO"
-    persist_user_state(from_phone, state)
     return True
 
 def handle_hk_message_simple(from_phone: str, text: str) -> None:
@@ -398,7 +429,10 @@ def handle_viendo_tickets(from_phone: str, raw: str) -> None:
         raw: Texto normalizado
     """
     state = get_user_state(from_phone)
-    
+    # al inicio de handle_viendo_tickets(...)
+    if maybe_handle_tomar_anywhere(from_phone, raw, state):
+        return
+
     # Comando: tomar
     if es_comando_tomar(raw):
         tomar_ticket(from_phone)
