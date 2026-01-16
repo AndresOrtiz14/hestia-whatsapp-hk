@@ -85,12 +85,109 @@ def verificar_turno_activo(from_phone: str) -> bool:
     
     return True
 
+import re
+
+def _norm_txt(s: str) -> str:
+    s = (s or "").strip().lower()
+    return (s.replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u"))
+
+def _extract_ticket_id_any(s: str):
+    m = re.search(r"\b(\d+)\b", s or "")
+    return int(m.group(1)) if m else None
+
+def maybe_handle_tomar_anywhere(from_phone: str, text: str, state: dict) -> bool:
+    raw = _norm_txt(text)
+
+    if not (raw == "tomar" or raw.startswith("tomar ")
+            or raw == "aceptar" or raw.startswith("aceptar ")):
+        return False
+
+    # Ajusta estos imports a los nombres reales que tengas en tickets_db
+    from gateway_app.services.tickets_db import (
+        obtener_tickets_por_worker,
+        obtener_ticket_por_id,
+        actualizar_estado_ticket,
+    )
+    from gateway_app.services.whatsapp_client import send_whatsapp
+
+    tickets = obtener_tickets_por_worker(from_phone) or []
+
+    tid = _extract_ticket_id_any(raw)
+    ticket = None
+
+    # 1) Si viene con número: se respeta sí o sí
+    if tid is not None:
+        ticket = next((t for t in tickets if int(t.get("id") or 0) == tid), None)
+        if not ticket:
+            send_whatsapp(
+                from_phone,
+                f"❌ No veo la tarea #{tid} en tu lista.\n\n"
+                "💡 Escribe '1' para ver tus tareas y copia el número exacto."
+            )
+            return True
+    else:
+        # 2) Si no viene número: tomar la única ASIGNADA
+        asignados = [t for t in tickets if str(t.get("estado") or "").upper() == "ASIGNADO"]
+        if len(asignados) == 1:
+            ticket = asignados[0]
+            tid = int(ticket["id"])
+        elif len(asignados) > 1:
+            lines = "\n".join(
+                [f"• #{t.get('id')} · {t.get('ubicacion') or t.get('habitacion') or '?'}"
+                 for t in asignados[:10]]
+            )
+            send_whatsapp(
+                from_phone,
+                "📋 Tienes varias tareas asignadas.\n"
+                "Responde con: 'tomar [#]'\n\n" + lines
+            )
+            return True
+        else:
+            send_whatsapp(
+                from_phone,
+                "❌ No tienes tareas asignadas pendientes de tomar.\n\n"
+                "💡 Escribe '1' para ver tus tareas o espera una asignación."
+            )
+            return True
+
+    estado = str(ticket.get("estado") or "").upper()
+    if estado in {"EN_CURSO", "RESUELTO", "CERRADO"}:
+        send_whatsapp(from_phone, f"ℹ️ La tarea #{tid} ya está en estado {estado}.")
+        return True
+
+    ok = actualizar_estado_ticket(tid, "EN_CURSO")
+    if not ok:
+        send_whatsapp(from_phone, "❌ No pude marcar la tarea como EN CURSO. Intenta de nuevo.")
+        return True
+
+    full = obtener_ticket_por_id(tid) or ticket or {}
+    detalle = full.get("detalle") or full.get("descripcion") or "(sin detalle)"
+    ubic = full.get("ubicacion") or full.get("habitacion") or "?"
+    prioridad = str(full.get("prioridad") or "MEDIA").upper()
+    pr_emoji = {"ALTA":"🔴","MEDIA":"🟡","BAJA":"🟢"}.get(prioridad,"🟡")
+
+    send_whatsapp(
+        from_phone,
+        f"✅ Tarea tomada\n\n"
+        f"{pr_emoji} #{tid} · {ubic}\n"
+        f"{detalle}\n\n"
+        f"💡 'fin {tid}' cuando termines\n"
+        f"💡 'activos' para ver tus tareas"
+    )
+
+    state["state"] = "TRABAJANDO"
+    return True
+
 def handle_hk_message_simple(from_phone: str, text: str) -> None:
 
     state = get_user_state(from_phone)
     try:
         raw = (text or "").strip().lower()
         logger.info(f"🏨 HK | {from_phone} | Comando: '{raw[:30]}...'")
+
+        # ✅ PEGAR AQUÍ (antes de saludo/menú)
+        if maybe_handle_tomar_anywhere(from_phone, text, state):
+            return
         
         # ✅ NUEVO: Detectar y guardar área del worker
         if "area_worker" not in state:

@@ -481,11 +481,34 @@ def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
             
             # ✅ NOTIFICAR AL TRABAJADOR
             from gateway_app.services.whatsapp_client import send_whatsapp_text
+
+            ticket_data = obtener_ticket_por_id(ticket_id) or {}
+
+            detalle = (
+                ticket_data.get("detalle")
+                or ticket_data.get("descripcion")
+                or "Tarea asignada"
+            )
+
+            ubicacion = (
+                ticket_data.get("ubicacion")
+                or ticket_data.get("habitacion")
+                or "?"
+            )
+
+            prioridad = str(ticket_data.get("prioridad") or "MEDIA").upper()
+            prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
+
+            ubicacion_fmt = formatear_ubicacion_con_emoji(str(ubicacion))
+
             send_whatsapp_text(
                 to=worker_phone,
                 body=f"📋 Nueva tarea asignada\n\n"
-                     f"#{ticket_id} · Habitación asignada\n"
+                     f"#{ticket_id} · {ubicacion_fmt}\n"
+                     f"{detalle}\n"
+                     f"{prioridad_emoji} Prioridad: {prioridad}\n\n"
                      f"💡 Responde 'tomar' para aceptar"
+                     f"💡 O 'tomar {ticket_id}' si te lo pido"
             )
             
             state["esperando_asignacion"] = False
