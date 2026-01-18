@@ -45,6 +45,14 @@ def create_app() -> Flask:
         except Exception as e:
             logger.error(f"❌ Error en migraciones: {e}")
             logger.warning("⚠️ La app continuará, pero puede haber problemas con DB")
+
+        # ✅ Start ticket watcher (guest → supervisor notifications)
+    try:
+        from gateway_app.services.ticket_watch import start_ticket_watch
+        start_ticket_watch()
+    except Exception as e:
+        logger.error(f"❌ Error starting ticket watcher: {e}")
+
     
     return app
 
