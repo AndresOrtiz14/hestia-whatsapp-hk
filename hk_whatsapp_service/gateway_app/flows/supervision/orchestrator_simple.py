@@ -9,6 +9,7 @@ from gateway_app.services.tickets_db import obtener_tickets_asignados_a, obtener
 from .ticket_assignment import formatear_ubicacion_con_emoji
 from .state import get_supervisor_state, persist_supervisor_state
 from gateway_app.services.whatsapp_client import send_whatsapp_text
+from gateway_app.services.tickets_db import obtener_pendientes
 
 from gateway_app.services import tickets_db
 from .ubicacion_helpers import (
@@ -533,7 +534,7 @@ def mostrar_pendientes_simple(from_phone: str) -> None:
     """Muestra tickets pendientes de forma simple."""
     from gateway_app.services.tickets_db import obtener_tickets_por_estado
     
-    tickets = obtener_tickets_por_estado("PENDIENTE")
+    tickets = obtener_pendientes()
     
     # Ordenar por prioridad
     prioridad_order = {"ALTA": 0, "MEDIA": 1, "BAJA": 2}
@@ -556,7 +557,7 @@ def asignar_siguiente(from_phone: str) -> None:
     from .ticket_assignment import calcular_score_worker
     from .ui_simple import texto_recomendaciones_simple
     
-    tickets = obtener_tickets_por_estado("PENDIENTE")
+    tickets = obtener_pendientes()
     
     if not tickets:
         send_whatsapp(from_phone, "✅ No hay tickets pendientes")
@@ -1580,7 +1581,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         worker = buscar_worker_por_nombre(worker_nombre)
         
         if worker:
-            tickets = obtener_tickets_por_estado("PENDIENTE")
+            tickets = obtener_pendientes()
             if tickets:
                 prioridad_order = {"ALTA": 0, "MEDIA": 1, "BAJA": 2}
                 tickets_sorted = sorted(

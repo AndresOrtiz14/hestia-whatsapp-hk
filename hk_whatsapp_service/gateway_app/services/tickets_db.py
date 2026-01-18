@@ -314,3 +314,29 @@ def actualizar_ticket_estado(ticket_id: int, nuevo_estado: str) -> bool:
     # Si ya tienes una función equivalente, úsala aquí:
     # Ejemplos típicos: actualizar_estado_ticket, set_ticket_estado, cambiar_estado_ticket
     return actualizar_estado_ticket(ticket_id, nuevo_estado)
+
+def obtener_pendientes(
+    *,
+    org_id: Optional[int] = None,
+    hotel_id: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    table = "public.tickets" if using_pg() else "tickets"
+
+    if org_id is None or hotel_id is None:
+        org_id, hotel_id = _default_scope()
+
+    estados = ("PENDIENTE", "PENDIENTE_APROBACION", "PENDIENTE_APROBACIÓN")
+    placeholders = ",".join(["?"] * len(estados))
+
+    return fetchall(
+        f"""
+        SELECT *
+        FROM {table}
+        WHERE org_id = ?
+          AND hotel_id = ?
+          AND estado IN ({placeholders})
+          AND deleted_at IS NULL
+        ORDER BY created_at DESC
+        """,
+        [org_id, hotel_id, *estados],
+    ) or []
