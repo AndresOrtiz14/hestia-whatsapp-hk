@@ -10,6 +10,8 @@ Convención actual del proyecto:
 - Al asignar: huesped_whatsapp = "{worker_phone}|{worker_name}" (para que HK filtre por phone)
 """
 
+import os
+
 import logging
 from typing import Dict, Any, List, Optional
 
@@ -227,13 +229,38 @@ def obtener_tickets_por_worker(worker_phone: str):
     return obtener_tickets_asignados_a(worker_phone)
 
 
-def obtener_tickets_por_estado(estado: str) -> List[Dict[str, Any]]:
+def _default_scope() -> tuple[int, int]:
+    org_id = int(os.getenv("ORG_ID_DEFAULT", str(DEFAULT_ORG_ID)))
+    hotel_id = int(os.getenv("HOTEL_ID_DEFAULT", str(DEFAULT_HOTEL_ID)))
+    return org_id, hotel_id
+
+
+def obtener_tickets_por_estado(
+    estado: str,
+    *,
+    org_id: Optional[int] = None,
+    hotel_id: Optional[int] = None,
+) -> List[Dict[str, Any]]:
     table = "public.tickets" if using_pg() else "tickets"
+
+    if org_id is None or hotel_id is None:
+        d_org, d_hotel = _default_scope()
+        org_id = d_org if org_id is None else org_id
+        hotel_id = d_hotel if hotel_id is None else hotel_id
+
     try:
         return fetchall(
-            f"SELECT * FROM {table} WHERE estado = ? ORDER BY created_at DESC",
-            [estado],
-        )
+            f"""
+            SELECT *
+            FROM {table}
+            WHERE org_id = ?
+              AND hotel_id = ?
+              AND estado = ?
+              AND deleted_at IS NULL
+            ORDER BY created_at DESC
+            """,
+            [org_id, hotel_id, estado],
+        ) or []
     except Exception as e:
         logger.exception("Error obteniendo tickets por estado: %s", e)
         return []

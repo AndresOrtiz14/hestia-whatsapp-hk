@@ -36,24 +36,23 @@ def texto_saludo_supervisor() -> str:
 def texto_tickets_pendientes_simple(tickets: List[Dict]) -> str:
     if not tickets:
         return "✅ No hay tickets pendientes"
-    
-    lineas = [f"📋 {len(tickets)} pendiente(s):\n"]
-    
-    for ticket in tickets[:10]:
-        prioridad = ticket.get("prioridad", "MEDIA")
-        prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
-        
-        hab = ticket.get('ubicacion') or ticket.get('habitacion', '?')
-        detalle = ticket.get('detalle', '')[:30]
-        lineas.append(f"{prioridad_emoji} #{ticket['id']} · Hab. {hab} · {detalle}")
-        
-    if len(tickets) > 5:
-        lineas.append(f"\n... y {len(tickets) - 5} más")
-    
-    lineas.append("\n💡 Di: 'asignar [#] a [nombre]' o 'más urgente'")
-    
-    return "\n".join(lineas)
 
+    shown = 10
+    lineas = [f"📋 {len(tickets)} pendiente(s):\n"]
+
+    for ticket in tickets[:shown]:
+        prioridad = (ticket.get("prioridad") or "MEDIA").upper()
+        prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
+
+        hab = ticket.get("ubicacion") or ticket.get("habitacion") or "?"
+        detalle = (ticket.get("detalle") or "")[:30]
+        lineas.append(f"{prioridad_emoji} #{ticket['id']} · Hab. {hab} · {detalle}")
+
+    if len(tickets) > shown:
+        lineas.append(f"\n... y {len(tickets) - shown} más")
+
+    lineas.append("\n💡 Di: 'asignar [#] a [nombre]' o 'más urgente'")
+    return "\n".join(lineas)
 
 def texto_ticket_asignado_simple(ticket_id: int, worker_nombre: str) -> str:
     """
