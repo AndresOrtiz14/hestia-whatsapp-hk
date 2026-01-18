@@ -1476,7 +1476,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 send_whatsapp(
                     from_phone,
                     f"✅ Tarea #{ticket_id} creada\n\n"
-                    f"🏨 Habitación: {habitacion}\n"
+                    f"🛏️ Habitación: {habitacion}\n"
                     f"📝 Problema: {detalle}\n"
                     f"{prioridad_emoji} Prioridad: {prioridad}\n\n"
                     f"⚠️ No encontré a '{nombre_trabajador}'\n"

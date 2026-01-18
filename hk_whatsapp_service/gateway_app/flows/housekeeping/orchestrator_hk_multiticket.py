@@ -313,10 +313,32 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
         # 3) Detectar reporte directo adaptado al área del worker
         current_state = state.get("state")
         if current_state not in [REPORTANDO_HAB, REPORTANDO_DETALLE, CONFIRMANDO_REPORTE]:
-            # ✅ MODIFICADO: Usa detección adaptada
             reporte = detectar_reporte_directo_adaptado(text, area_worker)
             if reporte:
-                crear_ticket_directo(from_phone, reporte, area_worker)
+                # En vez de crear ticket directo, armamos draft + pedimos confirmación
+                draft = state.get("ticket_draft") or {}
+                draft.clear()
+
+                ubic = reporte.get("ubicacion")
+                detalle = reporte.get("detalle")
+                prioridad = reporte.get("prioridad", "MEDIA")
+
+                # Normalizamos (habitacion/ubicacion) para que jamás quede None
+                if ubic is not None:
+                    ubic = str(ubic).strip()
+
+                draft["ubicacion"] = ubic
+                draft["habitacion"] = ubic
+                draft["detalle"] = detalle
+                draft["prioridad"] = prioridad
+
+                state["ticket_draft"] = draft
+                state["state"] = CONFIRMANDO_REPORTE
+
+                # Confirmación (adaptada por área)
+                from .ui_simple import texto_confirmar_reporte_adaptado
+                mensaje = texto_confirmar_reporte_adaptado(ubic, detalle, prioridad, area_worker)
+                send_whatsapp(from_phone, mensaje)
                 return
         
         # 4) Comandos globales

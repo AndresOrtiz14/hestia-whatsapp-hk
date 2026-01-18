@@ -135,7 +135,7 @@ def formatear_ubicacion_con_emoji(ubicacion: str) -> str:
     """
     Formatea ubicación con emoji para mensajes del supervisor/worker.
     Regla simple:
-    - Si es número (habitación): 🏨 Habitación: XXX
+    - Si es número (habitación): 🛏️ Habitación: XXX
     - Si es texto (área común u otra): 📍 <texto>
     """
     u = (ubicacion or "").strip()
@@ -143,7 +143,7 @@ def formatear_ubicacion_con_emoji(ubicacion: str) -> str:
         return "📍 Ubicación: ?"
 
     if re.fullmatch(r"\d{3,4}", u):
-        return f"🏨 Habitación: {u}"
+        return f"🛏️ Habitación: {u}"
 
     return f"📍 {u}"
 
