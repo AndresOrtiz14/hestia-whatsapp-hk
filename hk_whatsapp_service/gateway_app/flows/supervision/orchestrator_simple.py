@@ -42,7 +42,6 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
     state = get_supervisor_state(from_phone)
     try:
         raw = (text or "").strip().lower()
-        raw = re.sub(r"[}\]\)]+$", "", raw).strip()
         logger.info(f"👔 SUP | {from_phone} | Comando: '{raw[:30]}...'")
         
         # 1) Comando: Saludo (siempre responde)
