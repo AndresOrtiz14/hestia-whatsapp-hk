@@ -20,8 +20,21 @@ import re
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_ORG_ID = 1
-DEFAULT_HOTEL_ID = 1
+def _env_int(name: str) -> int:
+    v = (os.getenv(name) or "").strip()
+    if not v:
+        raise RuntimeError(f"Missing required env var: {name}")
+    try:
+        return int(v)
+    except ValueError as e:
+        raise RuntimeError(f"Env var {name} must be an int, got: {v!r}") from e
+
+
+def _default_scope() -> tuple[int, int]:
+    # Source of truth: Render env vars
+    org_id = _env_int("ORG_ID_DEFAULT")
+    hotel_id = _env_int("HOTEL_ID_DEFAULT")
+    return org_id, hotel_id
 
 
 def crear_ticket(
@@ -33,16 +46,25 @@ def crear_ticket(
     *,
     area: str = "HOUSEKEEPING",
     canal_origen: str = "WHATSAPP_BOT_SUPERVISION",
-    org_id: int = DEFAULT_ORG_ID,
-    hotel_id: int = DEFAULT_HOTEL_ID,
+    org_id: Optional[int] = None,
+    hotel_id: Optional[int] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Crea un ticket en public.tickets (schema real).
+    org_id/hotel_id se toman desde env (ORG_ID_DEFAULT/HOTEL_ID_DEFAULT) si no se pasan.
     """
+    if org_id is None or hotel_id is None:
+        d_org, d_hotel = _default_scope()
+        org_id = d_org if org_id is None else org_id
+        hotel_id = d_hotel if hotel_id is None else hotel_id
+
     table = "public.tickets" if using_pg() else "tickets"
     estado = "PENDIENTE"
 
-    logger.info("Creando ticket | Hab=%s | Prioridad=%s | Area=%s", habitacion, prioridad, area)
+    logger.info(
+        "Creando ticket | Org=%s | Hotel=%s | Ubic=%s | Prioridad=%s | Area=%s",
+        org_id, hotel_id, habitacion, prioridad, area
+    )
 
     if using_pg():
         sql = f"""
@@ -226,13 +248,7 @@ def obtener_tickets_por_worker(worker_phone: str):
     Algunos orquestadores importan `obtener_tickets_por_worker`.
     En este proyecto, la función real es `obtener_tickets_asignados_a`.
     """
-    return obtener_tickets_asignados_a(worker_phone)
-
-
-def _default_scope() -> tuple[int, int]:
-    org_id = int(os.getenv("ORG_ID_DEFAULT", str(DEFAULT_ORG_ID)))
-    hotel_id = int(os.getenv("HOTEL_ID_DEFAULT", str(DEFAULT_HOTEL_ID)))
-    return org_id, hotel_id
+    return obtener_tickets_asignados_a(worker_phone)    
 
 
 def obtener_tickets_por_estado(
