@@ -197,12 +197,14 @@ def extraer_ubicacion_generica(text: str, area_worker: str) -> Optional[str]:
         return extraer_area_comun(text)
     
     elif area_worker == "MANTENIMIENTO":
-        # Para mantenimiento, también buscar áreas comunes o nombres técnicos
+        # ✅ MODIFICADO: Mantenimiento puede trabajar en habitaciones, áreas comunes Y áreas técnicas
+        
+        # 1. Primero intentar con áreas comunes
         area = extraer_area_comun(text)
         if area:
             return area
         
-        # Áreas técnicas específicas
+        # 2. Luego áreas técnicas específicas
         areas_tecnicas = {
             r'calderas?|boiler': lambda m: "Calderas",
             r'roof|azotea': lambda m: "Roof",
@@ -217,6 +219,12 @@ def extraer_ubicacion_generica(text: str, area_worker: str) -> Optional[str]:
             match = re.search(pattern, text_lower)
             if match:
                 return formatter(match)
+        
+        # ✅ NUEVO: 3. Finalmente intentar con habitación (mantenimiento también trabaja en habitaciones)
+        from gateway_app.flows.housekeeping.intents import extraer_habitacion
+        habitacion = extraer_habitacion(text)
+        if habitacion:
+            return habitacion
         
         return None
     
