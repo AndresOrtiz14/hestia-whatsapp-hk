@@ -230,6 +230,7 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
             logger.info(f"📍 Worker {from_phone} detectado como área: {area_worker}")
         else:
             area_worker = state["area_worker"]
+        logger.info(f"🔍 DEBUG - Area worker: {area_worker}, Estado: {state.get('state')}, Texto: '{text[:50]}'")
 
         # ✅ 0) COMANDO GLOBAL MÁS PRIORITARIO: Menú (SIEMPRE funciona, incluso en errores)
         if raw in ['m', 'menu', 'menú', 'volver', 'salir', 'reiniciar', 'reset']:
@@ -313,7 +314,11 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
         # 3) Detectar reporte directo adaptado al área del worker
         current_state = state.get("state")
         if current_state not in [REPORTANDO_HAB, REPORTANDO_DETALLE, CONFIRMANDO_REPORTE]:
+            logger.info(f"🔍 DETECCIÓN - Intentando detectar reporte directo para área: {area_worker}")
+
             reporte = detectar_reporte_directo_adaptado(text, area_worker)
+            logger.info(f"🔍 RESULTADO - Reporte detectado: {reporte}")
+            
             if reporte:
                 # En vez de crear ticket directo, armamos draft + pedimos confirmación
                 draft = state.get("ticket_draft") or {}
