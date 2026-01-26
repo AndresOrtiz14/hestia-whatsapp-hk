@@ -1,69 +1,148 @@
-# Contexto del Proyecto — Hestia
+# Hestia — WhatsApp Operational Bot for Hotels
 
-## Qué es Hestia
-Hestia es un SaaS para hoteles urbanos (4–5 estrellas) que **automatiza y ordena la operación diaria**
-principalmente en housekeeping, mantención y supervisión, usando WhatsApp como canal principal.
+Hestia es un **SaaS de operación hotelera** que organiza y automatiza solicitudes de huéspedes,
+housekeeping y supervisión usando **WhatsApp como interfaz principal**.
 
-No somos un “chatbot”.
-Somos un **sistema operativo conversacional** para operaciones hoteleras.
+No es un chatbot genérico.  
+Es un **sistema operacional conversacional**, con reglas duras, estado y trazabilidad.
 
 ---
 
-## El problema que resolvemos
-En la operación hotelera real:
+## 🚩 Problema que resolvemos
+En hoteles reales:
 - Las solicitudes llegan desordenadas (WhatsApp, llamadas, recepción).
 - El personal se interrumpe constantemente.
 - Se crean tickets innecesarios.
 - No hay trazabilidad ni métricas confiables.
-- Los errores cuestan dinero y experiencia de huésped.
+- Los errores impactan directamente la experiencia del huésped y los costos.
 
-Hestia **reduce fricción operacional**, no conversa por conversar.
-
----
-
-## Usuarios del sistema
-Hestia tiene **tres roles principales**, cada uno con flujos distintos:
-
-1. **Huésped**
-   - Hace solicitudes simples (wifi, toallas, problemas).
-   - No conoce la estructura interna del hotel.
-   - Error caro: crear tickets innecesarios.
-
-2. **Trabajador (Housekeeping / Mantención)**
-   - Recibe tareas.
-   - Opera por turnos.
-   - Necesita instrucciones claras y mínimas.
-
-3. **Supervisor**
-   - Asigna, re-asigna y monitorea.
-   - Necesita visibilidad y control, no ruido.
+Hestia reduce fricción operacional, **no “chatea” por chatear**.
 
 ---
 
-## Errores caros (NO negociables)
-Un developer nuevo debe entender esto desde el día 1:
+## 👥 Usuarios del sistema
+Hestia maneja flujos distintos para cada rol:
 
-- ❌ Crear un ticket cuando no corresponde.
-- ❌ Ignorar ventanas horarias (ej. noche).
-- ❌ Romper reglas de turno.
-- ❌ Clasificar mal una intención (FAQ ≠ ticket).
-- ❌ Perder trazabilidad de una decisión del bot.
+- **Huésped**  
+  Solicitudes simples, FAQs, problemas puntuales.
 
-La **correctitud operacional** es más importante que la “inteligencia”.
+- **Trabajador (Housekeeping / Mantención)**  
+  Recibe tareas, opera por turnos, requiere instrucciones claras.
+
+- **Supervisor**  
+  Asigna, reasigna y monitorea; necesita control y visibilidad.
+
+Cada rol tiene reglas, estados y permisos distintos.
 
 ---
 
-## KPIs reales del sistema
-No medimos éxito por features, sino por:
+## ⚠️ Principios no negociables
+Antes de tocar código, entiende esto:
+
+- ❌ No todo mensaje crea un ticket  
+- ❌ Las ventanas horarias se respetan  
+- ❌ El estado importa (no es stateless)  
+- ❌ La trazabilidad es obligatoria  
+- ❌ La correctitud es más importante que la “inteligencia”
+
+Un bug aquí es **operacional**, no solo técnico.
+
+---
+
+## 🏗️ Arquitectura (alto nivel)
+
+WhatsApp
+↓
+Webhook
+↓
+Orquestador
+↓
+Reglas de negocio
+↓
+Persistencia (DB)
+↓
+Respuesta / Acción
+
+El sistema es **event-driven**, con **estado conversacional persistente**
+y decisiones auditables.
+
+---
+
+## 📂 Estructura del repositorio (simplificada)
+
+gateway_app/
+├─ routes/ # Webhook / entry points
+├─ flows/ # Flujos por rol (housekeeping, supervision)
+├─ services/ # DB, WhatsApp client, dominio
+├─ state/ # Estado conversacional
+└─ outgoing/ # UI conversacional (mensajes)
+
+
+---
+
+## 🚀 Onboarding de Developers (OBLIGATORIO)
+Si eres nuevo en el proyecto, **NO empieces leyendo código al azar**.
+
+### Orden correcto:
+1. 📄 [`docs/00_contexto_hestia.md`](docs/00_contexto_hestia.md)  
+   Entiende el problema real y los errores caros.
+
+2. 🏗️ [`docs/01_architectura.md`](docs/01_architectura.md)  
+   Entiende cómo piensa el sistema.
+
+3. 🧭 [`docs/02_code_tour.md`](docs/02_code_tour.md)  
+   Aprende por dónde leer el código (y qué ignorar al inicio).
+
+👉 Solo después de eso, toma un issue.
+
+---
+
+## 🧠 Modelo mental clave
+> Este bot es una **máquina de estados conversacional con IA acotada**,  
+> no un agente autónomo.
+
+Si una decisión no es explicable, es un bug.
+
+---
+
+## 🧪 Testing y cambios
+- Cambios pequeños y trazables
+- Un flujo completo > muchas líneas
+- Todo PR debe explicar **qué decisión cambia**
+
+No refactors grandes sin contexto.
+
+---
+
+## 🛠️ Stack técnico
+- Backend: Python
+- Mensajería: WhatsApp (Webhook)
+- Persistencia: Postgres (Supabase)
+- Orquestación: State machine / LangGraph-style
+- Infra: Render / Cloud
+
+---
+
+## 📈 Qué medimos
+El éxito no se mide por features, sino por:
 - Reducción de tickets falsos
 - Tiempo medio de resolución
-- Cumplimiento de ventanas horarias
-- Carga operacional por trabajador
-- Estabilidad del flujo (menos excepciones)
+- Estabilidad del flujo
+- Carga operacional por rol
 
 ---
 
-## Principio rector
-> Antes de optimizar código, optimizamos **decisiones**.
+## 🤝 Contribución
+Este proyecto requiere **criterio**, no solo código.
 
-Si no entiendes por qué una regla existe, **no la cambies** sin discutirla.
+Si no estás seguro de una regla de negocio:
+- pregunta
+- documenta
+- discútelo
+
+Antes de optimizar, **entiende**.
+
+---
+
+## 📌 Licencia
+Privado — uso interno del equipo Hestia.
