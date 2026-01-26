@@ -70,13 +70,14 @@ y decisiones auditables.
 
 ## 📂 Estructura del repositorio (simplificada)
 
+```
 gateway_app/
 ├─ routes/ # Webhook / entry points
 ├─ flows/ # Flujos por rol (housekeeping, supervision)
 ├─ services/ # DB, WhatsApp client, dominio
 ├─ state/ # Estado conversacional
 └─ outgoing/ # UI conversacional (mensajes)
-
+```
 
 ---
 
