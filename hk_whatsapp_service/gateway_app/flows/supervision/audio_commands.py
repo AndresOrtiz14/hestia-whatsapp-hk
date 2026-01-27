@@ -378,6 +378,23 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
         'derrame', 'sucia', 'sucio', 'fundida', 'fundido', 'descompuesto',
         'atascado', 'atorado', 'luz', 'agua', 'baño'
     ])
+
+        # ✅ NUEVO: Detectar finalizar ticket
+    es_finalizar = any(word in text_normalized for word in [
+        'finalizar', 'finaliza', 'finalizalo', 'finalizala',
+        'completar', 'completa', 'completalo', 'completala',
+        'terminar', 'termina', 'terminalo', 'terminala',
+        'marcar como completado', 'marcar completado',
+        'dar por terminado', 'cerrar', 'cierra'
+    ])
+    
+    # Patrón: "Finalizar ticket 15"
+    if es_finalizar and ticket_id:
+        return {
+            "intent": "finalizar_ticket",
+            "ticket_id": ticket_id,
+            "text": text
+        }
     
     # Patrón 0: "Reasignar ticket 12 a María" (PRIORIDAD MÁXIMA)
     if es_reasignar and ticket_id and worker:

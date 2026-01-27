@@ -14,21 +14,20 @@ def texto_saludo_supervisor() -> str:
 
 💬 Puedes decirme (texto o audio):
 
-📋 ASIGNAR:
-• "asignar 1503 a María"
-• "más urgente" (te muestro la más importante)
-• "pendientes" (lista completa)
+🎯 ASIGNAR:
+• "asignar 1503 a María" 
+• "reasignar 14 a Pedro"
+• "finalizar 14"
 
-➕ CREAR:
+📝 CREAR:
 • "hab 420 limpieza urgente"
 • "crear hab 305 toallas"
 
-⚠️ VER URGENTES:
-• "urgente" (solo las importantes)
+📊 CONSULTAR:
+• "urgentes" (solo las importantes)
 • "retrasados" (>10 min sin resolver)
-
-🔄 REASIGNAR:
-• "reasignar 1501 a Pedro"
+• "pendientes" (lista completa)
+• "en curso" (trabajos en progreso)
 
 💡 Todo funciona con audio también."""
 

@@ -28,6 +28,66 @@ from .ui_simple import (
 )
 from .outgoing import send_whatsapp
 
+def calcular_tiempo_desde(fecha_str: str) -> str:
+    """
+    Calcula tiempo transcurrido desde una fecha.
+    
+    Args:
+        fecha_str: Fecha en formato ISO
+    
+    Returns:
+        Texto amigable: "5 min", "2 horas", "3 días"
+    """
+    if not fecha_str:
+        return "?"
+    
+    try:
+        from dateutil import parser
+        from datetime import datetime
+        
+        fecha = parser.parse(str(fecha_str))
+        ahora = datetime.now(fecha.tzinfo) if fecha.tzinfo else datetime.now()
+        
+        diff = ahora - fecha
+        
+        minutos = int(diff.total_seconds() / 60)
+        horas = int(diff.total_seconds() / 3600)
+        dias = diff.days
+        
+        if minutos < 60:
+            return f"{minutos} min"
+        elif horas < 24:
+            return f"{horas} hora{'s' if horas != 1 else ''}"
+        else:
+            return f"{dias} día{'s' if dias != 1 else ''}"
+    except:
+        return "?"
+
+
+def formatear_ubicacion_con_emoji(ubicacion: str) -> str:
+    """
+    Agrega emoji apropiado según tipo de ubicación.
+    
+    Args:
+        ubicacion: "305" o "Ascensor Piso 2"
+    
+    Returns:
+        "🏠 Habitación 305" o "📍 Ascensor Piso 2"
+    """
+    if not ubicacion:
+        return "📍 Sin ubicación"
+    
+    ubicacion = str(ubicacion).strip()
+    
+    # Si es número de 3-4 dígitos, es habitación
+    if ubicacion.isdigit():
+        num = int(ubicacion)
+        if 100 <= num <= 9999:
+            return f"🏠 Habitación {ubicacion}"
+    
+    # Si no, es área común
+    return f"📍 {ubicacion}"
+
 def infer_area_from_ubicacion(ubicacion: str) -> str:
     if not ubicacion:
         return "HOUSEKEEPING"
@@ -876,6 +936,140 @@ def mostrar_tickets_db(from_phone: str, estado: str = "PENDIENTE") -> None:
     
     send_whatsapp(from_phone, "\n".join(lineas))
 
+def finalizar_ticket_supervisor(from_phone: str, ticket_id: int) -> None:
+    """
+    Finaliza un ticket desde supervisión.
+    
+    Args:
+        from_phone: Teléfono del supervisor
+        ticket_id: ID del ticket a finalizar
+    
+    Flujo:
+    1. Obtener ticket de BD
+    2. Validar que existe y estado
+    3. Actualizar a COMPLETADO
+    4. Notificar supervisor y worker
+    """
+    from gateway_app.services.tickets_db import (
+        obtener_ticket_por_id,
+        actualizar_estado_ticket
+    )
+    from gateway_app.services.whatsapp_client import send_whatsapp_text
+    from datetime import datetime
+    
+    logger.info(f"👔 SUP | Finalizando ticket #{ticket_id} desde supervisión")
+    
+    # 1. Obtener ticket
+    ticket = obtener_ticket_por_id(ticket_id)
+    
+    if not ticket:
+        send_whatsapp(
+            from_phone,
+            f"❌ No encontré el ticket #{ticket_id}\n\n"
+            f"💡 Usa 'pendientes' para ver tickets disponibles"
+        )
+        logger.warning(f"👔 SUP | Ticket #{ticket_id} no encontrado")
+        return
+    
+    # 2. Verificar estado
+    estado_actual = ticket.get("estado")
+    
+    if estado_actual == "COMPLETADO":
+        fecha_completado = ticket.get("fecha_completado")
+        tiempo_desde = calcular_tiempo_desde(fecha_completado)
+        
+        send_whatsapp(
+            from_phone,
+            f"⚠️ El ticket #{ticket_id} ya está completado\n\n"
+            f"✅ Finalizado hace {tiempo_desde}"
+        )
+        logger.info(f"👔 SUP | Ticket #{ticket_id} ya completado")
+        return
+    
+    if estado_actual == "CANCELADO":
+        send_whatsapp(
+            from_phone,
+            f"⚠️ El ticket #{ticket_id} está cancelado\n\n"
+            f"💡 No se puede finalizar un ticket cancelado"
+        )
+        logger.info(f"👔 SUP | Ticket #{ticket_id} cancelado, no se puede finalizar")
+        return
+    
+    # 3. Obtener datos del ticket
+    ubicacion = ticket.get("habitacion") or ticket.get("ubicacion", "?")
+    detalle = ticket.get("detalle", "Sin detalle")
+    prioridad = ticket.get("prioridad", "MEDIA")
+    asignado_a = ticket.get("asignado_a_telefono")
+    worker_nombre = ticket.get("asignado_a_nombre", "?")
+    
+    # 4. Calcular duración
+    created_at = ticket.get("created_at")
+    duracion_min = 0
+    
+    if created_at:
+        try:
+            from dateutil import parser
+            inicio = parser.parse(str(created_at))
+            ahora = datetime.now(inicio.tzinfo) if inicio.tzinfo else datetime.now()
+            duracion_min = int((ahora - inicio).total_seconds() / 60)
+        except Exception as e:
+            logger.warning(f"Error calculando duración: {e}")
+            duracion_min = 0
+    
+    # 5. Actualizar en BD
+    exito = actualizar_estado_ticket(ticket_id, "COMPLETADO")
+    
+    if not exito:
+        send_whatsapp(
+            from_phone,
+            f"❌ Error al finalizar ticket #{ticket_id}\n\n"
+            f"💡 Intenta de nuevo o contacta soporte"
+        )
+        logger.error(f"👔 SUP | Error finalizando ticket #{ticket_id}")
+        return
+    
+    # 6. Formatear ubicación con emoji
+    ubicacion_fmt = formatear_ubicacion_con_emoji(ubicacion)
+    
+    # 7. Emojis
+    prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
+    estado_anterior_emoji = {
+        "PENDIENTE": "⏳",
+        "ASIGNADO": "📋",
+        "EN_CURSO": "⚙️"
+    }.get(estado_actual, "📋")
+    
+    # 8. Confirmar al supervisor
+    mensaje_supervisor = (
+        f"✅ Ticket #{ticket_id} finalizado por supervisión\n\n"
+        f"{ubicacion_fmt}\n"
+        f"📝 {detalle}\n"
+        f"{prioridad_emoji} Prioridad: {prioridad}\n"
+        f"{estado_anterior_emoji} Estado anterior: {estado_actual}\n"
+        f"⏱️ Duración: {duracion_min} min"
+    )
+    
+    if asignado_a:
+        mensaje_supervisor += f"\n👤 Asignado a: {worker_nombre}"
+    
+    send_whatsapp(from_phone, mensaje_supervisor)
+    logger.info(f"✅ Ticket #{ticket_id} finalizado por supervisión")
+    
+    # 9. Notificar al worker si estaba asignado
+    if asignado_a:
+        mensaje_worker = (
+            f"ℹ️ Supervisión finalizó el ticket #{ticket_id}\n\n"
+            f"{ubicacion_fmt}\n"
+            f"📝 {detalle}\n\n"
+            f"✅ Ya no necesitas completarlo"
+        )
+        
+        try:
+            send_whatsapp_text(to=asignado_a, body=mensaje_worker)
+            logger.info(f"✅ Worker {asignado_a} notificado de finalización")
+        except Exception as e:
+            logger.error(f"Error notificando worker: {e}")
+
 def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
     """
     Detecta y maneja comandos de audio de forma simple.
@@ -1186,6 +1380,12 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             send_whatsapp(from_phone, mensaje)
             return True
     
+    # ✅ NUEVO: Finalizar ticket
+    if intent == "finalizar_ticket":
+        ticket_id = intent_data["ticket_id"]
+        finalizar_ticket_supervisor(from_phone, ticket_id)
+        return True
+
     # Caso 1: Asignar ticket existente
     if intent == "asignar_ticket":
         ticket_id = intent_data["ticket_id"]
