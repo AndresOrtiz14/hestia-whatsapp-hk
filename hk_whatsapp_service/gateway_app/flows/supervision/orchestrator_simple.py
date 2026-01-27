@@ -245,17 +245,17 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
             mostrar_tickets_db(from_phone, "PENDIENTE")
             return
         
+        # 4.9: Ver Asignados y en curso
+        if raw in ["asignados", "asignadas", "en proceso", "activos", "activas", "trabajando"]:
+            mostrar_tickets_asignados_y_en_curso(from_phone)
+            return
+        
         if raw in ["bd asignados", "db asignados", "asignados bd"]:
             mostrar_tickets_db(from_phone, "ASIGNADO")
             return
         
         if raw in ["bd en curso", "db en curso", "en curso bd"]:
             mostrar_tickets_db(from_phone, "EN_CURSO")
-            return
-
-        # 4.9: Ver Asignados y en curso
-        if raw in ["asignados", "asignadas", "en proceso", "activos", "activas", "trabajando"]:
-            mostrar_tickets_asignados_y_en_curso(from_phone)
             return
 
         # 5) Comando: Asignar urgente / más urgente / siguiente

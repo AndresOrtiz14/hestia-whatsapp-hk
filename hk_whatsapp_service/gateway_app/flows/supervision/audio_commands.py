@@ -6,6 +6,7 @@ VERSIÓN CON SOPORTE PARA ÁREAS COMUNES.
 
 import re
 from typing import Dict, Any, Optional, Tuple
+from venv import logger
 from gateway_app.flows.housekeeping.intents import detectar_prioridad
 
 def extract_ticket_id(text: str) -> Optional[int]:
@@ -318,8 +319,13 @@ def detect_priority(text: str) -> str:
 
 
 def detect_audio_intent(text: str) -> Dict[str, Any]:
+
+    logger.info(f"🔍 === INICIO detect_audio_intent ===")
+    logger.info(f"🔍 text = '{text}'")
+    
     """
     Detecta la intención principal del audio.
+    
     
     Args:
         text: Texto transcrito
@@ -344,17 +350,23 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
         if unicodedata.category(c) != 'Mn'
     )
 
+    logger.info(f"🔍 text_normalized = '{text_normalized}'")
+
     # Extraer componentes
     ticket_id = extract_ticket_id(text)
     
     # ✅ DETECCIÓN DE FINALIZAR (PRIORIDAD)
-    es_finalizar = any(word in text_normalized for word in [
+    palabras_finalizar = any(word in text_normalized for word in [
         'finalizar', 'finaliza', 'finalizalo', 'finalizala',
         'completar', 'completa', 'completalo', 'completala',
         'terminar', 'termina', 'terminalo', 'terminala',
         'marcar como completado', 'marcar completado',
         'dar por terminado', 'cerrar', 'cierra'
     ])
+
+    es_finalizar = any(word in text_normalized for word in palabras_finalizar)
+    logger.info(f"🔍 es_finalizar = {es_finalizar}")
+    logger.info(f"🔍 palabras en texto: {[w for w in palabras_finalizar if w in text_normalized]}")
     
     # Patrón: "Finalizar ticket 15"
     if es_finalizar and ticket_id:
@@ -365,8 +377,11 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
             "text": text
         }
     
+    logger.info(f"❌ NO es finalizar, continuando...")
+    
     # ✅ DESPUÉS: Extraer componentes para otros intents
     worker = extract_worker_name(text)
+    logger.info(f"🔍 worker = '{worker}'")
     ubicacion = extract_ubicacion_generica(text)
     prioridad = detectar_prioridad(text)
 
