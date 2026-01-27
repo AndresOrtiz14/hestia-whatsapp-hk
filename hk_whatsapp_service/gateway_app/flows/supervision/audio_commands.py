@@ -36,8 +36,8 @@ def extract_ticket_id(text: str) -> Optional[int]:
         r'asignar\s+(?:el\s+|la\s+)?#?(\d{1,4})',
         r'derivar\s+(?:el\s+|la\s+)?#?(\d{1,4})',
         r'mandar\s+(?:el\s+|la\s+)?#?(\d{1,4})',
-        r'#(\d{1,4})',
-        r'\b(\d{3,4})\b',  # 3-4 dígitos solos
+        r'#\s*(\d+)',
+        r'\b(\d+)\b',  # 3-4 dígitos solos
     ]
     
     text_lower = text.lower()
@@ -354,6 +354,7 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
 
     # Extraer componentes
     ticket_id = extract_ticket_id(text)
+    logger.info(f"🔍 ticket_id = {ticket_id}")
     
     # ✅ DETECCIÓN DE FINALIZAR (PRIORIDAD)
     palabras_finalizar = [
@@ -370,7 +371,7 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
     
     # Patrón: "Finalizar ticket 15"
     if es_finalizar and ticket_id:
-        logger.info(f"🔍 Intent detectado: finalizar_ticket #{ticket_id}")
+        logger.info(f"✅ MATCH: Finalizar ticket #{ticket_id}")
         return {
             "intent": "finalizar_ticket",
             "ticket_id": ticket_id,
