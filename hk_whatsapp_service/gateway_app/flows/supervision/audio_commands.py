@@ -6,9 +6,7 @@ VERSIÓN CON SOPORTE PARA ÁREAS COMUNES.
 
 import re
 from typing import Dict, Any, Optional, Tuple
-
-from hk_whatsapp_service.gateway_app.flows.housekeeping.intents import detectar_prioridad
-
+from gateway_app.flows.housekeeping.intents import detectar_prioridad
 
 def extract_ticket_id(text: str) -> Optional[int]:
     """
