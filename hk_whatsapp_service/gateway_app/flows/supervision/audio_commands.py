@@ -7,6 +7,8 @@ VERSIÓN CON SOPORTE PARA ÁREAS COMUNES.
 import re
 from typing import Dict, Any, Optional, Tuple
 
+from hk_whatsapp_service.gateway_app.flows.housekeeping.intents import detectar_prioridad
+
 
 def extract_ticket_id(text: str) -> Optional[int]:
     """
@@ -337,6 +339,13 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
     """
     text_lower = text.lower()
     
+    # Detectar verbos de acción
+    import unicodedata
+    text_normalized = ''.join(
+        c for c in unicodedata.normalize('NFD', text_lower)
+        if unicodedata.category(c) != 'Mn'
+    )
+
     # Extraer componentes
     ticket_id = extract_ticket_id(text)
     
@@ -360,14 +369,7 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
     # ✅ DESPUÉS: Extraer componentes para otros intents
     worker = extract_worker_name(text)
     ubicacion = extract_ubicacion_generica(text)
-    prioridad = extract_prioridad(text)
-    
-    # Detectar verbos de acción
-    import unicodedata
-    text_normalized = ''.join(
-        c for c in unicodedata.normalize('NFD', text_lower)
-        if unicodedata.category(c) != 'Mn'
-    )
+    prioridad = detectar_prioridad(text)
 
     es_asignar = any(word in text_normalized for word in [
         'asignar', 'asigna', 'asina', 'asignalo', 'asignala',
@@ -397,7 +399,7 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
         'derrame', 'sucia', 'sucio', 'fundida', 'fundido', 'descompuesto',
         'atascado', 'atorado', 'luz', 'agua', 'baño'
     ])
-    
+
     # Patrón 0: "Reasignar ticket 12 a María" (PRIORIDAD MÁXIMA)
     if es_reasignar and ticket_id and worker:
         return {

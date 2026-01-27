@@ -252,7 +252,12 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
         if raw in ["bd en curso", "db en curso", "en curso bd"]:
             mostrar_tickets_db(from_phone, "EN_CURSO")
             return
-        
+
+        # 4.9: Ver Asignados y en curso
+        if raw in ["asignados", "asignadas", "en proceso", "activos", "activas", "trabajando"]:
+            mostrar_tickets_asignados_y_en_curso(from_phone)
+            return
+
         # 5) Comando: Asignar urgente / más urgente / siguiente
         if raw in ["siguiente", "next", "proximo", "urgente", "asignar urgente", "mas urgente", "más urgente"]:
             asignar_siguiente(from_phone)
@@ -935,6 +940,92 @@ def mostrar_tickets_db(from_phone: str, estado: str = "PENDIENTE") -> None:
         lineas.append(f"\n... y {len(tickets) - 10} más")
     
     send_whatsapp(from_phone, "\n".join(lineas))
+
+def mostrar_tickets_asignados_y_en_curso(from_phone: str) -> None:
+    """
+    Muestra todos los tickets asignados y en curso.
+    Diferencia visualmente el estado de cada uno.
+    """
+    from gateway_app.services.tickets_db import obtener_tickets_asignados_y_en_curso
+    
+    tickets = obtener_tickets_asignados_y_en_curso()
+    
+    if not tickets:
+        send_whatsapp(
+            from_phone,
+            "✅ No hay tareas asignadas ni en proceso"
+        )
+        return
+    
+    # Separar por estado
+    asignados = [t for t in tickets if t.get("estado") == "ASIGNADO"]
+    en_curso = [t for t in tickets if t.get("estado") == "EN_CURSO"]
+    
+    # Construir mensaje
+    lineas = [f"📋 {len(tickets)} tarea(s) activa(s):\n"]
+    
+    # Primero EN_CURSO (más urgente)
+    if en_curso:
+        lineas.append(f"⚙️ EN PROCESO ({len(en_curso)}):\n")
+        for ticket in en_curso[:5]:  # Máximo 5
+            ticket_id = ticket.get("id")
+            habitacion = ticket.get("habitacion", "?")
+            detalle = ticket.get("detalle", "Sin detalle")[:30]
+            prioridad = ticket.get("prioridad", "MEDIA")
+            worker = ticket.get("asignado_a_nombre", "?")
+            
+            # Emoji de prioridad
+            emoji_prioridad = {
+                "ALTA": "🔴",
+                "MEDIA": "🟡",
+                "BAJA": "🟢"
+            }.get(prioridad, "🟡")
+            
+            # Formatear ubicación
+            ubicacion_fmt = formatear_ubicacion_con_emoji(habitacion)
+            ubicacion_corta = ubicacion_fmt.replace("🏠 Habitación ", "Hab. ").replace("📍 ", "")
+            
+            lineas.append(
+                f"{emoji_prioridad} #{ticket_id} · {ubicacion_corta} · {detalle}\n"
+                f"   👤 {worker[:15]}\n"
+            )
+        
+        if len(en_curso) > 5:
+            lineas.append(f"   ... y {len(en_curso) - 5} más\n")
+    
+    # Luego ASIGNADOS
+    if asignados:
+        lineas.append(f"\n📋 ASIGNADOS ({len(asignados)}):\n")
+        for ticket in asignados[:5]:  # Máximo 5
+            ticket_id = ticket.get("id")
+            habitacion = ticket.get("habitacion", "?")
+            detalle = ticket.get("detalle", "Sin detalle")[:30]
+            prioridad = ticket.get("prioridad", "MEDIA")
+            worker = ticket.get("asignado_a_nombre", "?")
+            
+            # Emoji de prioridad
+            emoji_prioridad = {
+                "ALTA": "🔴",
+                "MEDIA": "🟡",
+                "BAJA": "🟢"
+            }.get(prioridad, "🟡")
+            
+            # Formatear ubicación
+            ubicacion_fmt = formatear_ubicacion_con_emoji(habitacion)
+            ubicacion_corta = ubicacion_fmt.replace("🏠 Habitación ", "Hab. ").replace("📍 ", "")
+            
+            lineas.append(
+                f"{emoji_prioridad} #{ticket_id} · {ubicacion_corta} · {detalle}\n"
+                f"   👤 {worker[:15]}\n"
+            )
+        
+        if len(asignados) > 5:
+            lineas.append(f"   ... y {len(asignados) - 5} más\n")
+    
+    lineas.append("\n💡 Di 'finalizar [#]' o 'reasignar [#] a [nombre]'")
+    
+    send_whatsapp(from_phone, "".join(lineas))
+    logger.info(f"📋 Mostrados {len(tickets)} tickets asignados/en_curso a supervisor")
 
 def finalizar_ticket_supervisor(from_phone: str, ticket_id: int) -> None:
     """
