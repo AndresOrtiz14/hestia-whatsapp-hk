@@ -249,13 +249,9 @@ def obtener_tickets_asignados_y_en_curso() -> list:
     Returns:
         Lista de tickets ordenados por prioridad y fecha
     """
-    from .db import get_db
-    
     try:
-        conn = get_db()
-        cursor = conn.cursor()
-        
-        cursor.execute(
+        # ✅ Usar fetchall en lugar de get_db
+        tickets = fetchall(
             """
             SELECT 
                 id,
@@ -279,11 +275,6 @@ def obtener_tickets_asignados_y_en_curso() -> list:
                 created_at ASC
             """
         )
-        
-        columns = [desc[0] for desc in cursor.description]
-        tickets = [dict(zip(columns, row)) for row in cursor.fetchall()]
-        
-        cursor.close()
         
         logger.info(f"📊 {len(tickets)} tickets ASIGNADOS/EN_CURSO obtenidos")
         return tickets

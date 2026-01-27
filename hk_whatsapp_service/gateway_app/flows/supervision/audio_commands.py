@@ -358,6 +358,7 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
     
     # Patrón: "Finalizar ticket 15"
     if es_finalizar and ticket_id:
+        logger.info(f"🔍 Intent detectado: finalizar_ticket #{ticket_id}")
         return {
             "intent": "finalizar_ticket",
             "ticket_id": ticket_id,
