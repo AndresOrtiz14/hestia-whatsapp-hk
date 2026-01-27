@@ -250,12 +250,11 @@ def obtener_tickets_asignados_y_en_curso() -> list:
         Lista de tickets ordenados por prioridad y fecha
     """
     try:
-        # ✅ Usar fetchall en lugar de get_db
         tickets = fetchall(
             """
             SELECT 
                 id,
-                habitacion,
+                ubicacion,  ← ✅ CORRECTO
                 detalle,
                 prioridad,
                 estado,
