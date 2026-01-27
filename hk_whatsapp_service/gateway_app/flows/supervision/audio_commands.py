@@ -356,13 +356,13 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
     ticket_id = extract_ticket_id(text)
     
     # ✅ DETECCIÓN DE FINALIZAR (PRIORIDAD)
-    palabras_finalizar = any(word in text_normalized for word in [
-        'finalizar', 'finaliza', 'finalizalo', 'finalizala',
-        'completar', 'completa', 'completalo', 'completala',
-        'terminar', 'termina', 'terminalo', 'terminala',
-        'marcar como completado', 'marcar completado',
-        'dar por terminado', 'cerrar', 'cierra'
-    ])
+    palabras_finalizar = [
+    'finalizar', 'finaliza', 'finalizalo', 'finalizala',
+    'completar', 'completa', 'completalo', 'completala',
+    'terminar', 'termina', 'terminalo', 'terminala',
+    'marcar como completado', 'marcar completado',
+    'dar por terminado', 'cerrar', 'cierra'
+    ]
 
     es_finalizar = any(word in text_normalized for word in palabras_finalizar)
     logger.info(f"🔍 es_finalizar = {es_finalizar}")
