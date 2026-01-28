@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 TIMEZONE = ZoneInfo("America/Santiago")
 
 # Horario laboral (para testing: 4:30 PM - 11:30 PM)
-HORARIO_INICIO = time(16, 30)
+HORARIO_INICIO = time(7, 30)
 HORARIO_FIN = time(23, 30)
 
 
