@@ -114,7 +114,7 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
             send_whatsapp(from_phone, texto_saludo_supervisor())
             return
         # ==========================================================
-        # 2) ✅ CONFIRMACIÓN PENDIENTE (SI/NO)
+        # 2) CONFIRMACIÓN PENDIENTE (SI/NO)
         # Debe ir ANTES de esperando_asignacion y ANTES de maybe_handle_audio_command_simple
         # ==========================================================
         conf = state.get("confirmacion_pendiente")
@@ -226,32 +226,35 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
             persist_supervisor_state(from_phone, state)
             # NO return aquí: dejamos que el mensaje se procese como comando normal
         
-        # 3) Si está esperando asignación, manejar respuesta
+        # ==================================================
+        # 3) ESPERANDO ASIGNACIÓN
+        # ==================================================
         if state.get("esperando_asignacion"):
             if handle_respuesta_asignacion(from_phone, text):
                 return
         
-        # ===================================================
-        # 4) COMANDOS DE TEXTO DIRECTO (ANTES de audio_commands)
-        # ===================================================
+        # ==================================================
+        # 4) COMANDOS DE TEXTO DIRECTO
+        # ⚠️ IMPORTANTE: ESTOS VAN **ANTES** DE maybe_handle_audio_command_simple
+        # ==================================================
         
-        # 4.1) Ver pendientes
+        # 4.1) Pendientes
         if raw in ["pendientes", "pendiente", "ver", "lista"]:
             mostrar_pendientes_simple(from_phone)
             return
         
-        # 4.2) Ver asignados y en curso (MOVER AQUÍ)
+        # 4.2) Asignados ← ✅ AQUÍ
         if raw in ["asignados", "asignadas", "en proceso", "activos", "activas", "trabajando"]:
             mostrar_tickets_asignados_y_en_curso(from_phone)
             return
         
-        # 4.3) Asignar siguiente/urgente
+        # 4.3) Más urgente / siguiente
         if raw in ["siguiente", "next", "proximo", "urgente", "asignar urgente", "mas urgente", "más urgente"]:
             asignar_siguiente(from_phone)
             return
         
         # 4.4) Ver urgentes
-        if raw in ["urgente", "urgentes", "critico"]:
+        if raw in ["urgentes", "critico"]:
             mostrar_urgentes(from_phone)
             return
         
@@ -260,8 +263,8 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
             mostrar_retrasados(from_phone)
             return
         
-        # 4.6) Ver en curso/proceso
-        if raw in ["en curso", "proceso", "trabajando en"]:
+        # 4.6) Ver en curso
+        if raw in ["en curso", "proceso"]:
             mostrar_en_proceso(from_phone)
             return
         
@@ -277,8 +280,8 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
         if raw in ["bd en curso", "db en curso", "en curso bd"]:
             mostrar_tickets_db(from_phone, "EN_CURSO")
             return
-
-        # 4.8) Info de ticket específico
+        
+        # 4.8) Ver info de ticket
         if any(word in raw for word in ["ticket", "tarea", "cual es", "cuál es", "ver el", "info"]):
             import re
             match = re.search(r'\b(\d{3,4})\b', raw)
@@ -287,7 +290,7 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
                 mostrar_info_ticket(from_phone, ticket_id)
                 return
         
-        # 4.9) "asignar" solo (sin detalles)
+        # 4.9) "asignar" solo
         if raw in ["asignar", "derivar", "enviar"]:
             send_whatsapp(
                 from_phone,
@@ -298,19 +301,21 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
             )
             return
         
-        # 4.10) Cancelar (cuando no hay nada que cancelar)
+        # 4.10) Cancelar
         if raw in ["cancelar", "cancel", "salir", "atras", "atrás"]:
             send_whatsapp(from_phone, "✅ No hay nada que cancelar ahora")
             return
         
-        # ===================================================
-        # 5) COMANDOS DE AUDIO (DESPUÉS de comandos directos)
-        # ===================================================
-        # Maneja: "asignar [#] a [nombre]", "finalizar [#]", "reasignar [#] a [nombre]"
+        # ==================================================
+        # 5) COMANDOS DE AUDIO
+        # ⚠️ ESTO VA **DESPUÉS** DE LOS COMANDOS DE TEXTO
+        # ==================================================
         if maybe_handle_audio_command_simple(from_phone, text):
             return
         
-        # Si llegamos aquí y tiene "reasignar" pero no matcheó, dar ayuda
+        # ==================================================
+        # 6) REASIGNAR (si no matcheó en audio_commands)
+        # ==================================================
         if "reasignar" in raw or "cambiar" in raw:
             send_whatsapp(
                 from_phone,
@@ -321,22 +326,20 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
             )
             return
         
-        # 6) Comando: Cancelar (cuando no hay nada que cancelar)
-        if raw in ["cancelar", "cancel", "salir", "atras", "atrás"]:
-            send_whatsapp(from_phone, "✅ No hay nada que cancelar ahora")
-            return
-        
-        # 7) No entendí - dar sugerencias
+        # ==================================================
+        # 7) NO ENTENDÍ
+        # ==================================================
         send_whatsapp(
             from_phone,
             "🤔 No entendí.\n\n"
             "💡 Puedes decir:\n"
             "• 'pendientes' - ver todos\n"
+            "• 'asignados' - ver trabajos activos\n"
             "• 'más urgente' - asignar la más importante\n"
-            "• 'urgente' - ver solo urgentes\n"
             "• 'asignar [#] a [nombre]'\n"
-            "• 'hab [#] [detalle]'"
+            "• 'finalizar [#]'"
         )
+    
     finally:
         persist_supervisor_state(from_phone, state)
 
