@@ -154,7 +154,7 @@ def obtener_todos_workers() -> List[Dict[str, Any]]:
             turno_activo
         FROM public.users
         WHERE activo = true
-        AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES')
+        AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES', 'ROOMSERVICE')
         ORDER BY username
     """
 
@@ -200,7 +200,7 @@ def buscar_worker_por_nombre(nombre: str) -> Optional[Dict[str, Any]]:
         SELECT username, area 
         FROM public.users 
         WHERE activo = true 
-        AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES')
+        AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES', 'ROOMSERVICE')
         LIMIT 20
     """
     debug_workers = fetchall(debug_sql) or []
@@ -224,7 +224,7 @@ def buscar_worker_por_nombre(nombre: str) -> Optional[Dict[str, Any]]:
             turno_activo
         FROM public.users
         WHERE activo = true
-        AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES')
+        AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES', 'ROOMSERVICE')
     """
 
     try:
@@ -290,7 +290,7 @@ def buscar_workers_por_nombre(nombre: str) -> List[Dict[str, Any]]:
             turno_activo
         FROM public.users
         WHERE activo = true
-        AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES')
+        AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES', 'ROOMSERVICE')
         ORDER BY username
     """
 
@@ -331,7 +331,7 @@ def buscar_worker_por_telefono(telefono: str) -> Optional[Dict[str, Any]]:
             turno_activo
         FROM public.users
         WHERE activo = true
-        AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES')
+        AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES', 'ROOMSERVICE')
         AND telefono = ?
         LIMIT 1
     """
