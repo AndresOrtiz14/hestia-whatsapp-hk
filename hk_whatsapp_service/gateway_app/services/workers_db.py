@@ -195,6 +195,19 @@ def buscar_worker_por_nombre(nombre: str) -> Optional[Dict[str, Any]]:
     Busca un worker por nombre (case-insensitive + sin tildes).
     Retorna el mejor match (no necesariamente el primero alfabético).
     """
+    # ✅ DEBUG TEMPORAL: Ver todos los workers
+    debug_sql = """
+        SELECT username, area 
+        FROM public.users 
+        WHERE activo = true 
+        AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES')
+        LIMIT 20
+    """
+    debug_workers = fetchall(debug_sql) or []
+    logger.info(f"🔍 DEBUG: {len(debug_workers)} workers en BD:")
+    for dw in debug_workers:
+        logger.info(f"   - {dw.get('username')} ({dw.get('area')})")
+
     nombre_norm = _norm(nombre)
     if not nombre_norm:
         return None
