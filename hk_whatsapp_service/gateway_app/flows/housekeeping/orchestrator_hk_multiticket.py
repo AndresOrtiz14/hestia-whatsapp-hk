@@ -11,6 +11,8 @@ logger = logging.getLogger(__name__)
 from gateway_app.services.tickets_db import crear_ticket
 from gateway_app.services import tickets_db
 
+from gateway_app.flows.housekeeping.turno_auto import verificar_y_activar_turno_auto
+
 from datetime import date, datetime
 from .state_simple import (
     get_user_state,
@@ -62,19 +64,26 @@ from .areas_comunes_helpers import (
 
 def verificar_turno_activo(from_phone: str) -> bool:
     """
-    Verifica si el turno está activo. Si no, lo inicia automáticamente.
-    
-    Args:
-        from_phone: Número de teléfono
-    
-    Returns:
-        True si el turno está activo (o fue auto-iniciado)
+    Verifica si el turno está activo. 
+    YA NO auto-inicia - eso lo hace turno_auto.py
     """
+    from gateway_app.services.workers_db import activar_turno_por_telefono
+    
     state = get_user_state(from_phone)
     
-    if not state.get("turno_activo", False):
-        # Auto-iniciar turno
-        from datetime import datetime
+    # Si ya está activo, OK
+    if state.get("turno_activo", False):
+        return True
+    
+    # Si fue auto-activado recientemente (por turno_auto), no duplicar mensaje
+    if state.get("turno_auto_activado"):
+        del state["turno_auto_activado"]
+        return True
+    
+    # Auto-iniciar turno silenciosamente (para acciones que requieren turno)
+    from datetime import datetime
+    ok = activar_turno_por_telefono(from_phone)
+    if ok:
         state["turno_activo"] = True
         state["turno_inicio"] = datetime.now().isoformat()
         
@@ -215,6 +224,13 @@ def maybe_handle_tomar_anywhere(from_phone: str, text: str, state: dict) -> bool
 def handle_hk_message_simple(from_phone: str, text: str) -> None:
 
     state = get_user_state(from_phone)
+
+    # ✅ NUEVO: Verificar activación automática de turno (respuesta a recordatorio)
+    mensaje_turno_auto = verificar_y_activar_turno_auto(from_phone, state)
+    if mensaje_turno_auto:
+        send_whatsapp(from_phone, mensaje_turno_auto)
+        # NO hacer return aquí - dejar que continúe procesando el mensaje
+
     try:
         raw = (text or "").strip().lower()
         logger.info(f"🏨 HK | {from_phone} | Comando: '{raw[:30]}...'")

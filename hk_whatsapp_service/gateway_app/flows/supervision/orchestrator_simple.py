@@ -11,6 +11,13 @@ from .state import get_supervisor_state, persist_supervisor_state
 from gateway_app.services.whatsapp_client import send_whatsapp_text
 from gateway_app.services.tickets_db import obtener_pendientes
 
+from gateway_app.flows.supervision.tiempo_utils import (
+    formatear_lista_tickets_con_tiempo,
+    formatear_workers_para_asignacion,
+    construir_mensaje_equipo,
+    calcular_tiempo_transcurrido
+)
+
 from gateway_app.services import tickets_db
 from .ubicacion_helpers import (
     get_area_emoji,
@@ -301,7 +308,13 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
             )
             return
         
-        # 4.10) Cancelar
+        # 4.10) Ver estado del equipo
+        if raw in ['equipo', 'trabajadores', 'mucamas', 'team', 'staff', 'trabajadoras']:
+            mensaje = construir_mensaje_equipo()
+            send_whatsapp(from_phone, mensaje)
+            return
+        
+        # 4.11) Cancelar
         if raw in ["cancelar", "cancel", "salir", "atras", "atrás"]:
             send_whatsapp(from_phone, "✅ No hay nada que cancelar ahora")
             return
@@ -344,61 +357,20 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
         persist_supervisor_state(from_phone, state)
 
 def mostrar_opciones_workers(from_phone: str, workers: list, ticket_id: int) -> None:
-    """Muestra opciones de workers con área y estado, priorizados por scoring."""
-    from .ticket_assignment import calcular_score_worker
+    """
+    ✅ MODIFICADO: Muestra workers con estado de turno.
+    Prioriza los que tienen turno activo.
+    """
     from gateway_app.services.tickets_db import obtener_ticket_por_id
     
-    # ✅ Obtener ticket para scoring correcto
     ticket = obtener_ticket_por_id(ticket_id)
+    mensaje = formatear_workers_para_asignacion(workers, ticket)
     
-    # ✅ Filtrar: Solo turno activo
-    workers_activos = [w for w in workers if w.get("turno_activo", False)]
+    state = get_supervisor_state(from_phone)
+    state["ticket_seleccionado"] = ticket_id
+    state["esperando_asignacion"] = True
     
-    if not workers_activos:
-        send_whatsapp(from_phone, "⚠️ No hay workers con turno activo")
-        return
-    
-    # Calcular scores CON ticket
-    workers_con_score = []
-    for w in workers_activos:
-        score = calcular_score_worker(w, ticket)  # ✅ Con ticket para bonus de área
-        workers_con_score.append({**w, "score": score})
-    
-    workers_con_score.sort(key=lambda w: w["score"], reverse=True)
-    
-    # Top 5 (aumentado de 3)
-    top_5 = workers_con_score[:5]
-    
-    lineas = [f"🎯 {len(workers_activos)} worker(s) con turno activo:\n"]
-    
-    for i, worker in enumerate(top_5, 1):
-        # ✅ Estado emoji
-        if worker.get("ocupada"):
-            estado_emoji = "⚠️"
-        elif worker.get("pausada"):
-            estado_emoji = "⏸️"
-        else:
-            estado_emoji = "✅"
-        
-        # ✅ Área (usa helpers)
-        area_raw = worker.get("area")
-        area_emoji = get_area_emoji(area_raw)
-        area_short = get_area_short(area_raw)
-        
-        nombre = worker.get("nombre_completo", "?")
-        
-        # ✅ Formato: "1. ✅ Nombre (🏠 HK)"
-        lineas.append(
-            f"{i}. {estado_emoji} {nombre} ({area_emoji} {area_short})"
-        )
-    
-    if len(workers_activos) > 5:
-        lineas.append(f"\n... y {len(workers_activos) - 5} más")
-    
-    lineas.append("\n💡 Di el nombre o número (1-5)")
-    lineas.append("O escribe 'cancelar'")
-    
-    send_whatsapp(from_phone, "\n".join(lineas))
+    send_whatsapp(from_phone, mensaje)
 
 def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
     """
@@ -606,22 +578,31 @@ def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
 
 
 def mostrar_pendientes_simple(from_phone: str) -> None:
-    """Muestra tickets pendientes de forma simple."""
-    from gateway_app.services.tickets_db import obtener_tickets_por_estado
+    """
+    ✅ MODIFICADO: Muestra tickets pendientes con tiempo transcurrido.
+    """
+    from gateway_app.services.tickets_db import obtener_pendientes
     
     tickets = obtener_pendientes()
     
+    if not tickets:
+        send_whatsapp(from_phone, "✅ No hay tickets pendientes")
+        return
+    
     # Ordenar por prioridad
     prioridad_order = {"ALTA": 0, "MEDIA": 1, "BAJA": 2}
-    tickets_sorted = sorted(
+    tickets.sort(key=lambda t: prioridad_order.get(t.get("prioridad", "MEDIA"), 1))
+    
+    mensaje = formatear_lista_tickets_con_tiempo(
         tickets,
-        key=lambda t: (
-            prioridad_order.get(t.get("prioridad", "MEDIA"), 1),
-            -t.get("tiempo_sin_resolver_mins", 0)
-        )
+        titulo="📋 Tickets Pendientes",
+        mostrar_asignado=False,
+        max_items=10
     )
     
-    mensaje = texto_tickets_pendientes_simple(tickets_sorted)
+    mensaje += "\n\n💡 Di 'asignar [#] a [nombre]'"
+    mensaje += "\n💡 Di 'siguiente' para el próximo"
+    
     send_whatsapp(from_phone, mensaje)
 
 
@@ -724,7 +705,9 @@ def mostrar_urgentes(from_phone: str) -> None:
 
 
 def mostrar_en_proceso(from_phone: str) -> None:
-    """Muestra todos los tickets en proceso."""
+    """
+    ✅ MODIFICADO: Muestra tickets en proceso con tiempo transcurrido.
+    """
     from gateway_app.services.tickets_db import obtener_tickets_por_estado
     
     tickets = obtener_tickets_por_estado("EN_CURSO")
@@ -733,47 +716,16 @@ def mostrar_en_proceso(from_phone: str) -> None:
         send_whatsapp(from_phone, "✅ No hay tareas en proceso")
         return
     
-    lineas = [f"🔄 {len(tickets)} tarea(s) en proceso:\n"]
+    mensaje = formatear_lista_tickets_con_tiempo(
+        tickets,
+        titulo="🔄 Tareas en Proceso",
+        mostrar_asignado=True,
+        max_items=10
+    )
     
-    for ticket in tickets[:10]:  # Máximo 10
-        prioridad_emoji = {
-            "ALTA": "🔴",
-            "MEDIA": "🟡",
-            "BAJA": "🟢"
-        }.get(ticket.get("prioridad", "MEDIA"), "🟡")
-        
-        # ✅ CORREGIDO: Extraer trabajador desde huesped_whatsapp
-        huesped_whatsapp = ticket.get("huesped_whatsapp", "")
-        if "|" in huesped_whatsapp:
-            worker_phone, trabajador = huesped_whatsapp.split("|", 1)
-        else:
-            trabajador = "?"
-        
-        # ✅ CORREGIDO: Calcular tiempo desde started_at
-        started_at = ticket.get("started_at")
-        if started_at:
-            try:
-                from dateutil import parser
-                if isinstance(started_at, str):
-                    started_at = parser.parse(started_at)
-                tiempo = int((datetime.now(started_at.tzinfo) - started_at).total_seconds() / 60)
-            except:
-                tiempo = 0
-        else:
-            tiempo = 0
-        
-        ubicacion = ticket.get("ubicacion") or ticket.get("habitacion", "?")
-        lineas.append(
-            f"{prioridad_emoji} #{ticket['id']} · {trabajador} · "
-            f"Hab. {ubicacion} · {tiempo} min"
-        )
+    mensaje += "\n\n💡 Di 'reasignar [#] a [nombre]'"
     
-    if len(tickets) > 10:
-        lineas.append(f"\n... y {len(tickets) - 10} más")
-    
-    lineas.append("\n💡 Di 'reasignar [#] a [nombre]'")
-    
-    send_whatsapp(from_phone, "\n".join(lineas))
+    send_whatsapp(from_phone, mensaje)
 
 
 def mostrar_retrasados(from_phone: str) -> None:

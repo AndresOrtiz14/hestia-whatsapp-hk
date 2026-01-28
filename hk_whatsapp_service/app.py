@@ -53,6 +53,12 @@ def create_app() -> Flask:
     except Exception as e:
         logger.error(f"❌ Error starting ticket watcher: {e}")
 
+    # ✅ NEW: Start daily scheduler (recordatorios matutinos)
+    try:
+        from gateway_app.services.daily_scheduler import start_daily_scheduler
+        start_daily_scheduler()
+    except Exception as e:
+        logger.error(f"❌ Error starting daily scheduler: {e}")
     
     return app
 
