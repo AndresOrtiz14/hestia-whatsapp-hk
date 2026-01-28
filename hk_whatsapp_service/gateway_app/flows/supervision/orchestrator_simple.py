@@ -968,10 +968,10 @@ def mostrar_tickets_asignados_y_en_curso(from_phone: str) -> None:
         lineas.append(f"⚙️ EN PROCESO ({len(en_curso)}):\n")
         for ticket in en_curso[:5]:
             ticket_id = ticket.get("id")
-            ubicacion = ticket.get("ubicacion", "?")  # ✅ CORRECTO
+            ubicacion = ticket.get("ubicacion", "?")
             detalle = ticket.get("detalle", "Sin detalle")[:30]
             prioridad = ticket.get("prioridad", "MEDIA")
-            worker = ticket.get("asignado_a_nombre", "?")
+            worker = ticket.get("worker_name") or "Sin asignar"  # ✅ Usar worker_name
             
             emoji_prioridad = {
                 "ALTA": "🔴",
@@ -996,10 +996,10 @@ def mostrar_tickets_asignados_y_en_curso(from_phone: str) -> None:
         lineas.append(f"\n📋 ASIGNADOS ({len(asignados)}):\n")
         for ticket in asignados[:5]:
             ticket_id = ticket.get("id")
-            ubicacion = ticket.get("ubicacion", "?")  # ✅ CORRECTO
+            ubicacion = ticket.get("ubicacion", "?")
             detalle = ticket.get("detalle", "Sin detalle")[:30]
             prioridad = ticket.get("prioridad", "MEDIA")
-            worker = ticket.get("asignado_a_nombre", "?")
+            worker = ticket.get("worker_name") or "Sin asignar"  # ✅ Usar worker_name
             
             emoji_prioridad = {
                 "ALTA": "🔴",
@@ -1009,40 +1009,6 @@ def mostrar_tickets_asignados_y_en_curso(from_phone: str) -> None:
             
             # Formatear ubicación
             ubicacion_fmt = formatear_ubicacion_con_emoji(ubicacion)
-            ubicacion_corta = ubicacion_fmt.replace("🏠 Habitación ", "Hab. ").replace("📍 ", "")
-            
-            lineas.append(
-                f"{emoji_prioridad} #{ticket_id} · {ubicacion_corta} · {detalle}\n"
-                f"   👤 {worker[:15]}\n"
-            )
-        
-        if len(asignados) > 5:
-            lineas.append(f"   ... y {len(asignados) - 5} más\n")
-    
-    lineas.append("\n💡 Di 'finalizar [#]' o 'reasignar [#] a [nombre]'")
-    
-    send_whatsapp(from_phone, "".join(lineas))
-    logger.info(f"📋 Mostrados {len(tickets)} tickets asignados/en_curso a supervisor")
-    
-    # Luego ASIGNADOS
-    if asignados:
-        lineas.append(f"\n📋 ASIGNADOS ({len(asignados)}):\n")
-        for ticket in asignados[:5]:  # Máximo 5
-            ticket_id = ticket.get("id")
-            habitacion = ticket.get("habitacion", "?")
-            detalle = ticket.get("detalle", "Sin detalle")[:30]
-            prioridad = ticket.get("prioridad", "MEDIA")
-            worker = ticket.get("asignado_a_nombre", "?")
-            
-            # Emoji de prioridad
-            emoji_prioridad = {
-                "ALTA": "🔴",
-                "MEDIA": "🟡",
-                "BAJA": "🟢"
-            }.get(prioridad, "🟡")
-            
-            # Formatear ubicación
-            ubicacion_fmt = formatear_ubicacion_con_emoji(habitacion)
             ubicacion_corta = ubicacion_fmt.replace("🏠 Habitación ", "Hab. ").replace("📍 ", "")
             
             lineas.append(
