@@ -96,17 +96,30 @@ def extract_worker_name(text: str) -> Optional[str]:
     
     # Detectar múltiples patrones de asignación
     patrones = [
-        r'\b(?:a|para)\s+(\w+)',
-        r'que\s+lo\s+(?:resuelva|haga|vea)\s+(\w+)',
-        r'que\s+la\s+(?:resuelva|haga|vea)\s+(\w+)',
-        r'(?:encarga|delega)(?:le)?\s+a\s+(\w+)',
-        r'\basignar\s+a\s+(.+)$'
+        r'\b(?:a|para)\s+(.+)$',                    # ✅ Captura todo después de "a" o "para"
+        r'que\s+lo\s+(?:resuelva|haga|vea)\s+(.+)$', # ✅ Captura todo después
+        r'que\s+la\s+(?:resuelva|haga|vea)\s+(.+)$', # ✅ Captura todo después
+        r'(?:encarga|delega)(?:le)?\s+a\s+(.+)$',    # ✅ Captura todo después
+        r'\basignar\s+a\s+(.+)$'                     # ✅ Ya estaba correcto
     ]
     
     for patron in patrones:
         match = re.search(patron, text_lower)
         if match:
-            posible_nombre = match.group(1)
+            posible_nombre = match.group(1).strip()
+            
+            # ✅ NUEVO: Limpiar sufijos comunes
+            cleanup_words = ['por favor', 'porfavor', 'porfa', 'gracias']
+            for cleanup in cleanup_words:
+                if posible_nombre.endswith(cleanup):
+                    posible_nombre = posible_nombre[:-len(cleanup)].strip()
+            
+            # ✅ NUEVO: Si tiene más de una palabra, capitalizar y retornar directo
+            if ' ' in posible_nombre:
+                # Nombres compuestos: "chef cocina" → "Chef Cocina"
+                return ' '.join(word.capitalize() for word in posible_nombre.split())
+            
+            # ✅ MANTENER: Lógica original para nombres simples
             if posible_nombre in nombres:
                 return posible_nombre.capitalize()
             for palabra in text.split():
