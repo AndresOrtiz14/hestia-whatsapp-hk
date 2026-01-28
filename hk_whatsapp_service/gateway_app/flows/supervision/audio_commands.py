@@ -100,6 +100,7 @@ def extract_worker_name(text: str) -> Optional[str]:
         r'que\s+lo\s+(?:resuelva|haga|vea)\s+(\w+)',
         r'que\s+la\s+(?:resuelva|haga|vea)\s+(\w+)',
         r'(?:encarga|delega)(?:le)?\s+a\s+(\w+)',
+        r'\basignar\s+a\s+(.+)$'
     ]
     
     for patron in patrones:

@@ -1062,7 +1062,7 @@ def crear_ticket_desde_draft(from_phone: str) -> None:
     Crea ticket desde el borrador y notifica al supervisor.
     ✅ MODIFICADO: Solo notifica a supervisores en horario laboral (7:30 AM - 11:30 PM)
     """
-    from gateway_app.utils.horario import esta_en_horario_laboral, obtener_mensaje_fuera_horario
+    from gateway_app.core.utils.horario import esta_en_horario_laboral, obtener_mensaje_fuera_horario
     
     state = get_user_state(from_phone)
 
