@@ -254,7 +254,7 @@ def obtener_tickets_asignados_y_en_curso() -> list:
             """
             SELECT 
                 id,
-                ubicacion,  ← ✅ CORRECTO
+                ubicacion,
                 detalle,
                 prioridad,
                 estado,
