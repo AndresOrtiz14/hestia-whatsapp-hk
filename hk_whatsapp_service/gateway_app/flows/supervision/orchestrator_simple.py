@@ -114,7 +114,7 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
             send_whatsapp(from_phone, texto_saludo_supervisor())
             return
         # ==========================================================
-        # 1.5) ✅ CONFIRMACIÓN PENDIENTE (SI/NO)
+        # 2) ✅ CONFIRMACIÓN PENDIENTE (SI/NO)
         # Debe ir ANTES de esperando_asignacion y ANTES de maybe_handle_audio_command_simple
         # ==========================================================
         conf = state.get("confirmacion_pendiente")
@@ -226,28 +226,48 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
             persist_supervisor_state(from_phone, state)
             # NO return aquí: dejamos que el mensaje se procese como comando normal
         
-        # 2) Si está esperando asignación, manejar respuesta
+        # 3) Si está esperando asignación, manejar respuesta
         if state.get("esperando_asignacion"):
             if handle_respuesta_asignacion(from_phone, text):
                 return
         
-        # 3) Comandos de audio (asignar, crear)
-        if maybe_handle_audio_command_simple(from_phone, text):
-            return
+        # ===================================================
+        # 4) COMANDOS DE TEXTO DIRECTO (ANTES de audio_commands)
+        # ===================================================
         
-        # 4) Comando: Ver pendientes
+        # 4.1) Ver pendientes
         if raw in ["pendientes", "pendiente", "ver", "lista"]:
             mostrar_pendientes_simple(from_phone)
             return
         
-        # 4.5) Comando: Ver por estado desde BD (NUEVO)
-        if raw in ["bd pendientes", "db pendientes", "pendientes bd"]:
-            mostrar_tickets_db(from_phone, "PENDIENTE")
-            return
-        
-        # 4.9: Ver Asignados y en curso
+        # 4.2) Ver asignados y en curso (MOVER AQUÍ)
         if raw in ["asignados", "asignadas", "en proceso", "activos", "activas", "trabajando"]:
             mostrar_tickets_asignados_y_en_curso(from_phone)
+            return
+        
+        # 4.3) Asignar siguiente/urgente
+        if raw in ["siguiente", "next", "proximo", "urgente", "asignar urgente", "mas urgente", "más urgente"]:
+            asignar_siguiente(from_phone)
+            return
+        
+        # 4.4) Ver urgentes
+        if raw in ["urgente", "urgentes", "critico"]:
+            mostrar_urgentes(from_phone)
+            return
+        
+        # 4.5) Ver retrasados
+        if raw in ["retrasados", "retrasado", "atrasados"]:
+            mostrar_retrasados(from_phone)
+            return
+        
+        # 4.6) Ver en curso/proceso
+        if raw in ["en curso", "proceso", "trabajando en"]:
+            mostrar_en_proceso(from_phone)
+            return
+        
+        # 4.7) BD commands
+        if raw in ["bd pendientes", "db pendientes", "pendientes bd"]:
+            mostrar_tickets_db(from_phone, "PENDIENTE")
             return
         
         if raw in ["bd asignados", "db asignados", "asignados bd"]:
@@ -258,17 +278,7 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
             mostrar_tickets_db(from_phone, "EN_CURSO")
             return
 
-        # 5) Comando: Asignar urgente / más urgente / siguiente
-        if raw in ["siguiente", "next", "proximo", "urgente", "asignar urgente", "mas urgente", "más urgente"]:
-            asignar_siguiente(from_phone)
-            return
-        
-        # 6) Comando: Urgente
-        if raw in ["urgente", "urgentes", "critico"]:
-            mostrar_urgentes(from_phone)
-            return
-        
-        # 6.5) Comando: Ver info de ticket específico
+        # 4.8) Info de ticket específico
         if any(word in raw for word in ["ticket", "tarea", "cual es", "cuál es", "ver el", "info"]):
             import re
             match = re.search(r'\b(\d{3,4})\b', raw)
@@ -277,12 +287,7 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
                 mostrar_info_ticket(from_phone, ticket_id)
                 return
         
-        # 7) Comando: Retrasados
-        if raw in ["retrasados", "retrasado", "atrasados"]:
-            mostrar_retrasados(from_phone)
-            return
-        
-        # 7.5) Comando: "asignar" solo (sin detalles)
+        # 4.9) "asignar" solo (sin detalles)
         if raw in ["asignar", "derivar", "enviar"]:
             send_whatsapp(
                 from_phone,
@@ -293,18 +298,20 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
             )
             return
         
-        # 8) Comando: Ver tickets en proceso
-        if raw in ["en proceso", "progreso", "trabajando", "en curso", "activos"]:
-            mostrar_en_proceso(from_phone)
+        # 4.10) Cancelar (cuando no hay nada que cancelar)
+        if raw in ["cancelar", "cancel", "salir", "atras", "atrás"]:
+            send_whatsapp(from_phone, "✅ No hay nada que cancelar ahora")
             return
         
-        # 9) Comando: Reasignar (ahora usa audio_commands)
-        # Esto se maneja en maybe_handle_audio_command_simple
+        # ===================================================
+        # 5) COMANDOS DE AUDIO (DESPUÉS de comandos directos)
+        # ===================================================
+        # Maneja: "asignar [#] a [nombre]", "finalizar [#]", "reasignar [#] a [nombre]"
+        if maybe_handle_audio_command_simple(from_phone, text):
+            return
+        
+        # Si llegamos aquí y tiene "reasignar" pero no matcheó, dar ayuda
         if "reasignar" in raw or "cambiar" in raw:
-            # Intentar detectar con audio_commands
-            if maybe_handle_audio_command_simple(from_phone, text):
-                return
-            # Si no se detectó, pedir formato correcto
             send_whatsapp(
                 from_phone,
                 "💡 Para reasignar, di:\n"
@@ -314,12 +321,12 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
             )
             return
         
-        # 10) Comando: Cancelar (cuando no hay nada que cancelar)
+        # 6) Comando: Cancelar (cuando no hay nada que cancelar)
         if raw in ["cancelar", "cancel", "salir", "atras", "atrás"]:
             send_whatsapp(from_phone, "✅ No hay nada que cancelar ahora")
             return
         
-        # 9) No entendí - dar sugerencias
+        # 7) No entendí - dar sugerencias
         send_whatsapp(
             from_phone,
             "🤔 No entendí.\n\n"
