@@ -209,6 +209,12 @@ def _build_supervisor_message(ticket: Dict[str, Any]) -> str:
 
 
 def _watch_loop(org_id: int, hotel_id: int, poll_seconds: int, lookback_minutes: int) -> None:
+    """
+    Loop de vigilancia de tickets de huéspedes.
+    ✅ MODIFICADO: Solo notifica a supervisores en horario laboral (7:30 AM - 11:30 PM)
+    """
+    from gateway_app.core.utils.horario import esta_en_horario_laboral
+    
     supervisors = _get_supervisor_phones()
     logger.info(
         "TICKET_WATCH started db=%s org_id=%s hotel_id=%s poll=%ss lookback=%smin supervisors=%s",
@@ -221,6 +227,18 @@ def _watch_loop(org_id: int, hotel_id: int, poll_seconds: int, lookback_minutes:
 
     while True:
         try:
+            # ====================================================================
+            # ✅ NUEVO: CHECK DE HORARIO AL INICIO DEL LOOP
+            # ====================================================================
+            en_horario = esta_en_horario_laboral()
+            
+            if not en_horario:
+                # 🌙 FUERA DE HORARIO: No procesar ni notificar
+                logger.debug("🌙 TICKET_WATCH: Fuera de horario laboral - no se procesan notificaciones")
+                time.sleep(max(2, int(poll_seconds)))
+                continue  # ← Saltar esta iteración
+            # ====================================================================
+            
             tickets = _fetch_recent_guest_tickets(org_id, hotel_id, lookback_minutes)
             logger.info("TICKET_WATCH fetched=%s", len(tickets))
 
@@ -246,6 +264,9 @@ def _watch_loop(org_id: int, hotel_id: int, poll_seconds: int, lookback_minutes:
 
                 msg = _build_supervisor_message(t)
 
+                # ✅ Logging mejorado: Indicar que se notifica EN horario
+                logger.info(f"✅ TICKET_WATCH: Notificando ticket #{tid_int} (EN horario laboral)")
+                
                 any_sent = False
                 for sup in supervisors:
                     try:

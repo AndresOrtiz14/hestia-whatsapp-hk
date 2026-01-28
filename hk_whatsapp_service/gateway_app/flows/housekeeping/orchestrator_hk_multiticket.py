@@ -1060,7 +1060,10 @@ def crear_ticket_directo(from_phone: str, reporte: dict, area_worker: str = "HOU
 def crear_ticket_desde_draft(from_phone: str) -> None:
     """
     Crea ticket desde el borrador y notifica al supervisor.
+    ✅ MODIFICADO: Solo notifica a supervisores en horario laboral (7:30 AM - 11:30 PM)
     """
+    from gateway_app.utils.horario import esta_en_horario_laboral, obtener_mensaje_fuera_horario
+    
     state = get_user_state(from_phone)
 
     if state.get("state") != CONFIRMANDO_REPORTE:
@@ -1089,13 +1092,13 @@ def crear_ticket_desde_draft(from_phone: str) -> None:
         area_worker = state.get("area_worker", "HOUSEKEEPING")
         
         ticket = tickets_db.crear_ticket(
-            habitacion=ubicacion,  # ✅ MODIFICADO: Usar ubicacion genérica
+            habitacion=ubicacion,
             detalle=draft["detalle"],
             prioridad=draft["prioridad"],
             creado_por=from_phone,
             origen="trabajador",
             canal_origen="WHATSAPP_BOT_HOUSEKEEPING",
-            area=area_worker,  # ✅ MODIFICADO: Área real del worker
+            area=area_worker,
         )
 
         logger.info(
@@ -1130,24 +1133,43 @@ def crear_ticket_desde_draft(from_phone: str) -> None:
         supervisor_phones = os.getenv("SUPERVISOR_PHONES", "").split(",")
         supervisor_phones = [p.strip() for p in supervisor_phones if p.strip()]
         
+        # ====================================================================
+        # ✅ NUEVO: CHECK DE HORARIO LABORAL
+        # ====================================================================
         if supervisor_phones:
-            from gateway_app.services.whatsapp_client import send_whatsapp_text
-            from gateway_app.services.workers_db import buscar_worker_por_telefono
+            en_horario = esta_en_horario_laboral()
             
-            worker = buscar_worker_por_telefono(from_phone)
-            worker_nombre = worker.get("nombre_completo") if worker else "Trabajador"
-            
-            # ✅ MODIFICADO: Notificación con ubicación adaptada
-            for supervisor_phone in supervisor_phones:
-                send_whatsapp_text(
-                    to=supervisor_phone,
-                    body=f"📋 Nuevo reporte de {worker_nombre}\n\n"
-                         f"#{ticket_id} · {ubicacion}\n"  # ✅ Sin "Hab." hardcodeado
-                         f"{draft['detalle']}\n"
-                         f"{prioridad_emoji} Prioridad: {draft['prioridad']}\n\n"
-                         f"💡 Di 'asignar {ticket_id} a [nombre]' para derivar"
+            if en_horario:
+                # ✅ EN HORARIO: Notificar supervisores normalmente
+                logger.info(f"✅ Ticket #{ticket_id} creado EN horario laboral - Notificando {len(supervisor_phones)} supervisores")
+                
+                from gateway_app.services.whatsapp_client import send_whatsapp_text
+                from gateway_app.services.workers_db import buscar_worker_por_telefono
+                
+                worker = buscar_worker_por_telefono(from_phone)
+                worker_nombre = worker.get("nombre_completo") if worker else "Trabajador"
+                
+                for supervisor_phone in supervisor_phones:
+                    send_whatsapp_text(
+                        to=supervisor_phone,
+                        body=f"📋 Nuevo reporte de {worker_nombre}\n\n"
+                             f"#{ticket_id} · {ubicacion}\n"
+                             f"{draft['detalle']}\n"
+                             f"{prioridad_emoji} Prioridad: {draft['prioridad']}\n\n"
+                             f"💡 Di 'asignar {ticket_id} a [nombre]' para derivar"
+                    )
+                    logger.info(f"✅ Notificación enviada a supervisor {supervisor_phone}")
+            else:
+                # 🌙 FUERA DE HORARIO: NO notificar supervisores
+                logger.warning(f"🌙 Ticket #{ticket_id} creado FUERA de horario laboral - NO se notifica a supervisores")
+                
+                # Informar al worker que será atendido mañana
+                send_whatsapp(
+                    from_phone,
+                    f"\n🌙 Fuera de horario laboral\n"
+                    f"⏰ Supervisión será notificada mañana a las 7:30 AM"
                 )
-                logger.info(f"✅ Notificación enviada a supervisor {supervisor_phone}")
+        # ====================================================================
 
         reset_ticket_draft(from_phone)
         state["state"] = MENU
