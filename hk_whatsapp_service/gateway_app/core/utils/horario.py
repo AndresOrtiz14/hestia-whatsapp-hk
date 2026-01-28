@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 TIMEZONE = ZoneInfo("America/Santiago")
 
 # Horario laboral: 7:30 AM - 11:30 PM (en hora local del hotel)
-HORARIO_INICIO = time(16, 30)
+HORARIO_INICIO = time(20, 30)
 HORARIO_FIN = time(23, 30)
 
 
