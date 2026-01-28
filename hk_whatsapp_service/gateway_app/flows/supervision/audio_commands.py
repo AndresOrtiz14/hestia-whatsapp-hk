@@ -362,7 +362,7 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
     'completar', 'completa', 'completalo', 'completala',
     'terminar', 'termina', 'terminalo', 'terminala',
     'marcar como completado', 'marcar completado',
-    'dar por terminado', 'cerrar', 'cierra'
+    'dar por terminado', 'cerrar', 'cierra', 'reuslto', 'resuelto',
     ]
 
     es_finalizar = any(word in text_normalized for word in palabras_finalizar)
