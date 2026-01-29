@@ -460,7 +460,7 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
                 "worker": worker,
                 "text": text
             }
-            
+        
     # ✅ NUEVO: Patrón 1.5 - "Asignar ticket 6" SIN nombre de worker
     # Debe mostrar lista de workers disponibles
     if es_asignar and ticket_id and not worker:
