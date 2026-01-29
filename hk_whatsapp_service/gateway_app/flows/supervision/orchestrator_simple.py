@@ -449,22 +449,32 @@ def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
         
         workers = obtener_todos_workers()
         
-        # ✅ FILTRAR: Solo turno activo
+        # ✅ MODIFICADO: Incluir TODOS los workers, no solo con turno activo
+        # Separar por turno activo para ordenar (activos primero)
         workers_activos = [w for w in workers if w.get("turno_activo", False)]
+        workers_sin_turno = [w for w in workers if not w.get("turno_activo", False)]
 
+        # Calcular scores para ambos grupos
         workers_con_score = []
         for w in workers_activos:
-            score = calcular_score_worker(w, ticket)  # ✅ Con ticket
+            score = calcular_score_worker(w, ticket)
+            workers_con_score.append({**w, "score": score})
+        
+        for w in workers_sin_turno:
+            score = calcular_score_worker(w, ticket) - 1000  # Penalizar sin turno
             workers_con_score.append({**w, "score": score})
         
         workers_con_score.sort(key=lambda w: w["score"], reverse=True)
         
-        if 0 <= index < len(workers_con_score):
-            worker = workers_con_score[index]
+        # ✅ Tomar top 6 (para que coincida con lo mostrado)
+        top_workers = workers_con_score[:6]
+        
+        if 0 <= index < len(top_workers):
+            worker = top_workers[index]
         else:
             send_whatsapp(
                 from_phone,
-                f"❌ Número inválido (1-{min(5, len(workers_con_score))})\n\n"
+                f"❌ Número inválido (1-{len(top_workers)})\n\n"
                 "💡 Di el nombre o número\n"
                 "O escribe 'cancelar'"
             )
