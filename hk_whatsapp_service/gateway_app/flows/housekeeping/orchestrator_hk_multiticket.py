@@ -222,10 +222,9 @@ def maybe_handle_tomar_anywhere(from_phone: str, text: str, state: dict) -> bool
     return True
 
 def handle_hk_message_simple(from_phone: str, text: str) -> None:
-
     state = get_user_state(from_phone)
 
-    # ✅ NUEVO: Verificar activación automática de turno (respuesta a recordatorio)
+    from gateway_app.flows.housekeeping.turno_auto import verificar_y_activar_turno_auto
     mensaje_turno_auto = verificar_y_activar_turno_auto(from_phone, state)
     if mensaje_turno_auto:
         send_whatsapp(from_phone, mensaje_turno_auto)
