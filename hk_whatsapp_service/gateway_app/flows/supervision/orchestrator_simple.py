@@ -239,6 +239,19 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
         if state.get("esperando_asignacion"):
             if handle_respuesta_asignacion(from_phone, text):
                 return
+
+        # En handle_supervisor_message_simple(), agregar este case:
+        elif intent_type == "asignar_ticket_sin_worker":
+            ticket_id = intent_data.get("ticket_id")
+            ticket = obtener_ticket_por_id(ticket_id)
+            
+            if not ticket:
+                send_whatsapp(from_phone, f"❌ No encontré el ticket #{ticket_id}")
+                return
+            
+            workers = obtener_todos_workers()
+            mostrar_opciones_workers(from_phone, workers, ticket_id)
+            return
         
         # ==================================================
         # 4) COMANDOS DE TEXTO DIRECTO

@@ -133,7 +133,11 @@ def extract_worker_name(text: str) -> Optional[str]:
     palabras = text.split()
     for palabra in palabras:
         if palabra and len(palabra) >= 3 and palabra[0].isupper():
-            palabras_comunes = ['Hab', 'Habitación', 'Cuarto', 'Ticket', 'El', 'La', 'Un', 'Una', 'Pieza']
+            palabras_comunes = ['Hab', 'Habitación', 'Cuarto', 'Ticket', 'El', 'La', 'Un', 'Una', 'Pieza', 'Asignar', 'Derivar', 'Mandar', 'Enviar', 'Reasignar', 
+                                'Finalizar', 'Completar', 'Terminar', 'Cerrar',
+                                'Pendientes', 'Urgentes', 'Menu', 'Menú', 'Ayuda', 'Help',
+                                'Ver', 'Mostrar', 'Crear', 'Nuevo', 'Nueva'
+                            ]
             if palabra not in palabras_comunes:
                 return palabra
     
@@ -456,6 +460,15 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
                 "worker": worker,
                 "text": text
             }
+            
+    # ✅ NUEVO: Patrón 1.5 - "Asignar ticket 6" SIN nombre de worker
+    # Debe mostrar lista de workers disponibles
+    if es_asignar and ticket_id and not worker:
+        return {
+            "intent": "asignar_ticket_sin_worker",
+            "ticket_id": ticket_id,
+            "text": text
+        }
     
     # ✅ MODIFICADO: Patrón 2 - Crear ticket con ubicación genérica y asignar
     # "Habitación 420 limpieza urgente asignar a Pedro"
