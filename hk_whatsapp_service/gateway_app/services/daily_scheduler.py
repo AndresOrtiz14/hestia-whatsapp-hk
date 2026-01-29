@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 TIMEZONE = ZoneInfo("America/Santiago")
 
 # Hora del recordatorio matutino
-HORA_RECORDATORIO = 7
-MINUTO_RECORDATORIO = 30
+HORA_RECORDATORIO = 1
+MINUTO_RECORDATORIO = 57
 
 
 def _get_supervisor_phones() -> List[str]:
