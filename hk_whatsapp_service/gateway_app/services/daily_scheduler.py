@@ -1,11 +1,6 @@
 # gateway_app/services/daily_scheduler.py
 """
 Sistema de recordatorios diarios para trabajadores y supervisión.
-
-Funcionalidades:
-1. 7:30 AM: Recordatorio a trabajadores para usar el bot
-2. 7:30 AM: Resumen de tickets pendientes/nocturnos a supervisión
-3. Activación automática de turno con cualquier respuesta
 """
 from __future__ import annotations
 
@@ -13,22 +8,19 @@ import logging
 import os
 import threading
 import time
+import json
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 
-# Zona horaria de Chile
 TIMEZONE = ZoneInfo("America/Santiago")
-
-# Hora del recordatorio matutino
 HORA_RECORDATORIO = 7
 MINUTO_RECORDATORIO = 30
 
 
 def _get_supervisor_phones() -> List[str]:
-    """Obtiene los teléfonos de supervisores desde env vars."""
     import re
     raw = os.getenv("SUPERVISOR_PHONES", "") or ""
     phones = [re.sub(r"\D", "", p.strip()) for p in raw.split(",")]
@@ -36,20 +28,14 @@ def _get_supervisor_phones() -> List[str]:
 
 
 def _get_all_workers_phones() -> List[Dict[str, Any]]:
-    """Obtiene todos los trabajadores activos con sus datos."""
     from gateway_app.services.workers_db import obtener_todos_workers
     return obtener_todos_workers() or []
 
 
 def _get_tickets_pendientes_resumen() -> Dict[str, Any]:
-    """
-    Obtiene resumen de tickets pendientes/nocturnos para supervisión.
-    """
     from gateway_app.services.tickets_db import obtener_pendientes
     
-    ahora = datetime.now(TIMEZONE)
     pendientes = obtener_pendientes() or []
-    
     nocturnos = []
     diurnos = []
     
@@ -61,19 +47,16 @@ def _get_tickets_pendientes_resumen() -> Dict[str, Any]:
                 if isinstance(created_at, str):
                     created_at = parser.parse(created_at)
                 
-                # Asegurar timezone
                 if created_at.tzinfo is None:
                     created_at = created_at.replace(tzinfo=TIMEZONE)
                 
-                # Si fue creado en horario nocturno
                 hora_creacion = created_at.time()
                 from datetime import time as dt_time
                 if hora_creacion >= dt_time(23, 30) or hora_creacion < dt_time(7, 30):
                     nocturnos.append(ticket)
                 else:
                     diurnos.append(ticket)
-            except Exception as e:
-                logger.warning(f"Error parseando fecha ticket #{ticket.get('id')}: {e}")
+            except Exception:
                 diurnos.append(ticket)
         else:
             diurnos.append(ticket)
@@ -87,33 +70,24 @@ def _get_tickets_pendientes_resumen() -> Dict[str, Any]:
 
 
 def _calcular_tiempo_transcurrido(created_at) -> str:
-    """
-    Calcula el tiempo transcurrido desde la creación de un ticket.
-    """
     if not created_at:
         return "?"
-    
     try:
         from dateutil import parser
         if isinstance(created_at, str):
             created_at = parser.parse(created_at)
         
         ahora = datetime.now(TIMEZONE)
-        
-        # Asegurar timezone - siempre usar TIMEZONE de Chile
         if created_at.tzinfo is None:
             created_at = created_at.replace(tzinfo=TIMEZONE)
         else:
-            # Convertir a timezone de Chile para comparar correctamente
             created_at = created_at.astimezone(TIMEZONE)
         
         delta = ahora - created_at
         total_mins = int(delta.total_seconds() / 60)
         
-        # ✅ FIX: Si es negativo, mostrar "reciente"
         if total_mins < 0:
             return "reciente"
-        
         if total_mins < 60:
             return f"{total_mins} min"
         
@@ -123,33 +97,26 @@ def _calcular_tiempo_transcurrido(created_at) -> str:
         if horas >= 24:
             dias = horas // 24
             horas_restantes = horas % 24
-            if dias == 1:
-                return f"1 día {horas_restantes}h"
-            return f"{dias} días {horas_restantes}h"
+            return f"{dias}d {horas_restantes}h"
         
         return f"{horas}h {mins}min"
-    
-    except Exception as e:
-        logger.warning(f"Error calculando tiempo transcurrido: {e}")
+    except Exception:
         return "?"
 
 
 def _formatear_ticket_con_tiempo(ticket: Dict[str, Any]) -> str:
-    """Formatea un ticket incluyendo tiempo transcurrido."""
     ticket_id = ticket.get("id", "?")
     ubicacion = ticket.get("ubicacion") or ticket.get("habitacion", "?")
     detalle = (ticket.get("detalle") or "Sin detalle")[:50]
     prioridad = (ticket.get("prioridad") or "MEDIA").upper()
-    created_at = ticket.get("created_at")
     
-    tiempo = _calcular_tiempo_transcurrido(created_at)
+    tiempo = _calcular_tiempo_transcurrido(ticket.get("created_at"))
     prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
     
     return f"{prioridad_emoji} #{ticket_id} · {ubicacion} · {tiempo}\n   {detalle}"
 
 
 def construir_mensaje_recordatorio_worker(worker: Dict[str, Any]) -> str:
-    """Construye el mensaje de recordatorio matutino para un trabajador."""
     nombre = worker.get("nombre_completo", worker.get("username", ""))
     primer_nombre = nombre.split()[0] if nombre else "👋"
     
@@ -166,7 +133,6 @@ def construir_mensaje_recordatorio_worker(worker: Dict[str, Any]) -> str:
 
 
 def construir_mensaje_resumen_supervision(resumen: Dict[str, Any]) -> str:
-    """Construye el mensaje de resumen matutino para supervisión."""
     pendientes = resumen.get("pendientes", [])
     nocturnos = resumen.get("nocturnos", [])
     total = resumen.get("total", 0)
@@ -175,15 +141,13 @@ def construir_mensaje_resumen_supervision(resumen: Dict[str, Any]) -> str:
         return (
             "☀️ ¡Buenos días!\n\n"
             "✅ No hay tickets pendientes.\n\n"
-            "💡 Comandos disponibles:\n"
-            "• 'pendientes' - ver lista\n"
-            "• 'equipo' - ver trabajadores activos"
+            "💡 Di 'pendientes' o 'equipo'"
         )
     
     lineas = ["☀️ ¡Buenos días!\n"]
     
     if nocturnos:
-        lineas.append(f"🌙 {len(nocturnos)} ticket(s) recibidos fuera de horario:\n")
+        lineas.append(f"🌙 {len(nocturnos)} ticket(s) fuera de horario:\n")
         for ticket in nocturnos[:5]:
             lineas.append(_formatear_ticket_con_tiempo(ticket))
         if len(nocturnos) > 5:
@@ -192,45 +156,112 @@ def construir_mensaje_resumen_supervision(resumen: Dict[str, Any]) -> str:
     
     diurnos = [t for t in pendientes if t not in nocturnos]
     if diurnos:
-        lineas.append(f"📋 {len(diurnos)} ticket(s) pendientes adicionales:\n")
+        lineas.append(f"📋 {len(diurnos)} ticket(s) pendientes:\n")
         for ticket in diurnos[:5]:
             lineas.append(_formatear_ticket_con_tiempo(ticket))
         if len(diurnos) > 5:
             lineas.append(f"   ... y {len(diurnos) - 5} más")
         lineas.append("")
     
-    lineas.append(f"📊 Total pendientes: {total}\n")
-    lineas.append("💡 Di 'pendientes' para ver completo")
-    lineas.append("💡 Di 'equipo' para ver trabajadores")
+    lineas.append(f"📊 Total: {total}")
     
     return "\n".join(lineas)
 
 
-def _marcar_recordatorio_enviado_hoy(phone: str) -> None:
+def _marcar_recordatorio_enviado_hoy_directo(phone: str) -> bool:
     """
-    ✅ CRÍTICO: Marca que se envió recordatorio a este teléfono hoy.
-    Esto permite que turno_auto.py sepa que debe activar el turno automáticamente.
+    ✅ VERSIÓN DIRECTA: Guarda directamente en la BD sin usar cache.
+    Esto evita problemas de sincronización entre threads.
     """
-    from gateway_app.flows.housekeeping.state_simple import get_user_state, persist_user_state
+    from gateway_app.services.db import execute, fetchone, using_pg
     
-    state = get_user_state(phone)
-    state["recordatorio_matutino_fecha"] = datetime.now(TIMEZONE).date().isoformat()
-    state["respondio_recordatorio_hoy"] = False  # Se pondrá True cuando responda
-    persist_user_state(phone, state)
+    hoy = datetime.now(TIMEZONE).date().isoformat()
     
-    logger.info(f"📝 Marcado recordatorio enviado para {phone}")
+    try:
+        # 1. Leer state actual de la BD
+        table = "public.runtime_sessions" if using_pg() else "runtime_sessions"
+        row = fetchone(f"SELECT data FROM {table} WHERE phone = ?", [phone])
+        
+        if row and row.get("data"):
+            data_raw = row.get("data")
+            if isinstance(data_raw, str):
+                state = json.loads(data_raw)
+            elif isinstance(data_raw, dict):
+                state = data_raw
+            else:
+                state = {}
+        else:
+            state = {}
+        
+        logger.info(f"📝 DAILY: State ANTES: {json.dumps(state, default=str)[:200]}")
+        
+        # 2. Agregar campos de recordatorio
+        state["recordatorio_matutino_fecha"] = hoy
+        state["respondio_recordatorio_hoy"] = False
+        
+        logger.info(f"📝 DAILY: State DESPUÉS: {json.dumps(state, default=str)[:200]}")
+        
+        # 3. Guardar directamente en BD
+        payload = json.dumps(state, ensure_ascii=False)
+        
+        if using_pg():
+            execute(
+                """
+                INSERT INTO public.runtime_sessions (phone, data, updated_at)
+                VALUES (?, ?::jsonb, NOW())
+                ON CONFLICT (phone) DO UPDATE
+                SET data = EXCLUDED.data,
+                    updated_at = NOW()
+                """,
+                [phone, payload],
+                commit=True,
+            )
+        else:
+            execute(
+                """
+                INSERT INTO runtime_sessions (phone, data, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(phone) DO UPDATE
+                SET data = excluded.data,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                [phone, payload],
+                commit=True,
+            )
+        
+        logger.info(f"✅ DAILY: Guardado en BD para {phone}")
+        
+        # 4. Verificar que se guardó correctamente
+        row_check = fetchone(f"SELECT data FROM {table} WHERE phone = ?", [phone])
+        if row_check:
+            data_check = row_check.get("data")
+            if isinstance(data_check, str):
+                state_check = json.loads(data_check)
+            elif isinstance(data_check, dict):
+                state_check = data_check
+            else:
+                state_check = {}
+            
+            if state_check.get("recordatorio_matutino_fecha") == hoy:
+                logger.info(f"✅ DAILY: Verificación OK - recordatorio guardado para {phone}")
+                return True
+            else:
+                logger.error(f"❌ DAILY: Verificación FALLÓ - no se encontró recordatorio")
+                return False
+        
+        return True
+        
+    except Exception as e:
+        logger.exception(f"❌ DAILY: Error guardando recordatorio para {phone}: {e}")
+        return False
 
 
 def enviar_recordatorios_matutinos():
-    """
-    Envía recordatorios matutinos a trabajadores y supervisores.
-    Se ejecuta a las 7:30 AM.
-    """
+    """Envía recordatorios matutinos a trabajadores y supervisores."""
     from gateway_app.services.whatsapp_client import send_whatsapp_text
     
     logger.info("📨 DAILY_SCHEDULER: Iniciando envío de recordatorios matutinos")
     
-    # 1. Recordatorios a trabajadores
     workers = _get_all_workers_phones()
     workers_notificados = 0
     
@@ -243,17 +274,21 @@ def enviar_recordatorios_matutinos():
             mensaje = construir_mensaje_recordatorio_worker(worker)
             send_whatsapp_text(to=telefono, body=mensaje)
             
-            # ✅ FIX CRÍTICO: Marcar que se envió recordatorio
-            _marcar_recordatorio_enviado_hoy(telefono)
+            # ✅ CRÍTICO: Marcar directamente en BD
+            ok = _marcar_recordatorio_enviado_hoy_directo(telefono)
             
-            workers_notificados += 1
-            logger.info(f"✅ Recordatorio enviado a worker: {worker.get('nombre_completo', telefono)}")
+            if ok:
+                workers_notificados += 1
+                logger.info(f"✅ Recordatorio enviado y marcado: {worker.get('nombre_completo', telefono)}")
+            else:
+                logger.warning(f"⚠️ Recordatorio enviado pero NO marcado: {telefono}")
+                
         except Exception as e:
-            logger.error(f"❌ Error enviando recordatorio a {telefono}: {e}")
+            logger.error(f"❌ Error con {telefono}: {e}")
     
     logger.info(f"📨 Recordatorios enviados a {workers_notificados} trabajadores")
     
-    # 2. Resumen a supervisores
+    # Resumen a supervisores
     supervisors = _get_supervisor_phones()
     resumen = _get_tickets_pendientes_resumen()
     mensaje_sup = construir_mensaje_resumen_supervision(resumen)
@@ -263,7 +298,7 @@ def enviar_recordatorios_matutinos():
             send_whatsapp_text(to=sup_phone, body=mensaje_sup)
             logger.info(f"✅ Resumen enviado a supervisor: {sup_phone}")
         except Exception as e:
-            logger.error(f"❌ Error enviando resumen a supervisor {sup_phone}: {e}")
+            logger.error(f"❌ Error supervisor {sup_phone}: {e}")
     
     logger.info(f"📨 Resumen enviado a {len(supervisors)} supervisores")
 
@@ -279,7 +314,6 @@ def _scheduler_loop():
             ahora = datetime.now(TIMEZONE)
             hoy_str = ahora.date().isoformat()
             
-            # Verificar si es hora del recordatorio (7:30 AM)
             if (ahora.hour == HORA_RECORDATORIO and 
                 ahora.minute == MINUTO_RECORDATORIO and 
                 ultimo_envio != hoy_str):
