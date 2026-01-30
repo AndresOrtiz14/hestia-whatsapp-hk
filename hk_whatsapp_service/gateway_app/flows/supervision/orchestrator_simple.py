@@ -319,6 +319,11 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
             send_whatsapp(from_phone, "✅ No hay nada que cancelar ahora")
             return
         
+        # 4.12) Ayuda
+        if raw in ['ayuda', 'help', 'comandos', 'menu', 'menú', '?']:
+            send_whatsapp(from_phone, texto_saludo_supervisor())
+            return
+        
         # ==================================================
         # 5) COMANDOS DE AUDIO
         # ⚠️ ESTO VA **DESPUÉS** DE LOS COMANDOS DE TEXTO
