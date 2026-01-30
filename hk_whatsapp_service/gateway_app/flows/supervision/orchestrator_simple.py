@@ -423,9 +423,20 @@ def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
     
     # ✅ NUEVO: Detectar comandos que indican nueva tarea (no asignación)
     comandos_nuevos = [
-        "pendientes", "urgente", "urgentes", "retrasados", 
-        "help", "ayuda", "en curso", "hola"
-    ]
+    # Ver tickets
+    "pendientes", "pendiente", "ver", "lista",
+    "asignados", "asignadas", "en proceso", "activos", "activas", "trabajando",
+    "urgentes", "urgente", "critico",
+    "retrasados", "retrasado", "atrasados",
+    "en curso", "proceso",
+    # Ver equipo
+    "equipo", "team", "trabajadores", "personal", "staff", "mucamas", "quienes",
+    # Ayuda/navegación
+    "help", "ayuda", "comandos", "menu", "menú", "?",
+    "hola", "hi", "hello", "buenas", "buenos dias", "buenas tardes",
+    # Otros
+    "siguiente", "next", "proximo", "mas urgente", "más urgente",
+]
     
     # ✅ NUEVO: Detectar intents de crear ticket
     tiene_ubicacion = False
@@ -438,6 +449,8 @@ def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
     if raw in comandos_nuevos or tiene_ubicacion:
         state["esperando_asignacion"] = False
         state["ticket_seleccionado"] = None
+        state["seleccion_mucamas"] = None
+        persist_supervisor_state(from_phone, state)
         return False  # ✅ Dejar que se procese como comando normal
     
     worker = None
