@@ -260,14 +260,14 @@ def obtener_tickets_asignados_y_en_curso() -> list:
                 t.prioridad,
                 t.estado,
                 t.huesped_whatsapp,
-                -- ✅ FIX: Extraer nombre de huesped_whatsapp (formato: "phone|nombre")
+                -- ✅ FIX v2: Usar POSITION en lugar de LIKE
                 CASE 
-                    WHEN t.huesped_whatsapp LIKE '%|%' 
+                    WHEN POSITION('|' IN COALESCE(t.huesped_whatsapp, '')) > 0 
                     THEN SPLIT_PART(t.huesped_whatsapp, '|', 2)
                     ELSE NULL
                 END as worker_name,
                 CASE 
-                    WHEN t.huesped_whatsapp LIKE '%|%' 
+                    WHEN POSITION('|' IN COALESCE(t.huesped_whatsapp, '')) > 0 
                     THEN SPLIT_PART(t.huesped_whatsapp, '|', 1)
                     ELSE t.huesped_whatsapp
                 END as worker_phone,
