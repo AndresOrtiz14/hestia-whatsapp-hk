@@ -245,7 +245,7 @@ def obtener_tickets_asignados_a(phone: str) -> List[Dict[str, Any]]:
 def obtener_tickets_asignados_y_en_curso() -> list:
     """
     Obtiene todos los tickets con estado ASIGNADO o EN_CURSO.
-    Incluye el nombre del usuario asignado mediante JOIN.
+    Extrae el nombre del worker de huesped_whatsapp (formato: "phone|nombre").
     
     Returns:
         Lista de tickets ordenados por prioridad y fecha
@@ -259,13 +259,21 @@ def obtener_tickets_asignados_y_en_curso() -> list:
                 t.detalle,
                 t.prioridad,
                 t.estado,
-                t.assigned_to,
-                u.username as worker_name,
-                u.telefono as worker_phone,
+                t.huesped_whatsapp,
+                -- ✅ FIX: Extraer nombre de huesped_whatsapp (formato: "phone|nombre")
+                CASE 
+                    WHEN t.huesped_whatsapp LIKE '%|%' 
+                    THEN SPLIT_PART(t.huesped_whatsapp, '|', 2)
+                    ELSE NULL
+                END as worker_name,
+                CASE 
+                    WHEN t.huesped_whatsapp LIKE '%|%' 
+                    THEN SPLIT_PART(t.huesped_whatsapp, '|', 1)
+                    ELSE t.huesped_whatsapp
+                END as worker_phone,
                 t.created_at,
                 t.assigned_at
             FROM public.tickets t
-            LEFT JOIN public.users u ON t.assigned_to = u.id
             WHERE t.estado IN ('ASIGNADO', 'EN_CURSO')
             ORDER BY 
                 CASE t.prioridad
