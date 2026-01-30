@@ -6,7 +6,8 @@ VERSIÓN CON SOPORTE PARA ÁREAS COMUNES.
 
 import re
 from typing import Dict, Any, Optional, Tuple
-
+from venv import logger
+from gateway_app.flows.housekeeping.intents import detectar_prioridad
 
 def extract_ticket_id(text: str) -> Optional[int]:
     """
@@ -35,8 +36,8 @@ def extract_ticket_id(text: str) -> Optional[int]:
         r'asignar\s+(?:el\s+|la\s+)?#?(\d{1,4})',
         r'derivar\s+(?:el\s+|la\s+)?#?(\d{1,4})',
         r'mandar\s+(?:el\s+|la\s+)?#?(\d{1,4})',
-        r'#(\d{1,4})',
-        r'\b(\d{3,4})\b',  # 3-4 dígitos solos
+        r'#\s*(\d+)',
+        r'\b(\d+)\b',  # 3-4 dígitos solos
     ]
     
     text_lower = text.lower()
@@ -95,16 +96,30 @@ def extract_worker_name(text: str) -> Optional[str]:
     
     # Detectar múltiples patrones de asignación
     patrones = [
-        r'\b(?:a|para)\s+(\w+)',
-        r'que\s+lo\s+(?:resuelva|haga|vea)\s+(\w+)',
-        r'que\s+la\s+(?:resuelva|haga|vea)\s+(\w+)',
-        r'(?:encarga|delega)(?:le)?\s+a\s+(\w+)',
+        r'\b(?:a|para)\s+(.+)$',                    # ✅ Captura todo después de "a" o "para"
+        r'que\s+lo\s+(?:resuelva|haga|vea)\s+(.+)$', # ✅ Captura todo después
+        r'que\s+la\s+(?:resuelva|haga|vea)\s+(.+)$', # ✅ Captura todo después
+        r'(?:encarga|delega)(?:le)?\s+a\s+(.+)$',    # ✅ Captura todo después
+        r'\basignar\s+a\s+(.+)$'                     # ✅ Ya estaba correcto
     ]
     
     for patron in patrones:
         match = re.search(patron, text_lower)
         if match:
-            posible_nombre = match.group(1)
+            posible_nombre = match.group(1).strip()
+            
+            # ✅ NUEVO: Limpiar sufijos comunes
+            cleanup_words = ['por favor', 'porfavor', 'porfa', 'gracias']
+            for cleanup in cleanup_words:
+                if posible_nombre.endswith(cleanup):
+                    posible_nombre = posible_nombre[:-len(cleanup)].strip()
+            
+            # ✅ NUEVO: Si tiene más de una palabra, capitalizar y retornar directo
+            if ' ' in posible_nombre:
+                # Nombres compuestos: "chef cocina" → "Chef Cocina"
+                return ' '.join(word.capitalize() for word in posible_nombre.split())
+            
+            # ✅ MANTENER: Lógica original para nombres simples
             if posible_nombre in nombres:
                 return posible_nombre.capitalize()
             for palabra in text.split():
@@ -118,7 +133,11 @@ def extract_worker_name(text: str) -> Optional[str]:
     palabras = text.split()
     for palabra in palabras:
         if palabra and len(palabra) >= 3 and palabra[0].isupper():
-            palabras_comunes = ['Hab', 'Habitación', 'Cuarto', 'Ticket', 'El', 'La', 'Un', 'Una', 'Pieza']
+            palabras_comunes = ['Hab', 'Habitación', 'Cuarto', 'Ticket', 'El', 'La', 'Un', 'Una', 'Pieza', 'Asignar', 'Derivar', 'Mandar', 'Enviar', 'Reasignar', 
+                                'Finalizar', 'Completar', 'Terminar', 'Cerrar',
+                                'Pendientes', 'Urgentes', 'Menu', 'Menú', 'Ayuda', 'Help',
+                                'Ver', 'Mostrar', 'Crear', 'Nuevo', 'Nueva'
+                            ]
             if palabra not in palabras_comunes:
                 return palabra
     
@@ -318,8 +337,13 @@ def detect_priority(text: str) -> str:
 
 
 def detect_audio_intent(text: str) -> Dict[str, Any]:
+
+    logger.info(f"🔍 === INICIO detect_audio_intent ===")
+    logger.info(f"🔍 text = '{text}'")
+    
     """
     Detecta la intención principal del audio.
+    
     
     Args:
         text: Texto transcrito
@@ -337,18 +361,48 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
     """
     text_lower = text.lower()
     
-    # Extraer componentes
-    ticket_id = extract_ticket_id(text)
-    worker = extract_worker_name(text)
-    ubicacion = extract_ubicacion_generica(text)  # ✅ MODIFICADO: Genérica
-    prioridad = detect_priority(text)
-    
     # Detectar verbos de acción
     import unicodedata
     text_normalized = ''.join(
         c for c in unicodedata.normalize('NFD', text_lower)
         if unicodedata.category(c) != 'Mn'
     )
+
+    logger.info(f"🔍 text_normalized = '{text_normalized}'")
+
+    # Extraer componentes
+    ticket_id = extract_ticket_id(text)
+    logger.info(f"🔍 ticket_id = {ticket_id}")
+    
+    # ✅ DETECCIÓN DE FINALIZAR (PRIORIDAD)
+    palabras_finalizar = [
+    'finalizar', 'finaliza', 'finalizalo', 'finalizala',
+    'completar', 'completa', 'completalo', 'completala',
+    'terminar', 'termina', 'terminalo', 'terminala',
+    'marcar como completado', 'marcar completado',
+    'dar por terminado', 'cerrar', 'cierra', 'reuslto', 'resuelto',
+    ]
+
+    es_finalizar = any(word in text_normalized for word in palabras_finalizar)
+    logger.info(f"🔍 es_finalizar = {es_finalizar}")
+    logger.info(f"🔍 palabras en texto: {[w for w in palabras_finalizar if w in text_normalized]}")
+    
+    # Patrón: "Finalizar ticket 15"
+    if es_finalizar and ticket_id:
+        logger.info(f"✅ MATCH: Finalizar ticket #{ticket_id}")
+        return {
+            "intent": "finalizar_ticket",
+            "ticket_id": ticket_id,
+            "text": text
+        }
+    
+    logger.info(f"❌ NO es finalizar, continuando...")
+    
+    # ✅ DESPUÉS: Extraer componentes para otros intents
+    worker = extract_worker_name(text)
+    logger.info(f"🔍 worker = '{worker}'")
+    ubicacion = extract_ubicacion_generica(text)
+    prioridad = detectar_prioridad(text)
 
     es_asignar = any(word in text_normalized for word in [
         'asignar', 'asigna', 'asina', 'asignalo', 'asignala',
@@ -378,7 +432,7 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
         'derrame', 'sucia', 'sucio', 'fundida', 'fundido', 'descompuesto',
         'atascado', 'atorado', 'luz', 'agua', 'baño'
     ])
-    
+
     # Patrón 0: "Reasignar ticket 12 a María" (PRIORIDAD MÁXIMA)
     if es_reasignar and ticket_id and worker:
         return {
@@ -406,6 +460,15 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
                 "worker": worker,
                 "text": text
             }
+        
+    # ✅ NUEVO: Patrón 1.5 - "Asignar ticket 6" SIN nombre de worker
+    # Debe mostrar lista de workers disponibles
+    if es_asignar and ticket_id and not worker:
+        return {
+            "intent": "asignar_ticket_sin_worker",
+            "ticket_id": ticket_id,
+            "text": text
+        }
     
     # ✅ MODIFICADO: Patrón 2 - Crear ticket con ubicación genérica y asignar
     # "Habitación 420 limpieza urgente asignar a Pedro"

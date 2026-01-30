@@ -242,6 +242,49 @@ def obtener_tickets_asignados_a(phone: str) -> List[Dict[str, Any]]:
         logger.exception("Error obteniendo tickets asignados: %s", e)
         return []
 
+def obtener_tickets_asignados_y_en_curso() -> list:
+    """
+    Obtiene todos los tickets con estado ASIGNADO o EN_CURSO.
+    Incluye el nombre del usuario asignado mediante JOIN.
+    
+    Returns:
+        Lista de tickets ordenados por prioridad y fecha
+    """
+    try:
+        tickets = fetchall(
+            """
+            SELECT 
+                t.id,
+                t.ubicacion,
+                t.detalle,
+                t.prioridad,
+                t.estado,
+                t.assigned_to,
+                u.username as worker_name,
+                u.telefono as worker_phone,
+                t.created_at,
+                t.assigned_at
+            FROM public.tickets t
+            LEFT JOIN public.users u ON t.assigned_to = u.id
+            WHERE t.estado IN ('ASIGNADO', 'EN_CURSO')
+            ORDER BY 
+                CASE t.prioridad
+                    WHEN 'ALTA' THEN 1
+                    WHEN 'MEDIA' THEN 2
+                    WHEN 'BAJA' THEN 3
+                    ELSE 4
+                END,
+                t.created_at ASC
+            """
+        )
+        
+        logger.info(f"📊 {len(tickets)} tickets ASIGNADOS/EN_CURSO obtenidos")
+        return tickets
+        
+    except Exception as e:
+        logger.error(f"❌ Error obteniendo tickets asignados/en_curso: {e}")
+        return []
+
 def obtener_tickets_por_worker(worker_phone: str):
     """
     Alias por compatibilidad.

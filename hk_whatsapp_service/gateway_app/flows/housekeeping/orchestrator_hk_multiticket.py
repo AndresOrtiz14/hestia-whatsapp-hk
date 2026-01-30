@@ -10,6 +10,9 @@ logger = logging.getLogger(__name__)
 
 from gateway_app.services.tickets_db import crear_ticket
 from gateway_app.services import tickets_db
+from zoneinfo import ZoneInfo
+
+from gateway_app.flows.housekeeping.turno_auto import verificar_y_activar_turno_auto
 
 from datetime import date, datetime
 from .state_simple import (
@@ -62,19 +65,26 @@ from .areas_comunes_helpers import (
 
 def verificar_turno_activo(from_phone: str) -> bool:
     """
-    Verifica si el turno está activo. Si no, lo inicia automáticamente.
-    
-    Args:
-        from_phone: Número de teléfono
-    
-    Returns:
-        True si el turno está activo (o fue auto-iniciado)
+    Verifica si el turno está activo. 
+    YA NO auto-inicia - eso lo hace turno_auto.py
     """
+    from gateway_app.services.workers_db import activar_turno_por_telefono
+    
     state = get_user_state(from_phone)
     
-    if not state.get("turno_activo", False):
-        # Auto-iniciar turno
-        from datetime import datetime
+    # Si ya está activo, OK
+    if state.get("turno_activo", False):
+        return True
+    
+    # Si fue auto-activado recientemente (por turno_auto), no duplicar mensaje
+    if state.get("turno_auto_activado"):
+        del state["turno_auto_activado"]
+        return True
+    
+    # Auto-iniciar turno silenciosamente (para acciones que requieren turno)
+    from datetime import datetime
+    ok = activar_turno_por_telefono(from_phone)
+    if ok:
         state["turno_activo"] = True
         state["turno_inicio"] = datetime.now().isoformat()
         
@@ -213,8 +223,14 @@ def maybe_handle_tomar_anywhere(from_phone: str, text: str, state: dict) -> bool
     return True
 
 def handle_hk_message_simple(from_phone: str, text: str) -> None:
-
     state = get_user_state(from_phone)
+
+    from gateway_app.flows.housekeeping.turno_auto import verificar_y_activar_turno_auto
+    mensaje_turno_auto = verificar_y_activar_turno_auto(from_phone, state)
+    if mensaje_turno_auto:
+        send_whatsapp(from_phone, mensaje_turno_auto)
+        # NO hacer return aquí - dejar que continúe procesando el mensaje
+
     try:
         raw = (text or "").strip().lower()
         logger.info(f"🏨 HK | {from_phone} | Comando: '{raw[:30]}...'")
@@ -230,6 +246,7 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
             logger.info(f"📍 Worker {from_phone} detectado como área: {area_worker}")
         else:
             area_worker = state["area_worker"]
+        logger.info(f"🔍 DEBUG - Area worker: {area_worker}, Estado: {state.get('state')}, Texto: '{text[:50]}'")
 
         # ✅ 0) COMANDO GLOBAL MÁS PRIORITARIO: Menú (SIEMPRE funciona, incluso en errores)
         if raw in ['m', 'menu', 'menú', 'volver', 'salir', 'reiniciar', 'reset']:
@@ -313,7 +330,11 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
         # 3) Detectar reporte directo adaptado al área del worker
         current_state = state.get("state")
         if current_state not in [REPORTANDO_HAB, REPORTANDO_DETALLE, CONFIRMANDO_REPORTE]:
+            logger.info(f"🔍 DETECCIÓN - Intentando detectar reporte directo para área: {area_worker}")
+
             reporte = detectar_reporte_directo_adaptado(text, area_worker)
+            logger.info(f"🔍 RESULTADO - Reporte detectado: {reporte}")
+            
             if reporte:
                 # En vez de crear ticket directo, armamos draft + pedimos confirmación
                 draft = state.get("ticket_draft") or {}
@@ -1055,7 +1076,10 @@ def crear_ticket_directo(from_phone: str, reporte: dict, area_worker: str = "HOU
 def crear_ticket_desde_draft(from_phone: str) -> None:
     """
     Crea ticket desde el borrador y notifica al supervisor.
+    ✅ MODIFICADO: Solo notifica a supervisores en horario laboral (7:30 AM - 11:30 PM)
     """
+    from gateway_app.core.utils.horario import esta_en_horario_laboral, obtener_mensaje_fuera_horario
+    
     state = get_user_state(from_phone)
 
     if state.get("state") != CONFIRMANDO_REPORTE:
@@ -1084,13 +1108,13 @@ def crear_ticket_desde_draft(from_phone: str) -> None:
         area_worker = state.get("area_worker", "HOUSEKEEPING")
         
         ticket = tickets_db.crear_ticket(
-            habitacion=ubicacion,  # ✅ MODIFICADO: Usar ubicacion genérica
+            habitacion=ubicacion,
             detalle=draft["detalle"],
             prioridad=draft["prioridad"],
             creado_por=from_phone,
             origen="trabajador",
             canal_origen="WHATSAPP_BOT_HOUSEKEEPING",
-            area=area_worker,  # ✅ MODIFICADO: Área real del worker
+            area=area_worker,
         )
 
         logger.info(
@@ -1125,24 +1149,43 @@ def crear_ticket_desde_draft(from_phone: str) -> None:
         supervisor_phones = os.getenv("SUPERVISOR_PHONES", "").split(",")
         supervisor_phones = [p.strip() for p in supervisor_phones if p.strip()]
         
+        # ====================================================================
+        # ✅ NUEVO: CHECK DE HORARIO LABORAL
+        # ====================================================================
         if supervisor_phones:
-            from gateway_app.services.whatsapp_client import send_whatsapp_text
-            from gateway_app.services.workers_db import buscar_worker_por_telefono
+            en_horario = esta_en_horario_laboral()
             
-            worker = buscar_worker_por_telefono(from_phone)
-            worker_nombre = worker.get("nombre_completo") if worker else "Trabajador"
-            
-            # ✅ MODIFICADO: Notificación con ubicación adaptada
-            for supervisor_phone in supervisor_phones:
-                send_whatsapp_text(
-                    to=supervisor_phone,
-                    body=f"📋 Nuevo reporte de {worker_nombre}\n\n"
-                         f"#{ticket_id} · {ubicacion}\n"  # ✅ Sin "Hab." hardcodeado
-                         f"{draft['detalle']}\n"
-                         f"{prioridad_emoji} Prioridad: {draft['prioridad']}\n\n"
-                         f"💡 Di 'asignar {ticket_id} a [nombre]' para derivar"
+            if en_horario:
+                # ✅ EN HORARIO: Notificar supervisores normalmente
+                logger.info(f"✅ Ticket #{ticket_id} creado EN horario laboral - Notificando {len(supervisor_phones)} supervisores")
+                
+                from gateway_app.services.whatsapp_client import send_whatsapp_text
+                from gateway_app.services.workers_db import buscar_worker_por_telefono
+                
+                worker = buscar_worker_por_telefono(from_phone)
+                worker_nombre = worker.get("nombre_completo") if worker else "Trabajador"
+                
+                for supervisor_phone in supervisor_phones:
+                    send_whatsapp_text(
+                        to=supervisor_phone,
+                        body=f"📋 Nuevo reporte de {worker_nombre}\n\n"
+                             f"#{ticket_id} · {ubicacion}\n"
+                             f"{draft['detalle']}\n"
+                             f"{prioridad_emoji} Prioridad: {draft['prioridad']}\n\n"
+                             f"💡 Di 'asignar {ticket_id} a [nombre]' para derivar"
+                    )
+                    logger.info(f"✅ Notificación enviada a supervisor {supervisor_phone}")
+            else:
+                # 🌙 FUERA DE HORARIO: NO notificar supervisores
+                logger.warning(f"🌙 Ticket #{ticket_id} creado FUERA de horario laboral - NO se notifica a supervisores")
+                
+                # Informar al worker que será atendido mañana
+                send_whatsapp(
+                    from_phone,
+                    f"\n🌙 Fuera de horario laboral\n"
+                    f"⏰ Supervisión será notificada mañana a las 7:30 AM"
                 )
-                logger.info(f"✅ Notificación enviada a supervisor {supervisor_phone}")
+        # ====================================================================
 
         reset_ticket_draft(from_phone)
         state["state"] = MENU
@@ -1186,10 +1229,13 @@ def iniciar_turno(from_phone: str) -> None:
 
 def terminar_turno(from_phone: str) -> None:
     """
-    ✅ MODIFICADO: Permite terminar turno aunque tenga tickets activos.
-    Los tickets se pausan automáticamente.
+    ✅ CORREGIDO: Manejo correcto de timezone para calcular duración.
     """
     from datetime import datetime
+    from zoneinfo import ZoneInfo
+    
+    TIMEZONE = ZoneInfo("America/Santiago")
+    
     state = get_user_state(from_phone)
     
     if not state.get("turno_activo", False):
@@ -1203,7 +1249,6 @@ def terminar_turno(from_phone: str) -> None:
     tickets_activos = [t for t in tickets if t.get('estado') == 'EN_CURSO']
     
     if len(tickets_activos) > 0:
-        # Pausar todos los tickets activos
         from gateway_app.services.tickets_db import actualizar_estado_ticket
         
         for ticket in tickets_activos:
@@ -1214,22 +1259,37 @@ def terminar_turno(from_phone: str) -> None:
             f"⏸️ {len(tickets_activos)} tarea(s) pausada(s) automáticamente"
         )
     
-    # Calcular duración
+    # Calcular duración - ✅ FIX: Manejar timezone correctamente
     inicio = state.get("turno_inicio")
+    duracion_texto = "No disponible"
+    
     if inicio:
-        from datetime import datetime
-        inicio_dt = datetime.fromisoformat(inicio)
-        fin_dt = datetime.now()
-        duracion = fin_dt - inicio_dt
-        horas = int(duracion.total_seconds() / 3600)
-        minutos = int((duracion.total_seconds() % 3600) / 60)
-        duracion_texto = f"{horas}h {minutos}min"
-    else:
-        duracion_texto = "No disponible"
+        try:
+            inicio_dt = datetime.fromisoformat(inicio)
+            
+            # ✅ FIX: Asegurar que ambos tengan el mismo tipo de timezone
+            if inicio_dt.tzinfo is not None:
+                # Si inicio tiene timezone, usar now() con timezone
+                fin_dt = datetime.now(TIMEZONE)
+            else:
+                # Si inicio NO tiene timezone, usar now() sin timezone
+                fin_dt = datetime.now()
+            
+            duracion = fin_dt - inicio_dt
+            horas = int(duracion.total_seconds() / 3600)
+            minutos = int((duracion.total_seconds() % 3600) / 60)
+            duracion_texto = f"{horas}h {minutos}min"
+        except Exception as e:
+            logger.warning(f"Error calculando duración de turno: {e}")
+            duracion_texto = "No disponible"
     
     # Terminar turno
     state["turno_activo"] = False
-    state["turno_fin"] = datetime.now().isoformat()
+    state["turno_fin"] = datetime.now(TIMEZONE).isoformat()
+    
+    # ✅ Limpiar flags de recordatorio para el próximo día
+    state.pop("respondio_recordatorio_hoy", None)
+    state.pop("turno_auto_activado", None)
     
     send_whatsapp(
         from_phone,
@@ -1237,4 +1297,4 @@ def terminar_turno(from_phone: str) -> None:
         f"⏱️ Duración: {duracion_texto}\n"
         f"¡Buen trabajo! 👏"
     )
-    state["state"] = MENU
+    state["state"] = "MENU"

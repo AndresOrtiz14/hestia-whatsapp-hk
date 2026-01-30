@@ -154,7 +154,7 @@ def obtener_todos_workers() -> List[Dict[str, Any]]:
             turno_activo
         FROM public.users
         WHERE activo = true
-        AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES')
+        AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES', 'ROOMSERVICE')
         ORDER BY username
     """
 
@@ -195,10 +195,25 @@ def buscar_worker_por_nombre(nombre: str) -> Optional[Dict[str, Any]]:
     Busca un worker por nombre (case-insensitive + sin tildes).
     Retorna el mejor match (no necesariamente el primero alfabético).
     """
+    # ✅ DEBUG TEMPORAL: Ver todos los workers
+    debug_sql = """
+        SELECT username, area 
+        FROM public.users 
+        WHERE activo = true 
+        AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES', 'ROOMSERVICE')
+        LIMIT 20
+    """
+    debug_workers = fetchall(debug_sql) or []
+    logger.info(f"🔍 DEBUG: {len(debug_workers)} workers en BD:")
+    for dw in debug_workers:
+        logger.info(f"   - {dw.get('username')} ({dw.get('area')})")
+
     nombre_norm = _norm(nombre)
     if not nombre_norm:
         return None
 
+    # ✅ FIX 1: Usar %s para PostgreSQL y pasar el parámetro
+    # ✅ FIX 2: Usar patrón LIKE con %
     sql = """
         SELECT 
             id,
@@ -209,23 +224,30 @@ def buscar_worker_por_nombre(nombre: str) -> Optional[Dict[str, Any]]:
             turno_activo
         FROM public.users
         WHERE activo = true
-        AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES')
-        AND LOWER(username) LIKE LOWER(?)
-        LIMIT 1
+        AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES', 'ROOMSERVICE')
     """
 
     try:
-        workers = fetchall(sql, []) or []
+        # ✅ FIX 3: Obtener TODOS los workers activos
+        workers = fetchall(sql) or []
+        
+        logger.info(f"🔍 Buscando '{nombre}' entre {len(workers)} workers activos")
 
         # Filtrar candidatos por nombre normalizado
         candidatos: List[Dict[str, Any]] = []
         for w in workers:
             w_norm = _norm(w.get("nombre_completo") or "")
+            # ✅ FIX 4: Buscar nombre normalizado en nombre completo normalizado
             if nombre_norm in w_norm:
                 candidatos.append(w)
+                logger.debug(f"   ✓ Match: '{w.get('nombre_completo')}' contiene '{nombre}'")
 
         if not candidatos:
             logger.info(f"👥 0 workers encontrados con '{nombre}'")
+            # ✅ Debug: Mostrar todos los nombres disponibles
+            logger.info(f"📋 Workers disponibles:")
+            for w in workers[:5]:  # Mostrar primeros 5
+                logger.info(f"   - {w.get('nombre_completo')}")
             return None
 
         # Ranking: exact match > startswith > contains
@@ -240,7 +262,7 @@ def buscar_worker_por_nombre(nombre: str) -> Optional[Dict[str, Any]]:
         candidatos.sort(key=lambda w: (score(w), (w.get("nombre_completo") or "").lower()), reverse=True)
         elegido = candidatos[0]
 
-        logger.info(f"✅ Worker encontrado: {elegido.get('nombre_completo')}")
+        logger.info(f"✅ Worker encontrado: {elegido.get('nombre_completo')} (área: {elegido.get('area')})")
         return elegido
 
     except Exception as e:
@@ -268,7 +290,7 @@ def buscar_workers_por_nombre(nombre: str) -> List[Dict[str, Any]]:
             turno_activo
         FROM public.users
         WHERE activo = true
-        AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES')
+        AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES', 'ROOMSERVICE')
         ORDER BY username
     """
 
@@ -309,7 +331,7 @@ def buscar_worker_por_telefono(telefono: str) -> Optional[Dict[str, Any]]:
             turno_activo
         FROM public.users
         WHERE activo = true
-        AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES')
+        AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES', 'ROOMSERVICE')
         AND telefono = ?
         LIMIT 1
     """

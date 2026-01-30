@@ -5,33 +5,38 @@ from typing import List, Dict, Any
 
 def texto_saludo_supervisor() -> str:
     """
-    Saludo simple y directo sin menú.
-    
-    Returns:
-        Texto del saludo
+    Saludo/ayuda con todos los comandos disponibles para supervisores.
     """
-    return """👋 Hola, soy el asistente de Operaciones de Hestia.
+    return """👋 ¡Hola! Soy tu asistente de operaciones.
 
-💬 Puedes decirme (texto o audio):
+📊 *VER TICKETS*
+• `pendientes` → sin asignar
+• `asignados` → en proceso  
+• `urgentes` → prioridad alta
+• `retrasados` → >10 min sin resolver
+• `en curso` → trabajos activos
+• `ticket 15` → info del #15
 
-📋 ASIGNAR:
-• "asignar 1503 a María"
-• "más urgente" (te muestro la más importante)
-• "pendientes" (lista completa)
+👥 *VER EQUIPO*
+• `equipo` → estado de trabajadores
 
-➕ CREAR:
-• "hab 420 limpieza urgente"
-• "crear hab 305 toallas"
+🎯 *ASIGNAR*
+• `asignar 15 a María`
+• `reasignar 12 a Pedro`
+• `más urgente` → asigna el próximo
 
-⚠️ VER URGENTES:
-• "urgente" (solo las importantes)
-• "retrasados" (>10 min sin resolver)
+✅ *FINALIZAR*
+• `finalizar 15`
 
-🔄 REASIGNAR:
-• "reasignar 1501 a Pedro"
+📝 *CREAR TICKET*
+• `hab 420 limpieza urgente`
+• `crear 305 toallas`
 
-💡 Todo funciona con audio también."""
+❓ *OTROS*
+• `ayuda` → ver este mensaje
+• `cancelar` → abortar operación
 
+🎤 Todo funciona con texto y audio."""
 
 def texto_tickets_pendientes_simple(tickets: List[Dict]) -> str:
     if not tickets:
