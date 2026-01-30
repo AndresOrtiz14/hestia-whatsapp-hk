@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 from gateway_app.services.tickets_db import crear_ticket
 from gateway_app.services import tickets_db
+from zoneinfo import ZoneInfo
 
 from gateway_app.flows.housekeeping.turno_auto import verificar_y_activar_turno_auto
 
@@ -1228,10 +1229,13 @@ def iniciar_turno(from_phone: str) -> None:
 
 def terminar_turno(from_phone: str) -> None:
     """
-    ✅ MODIFICADO: Permite terminar turno aunque tenga tickets activos.
-    Los tickets se pausan automáticamente.
+    ✅ CORREGIDO: Manejo correcto de timezone para calcular duración.
     """
     from datetime import datetime
+    from zoneinfo import ZoneInfo
+    
+    TIMEZONE = ZoneInfo("America/Santiago")
+    
     state = get_user_state(from_phone)
     
     if not state.get("turno_activo", False):
@@ -1245,7 +1249,6 @@ def terminar_turno(from_phone: str) -> None:
     tickets_activos = [t for t in tickets if t.get('estado') == 'EN_CURSO']
     
     if len(tickets_activos) > 0:
-        # Pausar todos los tickets activos
         from gateway_app.services.tickets_db import actualizar_estado_ticket
         
         for ticket in tickets_activos:
@@ -1256,22 +1259,37 @@ def terminar_turno(from_phone: str) -> None:
             f"⏸️ {len(tickets_activos)} tarea(s) pausada(s) automáticamente"
         )
     
-    # Calcular duración
+    # Calcular duración - ✅ FIX: Manejar timezone correctamente
     inicio = state.get("turno_inicio")
+    duracion_texto = "No disponible"
+    
     if inicio:
-        from datetime import datetime
-        inicio_dt = datetime.fromisoformat(inicio)
-        fin_dt = datetime.now()
-        duracion = fin_dt - inicio_dt
-        horas = int(duracion.total_seconds() / 3600)
-        minutos = int((duracion.total_seconds() % 3600) / 60)
-        duracion_texto = f"{horas}h {minutos}min"
-    else:
-        duracion_texto = "No disponible"
+        try:
+            inicio_dt = datetime.fromisoformat(inicio)
+            
+            # ✅ FIX: Asegurar que ambos tengan el mismo tipo de timezone
+            if inicio_dt.tzinfo is not None:
+                # Si inicio tiene timezone, usar now() con timezone
+                fin_dt = datetime.now(TIMEZONE)
+            else:
+                # Si inicio NO tiene timezone, usar now() sin timezone
+                fin_dt = datetime.now()
+            
+            duracion = fin_dt - inicio_dt
+            horas = int(duracion.total_seconds() / 3600)
+            minutos = int((duracion.total_seconds() % 3600) / 60)
+            duracion_texto = f"{horas}h {minutos}min"
+        except Exception as e:
+            logger.warning(f"Error calculando duración de turno: {e}")
+            duracion_texto = "No disponible"
     
     # Terminar turno
     state["turno_activo"] = False
-    state["turno_fin"] = datetime.now().isoformat()
+    state["turno_fin"] = datetime.now(TIMEZONE).isoformat()
+    
+    # ✅ Limpiar flags de recordatorio para el próximo día
+    state.pop("respondio_recordatorio_hoy", None)
+    state.pop("turno_auto_activado", None)
     
     send_whatsapp(
         from_phone,
@@ -1279,4 +1297,4 @@ def terminar_turno(from_phone: str) -> None:
         f"⏱️ Duración: {duracion_texto}\n"
         f"¡Buen trabajo! 👏"
     )
-    state["state"] = MENU
+    state["state"] = "MENU"
