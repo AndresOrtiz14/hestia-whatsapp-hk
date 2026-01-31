@@ -10,9 +10,10 @@ Funcionalidades:
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -36,39 +37,41 @@ def calcular_tiempo_transcurrido(fecha: Any) -> str:
         from dateutil import parser
         
         if isinstance(fecha, str):
-            fecha = parser.parse(fecha)
-        
-        ahora = datetime.now(TIMEZONE)
-        
-        # Manejar timezone
+            fecha = parser.isoparse(fecha)
+
+        # Normalización: si viene naive, ASUMIR UTC (muy típico en DB/ISO sin offset)
         if fecha.tzinfo is None:
-            fecha = fecha.replace(tzinfo=TIMEZONE)
-        else:
-            ahora = datetime.now(fecha.tzinfo)
+            fecha = fecha.replace(tzinfo=timezone.utc)
         
-        delta = ahora - fecha
-        total_mins = int(delta.total_seconds() / 60)
-        
+        # Comparar en UTC (regla simple y sin DST headaches)
+        ahora_utc = datetime.now(timezone.utc)
+        fecha_utc = fecha.astimezone(timezone.utc)
+
+        delta = ahora_utc - fecha_utc
+        total_mins = int(delta.total_seconds() // 60)
+
+        # Si queda negativo, suele ser skew o TZ mal en el dato; igual lo manejamos
         if total_mins < 0:
-            return "recién"
-        
+            # si está "levemente" en el futuro por segundos/desfase, muéstralo como recién
+            if total_mins > -2:
+                return "recién"
+            return "?"
+
         if total_mins < 60:
             return f"{total_mins} min"
-        
+
         horas = total_mins // 60
         mins = total_mins % 60
-        
+
         if horas >= 24:
             dias = horas // 24
             horas_rest = horas % 24
             if dias == 1:
                 return f"1 día {horas_rest}h" if horas_rest else "1 día"
-            return f"{dias} días" if not horas_rest else f"{dias}d {horas_rest}h"
-        
-        if mins == 0:
-            return f"{horas}h"
-        return f"{horas}h {mins}m"
-    
+            return f"{dias}d {horas_rest}h" if horas_rest else f"{dias} días"
+
+        return f"{horas}h" if mins == 0 else f"{horas}h {mins}m"
+
     except Exception as e:
         logger.warning(f"Error calculando tiempo: {e}")
         return "?"
