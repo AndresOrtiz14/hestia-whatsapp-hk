@@ -19,6 +19,7 @@ gateway_app\flows\housekeeping\orchestrator_hk_multiticket.py ^
 gateway_app\flows\housekeeping\outgoing.py ^
 gateway_app\flows\housekeeping\reminders.py ^
 gateway_app\flows\housekeeping\state_simple.py ^
+gateway_app\flows\housekeeping\turno_auto.py ^
 gateway_app\flows\housekeeping\ui_simple.py ^
 gateway_app\flows\housekeeping\__init__.py ^
 gateway_app\flows\supervision\audio_commands.py ^
@@ -27,12 +28,14 @@ gateway_app\flows\supervision\orchestrator_simple.py ^
 gateway_app\flows\supervision\outgoing.py ^
 gateway_app\flows\supervision\state.py ^
 gateway_app\flows\supervision\ticket_assignment.py ^
+gateway_app\flows\supervision\tiempo_utils.py ^
 gateway_app\flows\supervision\ubicacion_helpers.py ^
 gateway_app\flows\supervision\ui_simple.py ^
 gateway_app\flows\supervision\worker_search.py ^
 gateway_app\flows\supervision\__init__.py ^
 gateway_app\routes\webhook.py gateway_app\routes\__init__.py ^
 gateway_app\services\audio.py ^
+gateway_app\services\daily_scheduler.py ^
 gateway_app\services\db.py ^
 gateway_app\services\migrations.py ^
 gateway_app\services\runtime_state.py ^

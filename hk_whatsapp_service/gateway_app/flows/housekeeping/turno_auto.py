@@ -1,7 +1,9 @@
 # gateway_app/flows/housekeeping/turno_auto.py
 """
 Módulo para activación automática de turno.
-Se activa cuando el worker responde al recordatorio matutino.
+
+REGLA: Si el worker tiene turno inactivo y envía CUALQUIER mensaje,
+el turno se activa automáticamente. No depende del recordatorio matutino.
 """
 from __future__ import annotations
 
@@ -18,91 +20,74 @@ TIMEZONE = ZoneInfo("America/Santiago")
 def verificar_y_activar_turno_auto(from_phone: str, state: dict) -> Optional[str]:
     """
     Verifica si el worker debe activar turno automáticamente y lo hace.
-    
-    Condiciones:
+
+    Condiciones (simplificadas):
     1. El turno NO está activo
-    2. Se envió recordatorio matutino HOY
-    3. No ha respondido aún hoy
-    
+    2. El worker existe en BD y está activo
+
+    Ya NO depende de recordatorio matutino. Cualquier mensaje con turno
+    inactivo dispara la activación.
+
     Args:
         from_phone: Teléfono del worker
         state: Estado actual del usuario (se modifica in-place)
-    
+
     Returns:
-        Mensaje de confirmación si se activó, None si no
+        Mensaje de confirmación si se activó, None si no aplica
     """
     from gateway_app.services.workers_db import (
         buscar_worker_por_telefono,
-        activar_turno_por_telefono
+        activar_turno_por_telefono,
     )
-    
-    hoy = datetime.now(TIMEZONE).date().isoformat()
-    
-    # Log del state actual para debugging
+
     logger.info(f"🔍 TURNO_AUTO check para {from_phone}")
-    logger.info(f"🔍 TURNO_AUTO state keys: {list(state.keys())}")
     logger.info(f"🔍 TURNO_AUTO turno_activo={state.get('turno_activo')}")
-    logger.info(f"🔍 TURNO_AUTO recordatorio_fecha={state.get('recordatorio_matutino_fecha')}")
-    logger.info(f"🔍 TURNO_AUTO respondio_hoy={state.get('respondio_recordatorio_hoy')}")
-    logger.info(f"🔍 TURNO_AUTO hoy={hoy}")
-    
-    # 1. Ya tiene turno activo?
+
+    # 1. Ya tiene turno activo → nada que hacer
     if state.get("turno_activo", False):
-        logger.info(f"🔍 TURNO_AUTO: Ya tiene turno activo → skip")
+        logger.info("🔍 TURNO_AUTO: Ya tiene turno activo → skip")
         return None
-    
-    # 2. Verificar si recibió recordatorio matutino HOY
-    fecha_recordatorio = state.get("recordatorio_matutino_fecha")
-    
-    if fecha_recordatorio != hoy:
-        logger.info(f"🔍 TURNO_AUTO: No recibió recordatorio hoy ({fecha_recordatorio} != {hoy}) → skip")
-        return None
-    
-    # 3. Verificar si ya respondió hoy
-    if state.get("respondio_recordatorio_hoy", False):
-        logger.info(f"🔍 TURNO_AUTO: Ya respondió hoy → skip")
-        return None
-    
-    # 4. Verificar que sea un worker registrado
+
+    # 2. Verificar que sea un worker registrado y activo
     worker = buscar_worker_por_telefono(from_phone)
     if not worker:
-        logger.warning(f"⚠️ TURNO_AUTO: Worker no encontrado → skip")
+        logger.warning("⚠️ TURNO_AUTO: Worker no encontrado → skip")
         return None
-    
+
     # ✅ ACTIVAR TURNO AUTOMÁTICAMENTE
-    logger.info(f"🟢 TURNO_AUTO: ¡Activando turno para {from_phone}!")
-    
+    logger.info(f"🟢 TURNO_AUTO: Activando turno para {from_phone}")
+
     try:
         ok = activar_turno_por_telefono(from_phone)
         if not ok:
-            logger.error(f"❌ TURNO_AUTO: activar_turno_por_telefono retornó False")
+            logger.error("❌ TURNO_AUTO: activar_turno_por_telefono retornó False")
             return None
-        logger.info(f"✅ TURNO_AUTO: BD actualizada")
+        logger.info("✅ TURNO_AUTO: BD actualizada")
     except Exception as e:
         logger.exception(f"❌ TURNO_AUTO: Error BD: {e}")
         return None
-    
-    # Actualizar estado local
+
+    # Actualizar estado local (in-place para que el orquestador lo vea)
     state["turno_activo"] = True
     state["turno_inicio"] = datetime.now(TIMEZONE).isoformat()
-    state["respondio_recordatorio_hoy"] = True
     state["turno_auto_activado"] = True
-    
-    # Limpiar flag de recordatorio
+
+    # Limpiar flags de recordatorio (ya no son necesarios para la lógica,
+    # pero los limpiamos para no acumular basura en el state)
     state.pop("recordatorio_matutino_fecha", None)
-    
+    state.pop("respondio_recordatorio_hoy", None)
+
     logger.info(f"✅ TURNO_AUTO: Turno activado exitosamente para {from_phone}")
-    logger.info(f"✅ TURNO_AUTO: State actualizado: turno_activo={state.get('turno_activo')}")
-    
+
     # Construir mensaje
     nombre = worker.get("nombre_completo", worker.get("nombre", ""))
     primer_nombre = nombre.split()[0] if nombre else ""
-    
+
     mensaje = (
         f"🟢 ¡Turno activado{', ' + primer_nombre if primer_nombre else ''}!\n\n"
         "✅ Ya puedes recibir y gestionar tareas.\n\n"
         "💡 Escribe 'M' para ver el menú\n"
         "💡 Escribe 'terminar turno' al finalizar"
     )
-    
+
     return mensaje
