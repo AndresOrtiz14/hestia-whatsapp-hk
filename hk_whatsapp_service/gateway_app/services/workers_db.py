@@ -1,18 +1,43 @@
+# gateway_app/services/workers_db.py
 """
 Consultas de workers desde Supabase.
+
+✅ FIX: Todas las queries filtran por org_id/hotel_id usando JOIN con orgusers.
+   - public.users no tiene org_id/hotel_id
+   - public.orgusers SÍ tiene org_id y default_hotel_id
+   - JOIN: users.id = orgusers.user_id → filtra por organización y hotel
 """
+import os
 import logging
+import re
+import unicodedata
 from typing import List, Dict, Any, Optional
 
 from gateway_app.services.db import fetchall, fetchone, execute, using_pg
 
-import os
-from gateway_app.services.db import execute
-
-import re
-import unicodedata
-
 logger = logging.getLogger(__name__)
+
+
+# ============================================================
+# HELPERS
+# ============================================================
+
+def _env_int(name: str) -> int:
+    v = (os.getenv(name) or "").strip()
+    if not v:
+        raise RuntimeError(f"Missing required env var: {name}")
+    try:
+        return int(v)
+    except ValueError as e:
+        raise RuntimeError(f"Env var {name} must be an int, got: {v!r}") from e
+
+
+def _default_scope() -> tuple[int, int]:
+    """Source of truth: Render env vars ORG_ID_DEFAULT y HOTEL_ID_DEFAULT."""
+    org_id = _env_int("ORG_ID_DEFAULT")
+    hotel_id = _env_int("HOTEL_ID_DEFAULT")
+    return org_id, hotel_id
+
 
 def normalizar_area(area: str) -> str:
     a = (area or "").strip().upper()
@@ -24,18 +49,46 @@ def normalizar_area(area: str) -> str:
         return "HOUSEKEEPING"
     return a or "HOUSEKEEPING"
 
+
 def _normalize_phone(phone: str) -> str:
-    # deja solo dígitos (ajusta si tú guardas con '+')
     return "".join(ch for ch in (phone or "").strip() if ch.isdigit())
+
 
 def _norm(s: str) -> str:
     if not s:
         return ""
     s = s.strip().lower()
     s = unicodedata.normalize("NFD", s)
-    s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")  # quita tildes
+    s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")
     s = re.sub(r"\s+", " ", s)
     return s
+
+
+# ============================================================
+# SQL base: SELECT de workers filtrado por org/hotel via orgusers
+# ============================================================
+
+_WORKERS_BASE_SQL = """
+    SELECT 
+        u.id,
+        u.username AS nombre_completo,
+        u.telefono,
+        u.area,
+        u.activo,
+        u.turno_activo
+    FROM public.users u
+    JOIN public.orgusers ou ON ou.user_id = u.id
+    WHERE u.activo = true
+      AND ou.org_id = ?
+      AND ou.default_hotel_id = ?
+      AND u.area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 
+                      'AREAS_COMUNES', 'ROOMSERVICE')
+"""
+
+
+# ============================================================
+# TURNO (operan por teléfono único, no necesitan filtro org/hotel)
+# ============================================================
 
 def activar_turno_por_telefono(phone: str) -> bool:
     if not using_pg():
@@ -64,6 +117,7 @@ def activar_turno_por_telefono(phone: str) -> bool:
     logger.warning("⚠️ No se activó turno: no existe user con telefono=%s", phone_n)
     return False
 
+
 def desactivar_turno_por_telefono(phone: str) -> bool:
     phone_n = _normalize_phone(phone)
     if not phone_n:
@@ -76,13 +130,15 @@ def desactivar_turno_por_telefono(phone: str) -> bool:
     return True
 
 
+# ============================================================
+# RUNTIME SESSIONS (no depende de org/hotel)
+# ============================================================
 
 def _get_pg_conn():
     dsn = os.getenv("DATABASE_URL")
     if not dsn:
         raise RuntimeError("DATABASE_URL no está configurada")
 
-    # Intentar psycopg2 primero, fallback a psycopg (v3).
     try:
         import psycopg2  # type: ignore
         return psycopg2.connect(dsn, sslmode="require")
@@ -127,7 +183,7 @@ def obtener_runtime_sessions_por_telefonos(phones: list[str]) -> dict[str, dict]
         out: dict[str, dict] = {}
         for phone, turno_activo, ocupada, pausada, area in rows:
             out[str(phone)] = {
-                "turno_activo": turno_activo,  # puede venir None
+                "turno_activo": turno_activo,
                 "ocupada": ocupada,
                 "pausada": pausada,
                 "area": area,
@@ -137,42 +193,42 @@ def obtener_runtime_sessions_por_telefonos(phones: list[str]) -> dict[str, dict]
         logger.exception("Error leyendo runtime_sessions; devolviendo {}")
         return {}
 
-logger = logging.getLogger(__name__)
 
-def obtener_todos_workers() -> List[Dict[str, Any]]:
+# ============================================================
+# QUERIES DE WORKERS (todas filtradas por org/hotel via orgusers)
+# ============================================================
+
+def obtener_todos_workers(
+    *,
+    org_id: Optional[int] = None,
+    hotel_id: Optional[int] = None,
+) -> List[Dict[str, Any]]:
     """
-    Obtiene todos los trabajadores activos.
-    Incluye turno_activo desde users (fuente de verdad).
+    Obtiene trabajadores activos FILTRADOS por org_id y hotel_id.
+    Usa JOIN con orgusers (que tiene org_id y default_hotel_id).
     """
-    sql = """
-        SELECT 
-            id,
-            username as nombre_completo,
-            telefono,
-            area,
-            activo,
-            turno_activo
-        FROM public.users
-        WHERE activo = true
-        AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES', 'ROOMSERVICE')
-        ORDER BY username
-    """
+    if org_id is None or hotel_id is None:
+        d_org, d_hotel = _default_scope()
+        org_id = d_org if org_id is None else org_id
+        hotel_id = d_hotel if hotel_id is None else hotel_id
+
+    sql = _WORKERS_BASE_SQL + "\n    ORDER BY u.username"
 
     try:
-        workers = fetchall(sql)
+        workers = fetchall(sql, [org_id, hotel_id])
 
         # Enriquecer con runtime_sessions SOLO para flags efímeros (no turno)
         phones = [w.get("telefono") for w in workers if w.get("telefono")]
-        sessions = obtener_runtime_sessions_por_telefonos(phones) or {}  # <- blindaje
+        sessions = obtener_runtime_sessions_por_telefonos(phones) or {}
 
         for w in workers:
             phone = w.get("telefono")
             data = (sessions.get(phone, {}) or {})
 
-            # ✅ Turno desde BD
+            # Turno desde BD (fuente de verdad)
             w["turno_activo"] = bool(w.get("turno_activo", False))
 
-            # opcional: estado efímero desde runtime
+            # Estado efímero desde runtime
             w["pausada"] = bool(data.get("pausada", False))
             w["ocupada"] = bool(data.get("ocupada", False))
 
@@ -180,7 +236,8 @@ def obtener_todos_workers() -> List[Dict[str, Any]]:
             w["area"] = normalizar_area(w.get("area") or data.get("area") or "HOUSEKEEPING")
 
         logger.info(
-            f"👥 {len(workers)} workers; turno_activo={sum(1 for w in workers if w.get('turno_activo'))}; "
+            f"👥 {len(workers)} workers (org={org_id}, hotel={hotel_id}); "
+            f"turno_activo={sum(1 for w in workers if w.get('turno_activo'))}; "
             f"areas_sample={[w.get('area') for w in workers[:5]]}"
         )
         return workers
@@ -190,63 +247,44 @@ def obtener_todos_workers() -> List[Dict[str, Any]]:
         return []
 
 
-def buscar_worker_por_nombre(nombre: str) -> Optional[Dict[str, Any]]:
+def buscar_worker_por_nombre(
+    nombre: str,
+    *,
+    org_id: Optional[int] = None,
+    hotel_id: Optional[int] = None,
+) -> Optional[Dict[str, Any]]:
     """
     Busca un worker por nombre (case-insensitive + sin tildes).
-    Retorna el mejor match (no necesariamente el primero alfabético).
+    Retorna el mejor match. Filtrado por org/hotel via orgusers.
     """
-    # ✅ DEBUG TEMPORAL: Ver todos los workers
-    debug_sql = """
-        SELECT username, area 
-        FROM public.users 
-        WHERE activo = true 
-        AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES', 'ROOMSERVICE')
-        LIMIT 20
-    """
-    debug_workers = fetchall(debug_sql) or []
-    logger.info(f"🔍 DEBUG: {len(debug_workers)} workers en BD:")
-    for dw in debug_workers:
-        logger.info(f"   - {dw.get('username')} ({dw.get('area')})")
+    if org_id is None or hotel_id is None:
+        d_org, d_hotel = _default_scope()
+        org_id = d_org if org_id is None else org_id
+        hotel_id = d_hotel if hotel_id is None else hotel_id
 
     nombre_norm = _norm(nombre)
     if not nombre_norm:
         return None
 
-    # ✅ FIX 1: Usar %s para PostgreSQL y pasar el parámetro
-    # ✅ FIX 2: Usar patrón LIKE con %
-    sql = """
-        SELECT 
-            id,
-            username as nombre_completo,
-            telefono,
-            area,
-            activo,
-            turno_activo
-        FROM public.users
-        WHERE activo = true
-        AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES', 'ROOMSERVICE')
-    """
+    sql = _WORKERS_BASE_SQL
 
     try:
-        # ✅ FIX 3: Obtener TODOS los workers activos
-        workers = fetchall(sql) or []
-        
-        logger.info(f"🔍 Buscando '{nombre}' entre {len(workers)} workers activos")
+        workers = fetchall(sql, [org_id, hotel_id]) or []
+
+        logger.info(f"🔍 Buscando '{nombre}' entre {len(workers)} workers activos (org={org_id}, hotel={hotel_id})")
 
         # Filtrar candidatos por nombre normalizado
         candidatos: List[Dict[str, Any]] = []
         for w in workers:
             w_norm = _norm(w.get("nombre_completo") or "")
-            # ✅ FIX 4: Buscar nombre normalizado en nombre completo normalizado
             if nombre_norm in w_norm:
                 candidatos.append(w)
                 logger.debug(f"   ✓ Match: '{w.get('nombre_completo')}' contiene '{nombre}'")
 
         if not candidatos:
             logger.info(f"👥 0 workers encontrados con '{nombre}'")
-            # ✅ Debug: Mostrar todos los nombres disponibles
             logger.info(f"📋 Workers disponibles:")
-            for w in workers[:5]:  # Mostrar primeros 5
+            for w in workers[:5]:
                 logger.info(f"   - {w.get('nombre_completo')}")
             return None
 
@@ -270,45 +308,39 @@ def buscar_worker_por_nombre(nombre: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def buscar_workers_por_nombre(nombre: str) -> List[Dict[str, Any]]:
+def buscar_workers_por_nombre(
+    nombre: str,
+    *,
+    org_id: Optional[int] = None,
+    hotel_id: Optional[int] = None,
+) -> List[Dict[str, Any]]:
     """
     Busca múltiples workers que coincidan con el nombre (match sin tildes).
+    Filtrado por org/hotel via orgusers.
     """
+    if org_id is None or hotel_id is None:
+        d_org, d_hotel = _default_scope()
+        org_id = d_org if org_id is None else org_id
+        hotel_id = d_hotel if hotel_id is None else hotel_id
+
     nombre_norm = _norm(nombre)
     if not nombre_norm:
         return []
 
-    # OJO: como vamos a filtrar "accent-insensitive" en Python,
-    # no usamos LIKE (?) en SQL para no depender de parámetros.
-    sql = """
-        SELECT 
-            id,
-            username as nombre_completo,
-            telefono,
-            area,
-            activo,
-            turno_activo
-        FROM public.users
-        WHERE activo = true
-        AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES', 'ROOMSERVICE')
-        ORDER BY username
-    """
+    sql = _WORKERS_BASE_SQL + "\n    ORDER BY u.username"
 
     try:
-        # 1) Traemos candidatos (activos + áreas válidas)
-        workers = fetchall(sql)  # <- sin params
+        workers = fetchall(sql, [org_id, hotel_id])
 
-        # 2) Filtramos “accent-insensitive” en Python
         matches = []
         for w in (workers or []):
             nombre_worker = _norm(w.get("nombre_completo") or "")
             if nombre_norm in nombre_worker:
-                # ✅ Normalizaciones clave para evitar "❓" y tener área consistente
                 w["turno_activo"] = bool(w.get("turno_activo", False))
                 w["area"] = normalizar_area(w.get("area") or "HOUSEKEEPING")
                 matches.append(w)
 
-        logger.info(f"👥 {len(matches)} workers encontrados con '{nombre}'")
+        logger.info(f"👥 {len(matches)} workers encontrados con '{nombre}' (org={org_id}, hotel={hotel_id})")
         return matches
 
     except Exception as e:
@@ -316,37 +348,35 @@ def buscar_workers_por_nombre(nombre: str) -> List[Dict[str, Any]]:
         return []
 
 
-
-def buscar_worker_por_telefono(telefono: str) -> Optional[Dict[str, Any]]:
+def buscar_worker_por_telefono(
+    telefono: str,
+    *,
+    org_id: Optional[int] = None,
+    hotel_id: Optional[int] = None,
+) -> Optional[Dict[str, Any]]:
     """
     Busca un worker por número de teléfono.
+    Filtrado por org/hotel via orgusers.
     """
-    sql = """
-        SELECT 
-            id,
-            username as nombre_completo,
-            telefono,
-            area,
-            activo,
-            turno_activo
-        FROM public.users
-        WHERE activo = true
-        AND area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 'AREAS_COMUNES', 'ROOMSERVICE')
-        AND telefono = ?
+    if org_id is None or hotel_id is None:
+        d_org, d_hotel = _default_scope()
+        org_id = d_org if org_id is None else org_id
+        hotel_id = d_hotel if hotel_id is None else hotel_id
+
+    sql = _WORKERS_BASE_SQL + """
+        AND u.telefono = ?
         LIMIT 1
     """
 
     try:
-        worker = fetchone(sql, [telefono])
+        worker = fetchone(sql, [org_id, hotel_id, telefono])
 
         if worker:
-            # ✅ Normalizaciones clave para que no salga "❓"
             worker["turno_activo"] = bool(worker.get("turno_activo", False))
             worker["area"] = normalizar_area(worker.get("area") or "HOUSEKEEPING")
-
-            logger.info(f"✅ Worker encontrado por teléfono: {worker['nombre_completo']}")
+            logger.info(f"✅ Worker encontrado por teléfono: {worker['nombre_completo']} (org={org_id}, hotel={hotel_id})")
         else:
-            logger.info(f"⚠️ No se encontró worker con teléfono: {telefono}")
+            logger.info(f"⚠️ No se encontró worker con teléfono: {telefono} (org={org_id}, hotel={hotel_id})")
 
         return worker
 

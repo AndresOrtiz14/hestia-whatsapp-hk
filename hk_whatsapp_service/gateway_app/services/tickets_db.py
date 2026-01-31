@@ -242,14 +242,20 @@ def obtener_tickets_asignados_a(phone: str) -> List[Dict[str, Any]]:
         logger.exception("Error obteniendo tickets asignados: %s", e)
         return []
 
-def obtener_tickets_asignados_y_en_curso() -> list:
+def obtener_tickets_asignados_y_en_curso(
+    *,
+    org_id: Optional[int] = None,
+    hotel_id: Optional[int] = None,
+) -> list:
     """
-    Obtiene todos los tickets con estado ASIGNADO o EN_CURSO.
-    Extrae el nombre del worker de huesped_whatsapp (formato: "phone|nombre").
-    
-    Returns:
-        Lista de tickets ordenados por prioridad y fecha
+    Obtiene tickets con estado ASIGNADO o EN_CURSO
+    FILTRADOS por org_id y hotel_id.
     """
+    if org_id is None or hotel_id is None:
+        d_org, d_hotel = _default_scope()
+        org_id = d_org if org_id is None else org_id
+        hotel_id = d_hotel if hotel_id is None else hotel_id
+
     try:
         tickets = fetchall(
             """
@@ -260,7 +266,6 @@ def obtener_tickets_asignados_y_en_curso() -> list:
                 t.prioridad,
                 t.estado,
                 t.huesped_whatsapp,
-                -- ✅ FIX v2: Usar POSITION en lugar de LIKE
                 CASE 
                     WHEN POSITION('|' IN COALESCE(t.huesped_whatsapp, '')) > 0 
                     THEN SPLIT_PART(t.huesped_whatsapp, '|', 2)
@@ -274,7 +279,10 @@ def obtener_tickets_asignados_y_en_curso() -> list:
                 t.created_at,
                 t.assigned_at
             FROM public.tickets t
-            WHERE t.estado IN ('ASIGNADO', 'EN_CURSO')
+            WHERE t.org_id = ?
+              AND t.hotel_id = ?
+              AND t.estado IN ('ASIGNADO', 'EN_CURSO')
+              AND t.deleted_at IS NULL
             ORDER BY 
                 CASE t.prioridad
                     WHEN 'ALTA' THEN 1
@@ -283,10 +291,11 @@ def obtener_tickets_asignados_y_en_curso() -> list:
                     ELSE 4
                 END,
                 t.created_at ASC
-            """
+            """,
+            [org_id, hotel_id],
         )
         
-        logger.info(f"📊 {len(tickets)} tickets ASIGNADOS/EN_CURSO obtenidos")
+        logger.info(f"📊 {len(tickets)} tickets ASIGNADOS/EN_CURSO obtenidos (org={org_id}, hotel={hotel_id})")
         return tickets
         
     except Exception as e:
