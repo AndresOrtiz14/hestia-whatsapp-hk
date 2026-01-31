@@ -245,46 +245,58 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
         # ⚠️ IMPORTANTE: ESTOS VAN **ANTES** DE maybe_handle_audio_command_simple
         # ==================================================
         
+        raw_cmd = raw
+        if raw_cmd.startswith("ver "):
+            raw_cmd = raw_cmd[4:].strip()
+
+        # 4) Crear nuevo ticket
+        if raw_cmd in ["crear", "nuevo", "nueva", "nueva tarea", "crear tarea", "registrar"]:
+            send_whatsapp(
+                from_phone,
+                "📝 Listo, espero tu reporte.\n\n"
+                "Describe el problema con la ubicación:\n")
+            return
+
         # 4.1) Pendientes
-        if raw in ["pendientes", "pendiente", "ver", "lista"]:
+        if raw_cmd in ["pendientes", "pendiente", "ver", "lista"]:
             mostrar_pendientes_simple(from_phone)
             return
         
         # 4.2) Asignados ← ✅ AQUÍ
-        if raw in ["asignados", "asignadas", "en proceso", "activos", "activas", "trabajando"]:
+        if raw_cmd in ["asignados", "asignadas", "en proceso", "activos", "activas", "trabajando"]:
             mostrar_tickets_asignados_y_en_curso(from_phone)
             return
         
         # 4.3) Más urgente / siguiente
-        if raw in ["siguiente", "next", "proximo", "urgente", "asignar urgente", "mas urgente", "más urgente"]:
+        if raw_cmd in ["siguiente", "next", "proximo", "urgente", "asignar urgente", "mas urgente", "más urgente"]:
             asignar_siguiente(from_phone)
             return
         
         # 4.4) Ver urgentes
-        if raw in ["urgentes", "critico"]:
+        if raw_cmd in ["urgentes", "critico"]:
             mostrar_urgentes(from_phone)
             return
         
         # 4.5) Ver retrasados
-        if raw in ["retrasados", "retrasado", "atrasados"]:
+        if raw_cmd in ["retrasados", "retrasado", "atrasados"]:
             mostrar_retrasados(from_phone)
             return
         
         # 4.6) Ver en curso
-        if raw in ["en curso", "proceso"]:
+        if raw_cmd in ["en curso", "proceso"]:
             mostrar_en_proceso(from_phone)
             return
         
         # 4.7) BD commands
-        if raw in ["bd pendientes", "db pendientes", "pendientes bd"]:
+        if raw_cmd in ["bd pendientes", "db pendientes", "pendientes bd"]:
             mostrar_tickets_db(from_phone, "PENDIENTE")
             return
         
-        if raw in ["bd asignados", "db asignados", "asignados bd"]:
+        if raw_cmd in ["bd asignados", "db asignados", "asignados bd"]:
             mostrar_tickets_db(from_phone, "ASIGNADO")
             return
         
-        if raw in ["bd en curso", "db en curso", "en curso bd"]:
+        if raw_cmd in ["bd en curso", "db en curso", "en curso bd"]:
             mostrar_tickets_db(from_phone, "EN_CURSO")
             return
         
@@ -309,7 +321,7 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
             return
         
         # 4.10) Ver estado del equipo
-        if raw in ['equipo', 'trabajadores', 'mucamas', 'team', 'staff', 'trabajadoras']:
+        if raw_cmd in ['equipo', 'trabajadores', 'mucamas', 'team', 'staff', 'trabajadoras']:
             mensaje = construir_mensaje_equipo()
             send_whatsapp(from_phone, mensaje)
             return
@@ -320,7 +332,7 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
             return
         
         # 4.12) Ayuda
-        if raw in ['ayuda', 'help', 'comandos', 'menu', 'menú', '?']:
+        if raw_cmd in ['ayuda', 'help', 'comandos', 'menu', 'menú', '?']:
             send_whatsapp(from_phone, texto_saludo_supervisor())
             return
         
@@ -1773,11 +1785,14 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 # No encontrado: mostrar todos
                 state["ticket_seleccionado"] = ticket_id
                 state["esperando_asignacion"] = True
+
+                # ✅ FIX: Usar ubicacion (variable definida), NO habitacion
+                ubicacion_fmt = formatear_ubicacion_con_emoji(ubicacion)
                 
                 send_whatsapp(
                     from_phone,
                     f"✅ Tarea #{ticket_id} creada\n\n"
-                    f"🛏️ Habitación: {habitacion}\n"
+                    f"{ubicacion_fmt}\n"
                     f"📝 Problema: {detalle}\n"
                     f"{prioridad_emoji} Prioridad: {prioridad}\n\n"
                     f"⚠️ No encontré a '{nombre_trabajador}'\n"

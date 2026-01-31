@@ -131,16 +131,29 @@ def extract_worker_name(text: str) -> Optional[str]:
             return nombre.capitalize()
     
     palabras = text.split()
-    for palabra in palabras:
+    for i, palabra in enumerate(palabras):
         if palabra and len(palabra) >= 3 and palabra[0].isupper():
-            palabras_comunes = ['Hab', 'Habitación', 'Cuarto', 'Ticket', 'El', 'La', 'Un', 'Una', 'Pieza', 'Asignar', 'Derivar', 'Mandar', 'Enviar', 'Reasignar', 
-                                'Finalizar', 'Completar', 'Terminar', 'Cerrar',
-                                'Pendientes', 'Urgentes', 'Menu', 'Menú', 'Ayuda', 'Help',
-                                'Ver', 'Mostrar', 'Crear', 'Nuevo', 'Nueva'
-                            ]
+            # ✅ FIX: Saltar la primera palabra de oraciones multi-palabra.
+            # En español la primera palabra siempre va con mayúscula
+            # y no indica que sea nombre propio.
+            # Ej: "Gancho caído..." → "Gancho" NO es worker.
+            # Si alguien escribe solo "Pedro" (1 palabra), SÍ lo detecta.
+            if i == 0 and len(palabras) > 1:
+                continue
+
+            palabras_comunes = [
+                'Hab', 'Habitación', 'Habitacion', 'Cuarto', 'Ticket',
+                'El', 'La', 'Los', 'Las', 'Un', 'Una', 'Pieza',
+                'Asignar', 'Derivar', 'Mandar', 'Enviar', 'Reasignar',
+                'Finalizar', 'Completar', 'Terminar', 'Cerrar',
+                'Pendientes', 'Urgentes', 'Menu', 'Menú', 'Ayuda', 'Help',
+                'Ver', 'Mostrar', 'Crear', 'Nuevo', 'Nueva',
+                'Necesita', 'Necesitan', 'Falta', 'Faltan',
+                'Problema', 'Revisar', 'Cambiar', 'Roto', 'Rota',
+            ]
             if palabra not in palabras_comunes:
                 return palabra
-    
+
     return None
 
 
