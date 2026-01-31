@@ -124,26 +124,23 @@ def texto_ticket_creado_simple(ticket_id: int, habitacion: str, prioridad: str) 
 def texto_urgentes(pendientes_urgentes: list, retrasados: list) -> str:
     """
     Muestra solo lo urgente.
-    
-    Args:
-        pendientes_urgentes: Tickets pendientes hace >5 min
-        retrasados: Tickets en progreso hace >10 min
-    
-    Returns:
-        Texto formateado
     """
     lineas = ["⚠️ URGENTE:\n"]
     
     if pendientes_urgentes:
         lineas.append(f"📋 {len(pendientes_urgentes)} pendientes hace >5 min:")
         for t in pendientes_urgentes[:3]:
-            lineas.append(f"  🔴 #{t['id']} · Hab. {t['habitacion']} · {t['tiempo_sin_resolver_mins']} min")
+            ubicacion = t.get('ubicacion', '?')
+            mins = t.get('tiempo_sin_resolver_mins', '?')
+            lineas.append(f"  🔴 #{t.get('id', '?')} · Hab. {ubicacion} · {mins} min")
         lineas.append("")
     
     if retrasados:
         lineas.append(f"⏰ {len(retrasados)} retrasados (>10 min):")
         for t in retrasados[:3]:
-            lineas.append(f"  ⚠️ #{t['id']} · {t['asignado_a_nombre']} · {t['tiempo_sin_resolver_mins']} min")
+            nombre = t.get('asignado_a_nombre', 'Sin asignar')
+            mins = t.get('tiempo_sin_resolver_mins', '?')
+            lineas.append(f"  ⚠️ #{t.get('id', '?')} · {nombre} · {mins} min")
     
     if not pendientes_urgentes and not retrasados:
         return "✅ Todo bien, nada urgente"

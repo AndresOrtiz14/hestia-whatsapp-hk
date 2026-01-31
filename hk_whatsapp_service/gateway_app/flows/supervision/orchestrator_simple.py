@@ -448,6 +448,8 @@ def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
     "hola", "hi", "hello", "buenas", "buenos dias", "buenas tardes",
     # Otros
     "siguiente", "next", "proximo", "mas urgente", "más urgente",
+    # Crear
+    "crear", "nuevo", "nueva", "nueva tarea", "crear tarea", "registrar",
 ]
     
     # ✅ NUEVO: Detectar intents de crear ticket
@@ -457,8 +459,13 @@ def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
     if extract_habitacion(text) or extract_area_comun(text):
         tiene_ubicacion = True
     
+    # ✅ FIX: Normalizar prefijo "ver " para que "ver asignados" → "asignados"
+    raw_check = raw
+    if raw_check.startswith("ver "):
+        raw_check = raw_check[4:].strip()
+
     # Si es comando nuevo o tiene ubicación, salir del flujo de asignación
-    if raw in comandos_nuevos or tiene_ubicacion:
+    if raw in comandos_nuevos or raw_check in comandos_nuevos or tiene_ubicacion:
         state["esperando_asignacion"] = False
         state["ticket_seleccionado"] = None
         state["seleccion_mucamas"] = None
@@ -725,20 +732,59 @@ def mostrar_urgentes(from_phone: str) -> None:
     from gateway_app.services.tickets_db import obtener_tickets_por_estado
     from datetime import datetime, timedelta
     
+    now = datetime.now()
+    
     # Pendientes hace >5 min
     pendientes = obtener_tickets_por_estado("PENDIENTE")
-    now = datetime.now()
-    pendientes_urgentes = [
-        t for t in pendientes 
-        if (now - t.get("created_at", now)).total_seconds() / 60 > 5
-    ]
+    pendientes_urgentes = []
+    for t in pendientes:
+        created = t.get("created_at")
+        if created:
+            try:
+                if isinstance(created, str):
+                    from dateutil import parser
+                    created = parser.parse(created)
+                # Asegurar que ambas fechas tengan el mismo tipo de timezone
+                if created.tzinfo:
+                    from datetime import timezone
+                    now_tz = datetime.now(timezone.utc)
+                    mins = (now_tz - created).total_seconds() / 60
+                else:
+                    mins = (now - created).total_seconds() / 60
+                if mins > 5:
+                    # ✅ Enriquecer con campos que espera texto_urgentes
+                    t["tiempo_sin_resolver_mins"] = int(mins)
+                    pendientes_urgentes.append(t)
+            except Exception:
+                pass
     
     # En progreso hace >10 min
     progreso = obtener_tickets_por_estado("EN_CURSO")
-    retrasados = [
-        t for t in progreso 
-        if t.get("started_at") and (now - t["started_at"]).total_seconds() / 60 > 10
-    ]
+    retrasados = []
+    for t in progreso:
+        started = t.get("started_at")
+        if started:
+            try:
+                if isinstance(started, str):
+                    from dateutil import parser
+                    started = parser.parse(started)
+                if started.tzinfo:
+                    from datetime import timezone
+                    now_tz = datetime.now(timezone.utc)
+                    mins = (now_tz - started).total_seconds() / 60
+                else:
+                    mins = (now - started).total_seconds() / 60
+                if mins > 10:
+                    t["tiempo_sin_resolver_mins"] = int(mins)
+                    # Extraer nombre del worker asignado
+                    hw = t.get("huesped_whatsapp", "")
+                    if "|" in str(hw):
+                        t["asignado_a_nombre"] = str(hw).split("|")[1]
+                    else:
+                        t["asignado_a_nombre"] = "Sin asignar"
+                    retrasados.append(t)
+            except Exception:
+                pass
     
     mensaje = texto_urgentes(pendientes_urgentes, retrasados)
     send_whatsapp(from_phone, mensaje)
