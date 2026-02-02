@@ -102,123 +102,66 @@ def texto_saludo_con_turno(turno_activo: bool) -> str:
 Para comenzar a trabajar, inicia tu turno."""
 
 def texto_ticket_asignado(ticket: dict) -> str:
-    prioridad_emoji = {
-        "ALTA": "🔴",
-        "MEDIA": "🟡",
-        "BAJA": "🟢"
-    }.get(ticket.get("prioridad", "MEDIA"), "🟡")
-
-    hab = ticket.get("habitacion") or ticket.get("ubicacion") or ticket.get("room") or "?"
-
-    return f"""🔔 Nueva tarea asignada
-
-{prioridad_emoji} #{ticket['id']} · Hab. {hab}
-{ticket.get('detalle', '')}
-
-💡 Di 'tomar' para empezar"""
+    """Notificación al worker: nueva tarea asignada (fuente única)."""
+    from gateway_app.core.utils.message_constants import (
+        msg_worker_nueva_tarea, ubicacion_de_ticket,
+    )
+    return msg_worker_nueva_tarea(
+        ticket.get("id", "?"),
+        ubicacion_de_ticket(ticket),
+        ticket.get("detalle", ""),
+        ticket.get("prioridad", "MEDIA"),
+    )
 
 
 def texto_ticket_en_progreso(ticket: dict) -> str:
-    hab = ticket.get("habitacion") or ticket.get("ubicacion") or ticket.get("room") or "?"
-    return f"""✅ #{ticket['id']} en progreso
-📋 Hab. {hab} · {ticket.get('detalle', '')}
-
-💡 'fin' cuando termines"""
+    """Confirmación al worker: tarea en curso."""
+    from gateway_app.core.utils.message_constants import (
+        msg_worker_tarea_en_progreso, ubicacion_de_ticket,
+    )
+    return msg_worker_tarea_en_progreso(
+        ticket.get("id", "?"),
+        ubicacion_de_ticket(ticket),
+        ticket.get("detalle", ""),
+    )
 
 
 def texto_ticket_completado(ticket: dict, tiempo_mins: int) -> str:
-    """
-    Confirmación de ticket completado.
-    
-    Args:
-        ticket: Datos del ticket
-        tiempo_mins: Tiempo que tomó
-    
-    Returns:
-        Texto formateado
-    """
-    return f"""✅ #{ticket['id']} completado
-⏱️ Tiempo: {tiempo_mins} min
-
-¡Buen trabajo! 🎉"""
+    """Confirmación al worker: tarea completada."""
+    from gateway_app.core.utils.message_constants import msg_worker_tarea_completada
+    return msg_worker_tarea_completada(ticket.get("id", "?"), tiempo_mins)
 
 
 def texto_ticket_pausado(ticket: dict) -> str:
-    """
-    Confirmación de pausa.
-    
-    Args:
-        ticket: Datos del ticket
-    
-    Returns:
-        Texto formateado
-    """
-    return f"""⏸️ #{ticket['id']} pausado
-
-💡 'reanudar' para continuar"""
+    """Confirmación al worker: tarea pausada."""
+    from gateway_app.core.utils.message_constants import msg_worker_tarea_pausada
+    return msg_worker_tarea_pausada(ticket.get("id", "?"))
 
 
 def texto_ticket_reanudado(ticket: dict) -> str:
-    """
-    Confirmación de reanudación.
-    
-    Args:
-        ticket: Datos del ticket
-    
-    Returns:
-        Texto formateado
-    """
-    return f"""▶️ #{ticket['id']} reanudado"""
+    """Confirmación al worker: tarea reanudada."""
+    from gateway_app.core.utils.message_constants import msg_worker_tarea_reanudada
+    return msg_worker_tarea_reanudada(ticket.get("id", "?"))
 
 
 def texto_lista_tickets(tickets: list) -> str:
-    if not tickets:
-        return "✅ No tienes tareas pendientes"
-
-    lineas = [f"📋 {len(tickets)} tarea(s):\n"]
-
-    for ticket in tickets[:5]:
-        prioridad_emoji = {
-            "ALTA": "🔴",
-            "MEDIA": "🟡",
-            "BAJA": "🟢"
-        }.get(ticket.get("prioridad", "MEDIA"), "🟡")
-
-        hab = ticket.get("habitacion") or ticket.get("ubicacion") or ticket.get("room") or "?"
-        detalle = (ticket.get("detalle") or "")[:30]
-
-        lineas.append(f"{prioridad_emoji} #{ticket['id']} · Hab. {hab} · {detalle}")
-
-    if len(tickets) > 5:
-        lineas.append(f"\n... y {len(tickets) - 5} más")
-
-    lineas.append("\n💡 Di 'tomar' o el #")
-
-    return "\n".join(lineas)
+    """Lista de tareas del worker, formato unificado."""
+    from gateway_app.core.utils.message_constants import formatear_lista_tickets
+    return formatear_lista_tickets(
+        tickets,
+        titulo="📋 Mis Tareas",
+        hint="💡 Di 'tomar' o el # para empezar",
+        msg_vacio="✅ No tienes tareas pendientes",
+        mostrar_tiempo=False,
+        mostrar_worker=False,
+        max_items=5,
+    )
 
 
 def texto_ticket_creado(ticket_id: int, habitacion: str, prioridad: str) -> str:
-    """
-    Confirmación de reporte creado.
-    
-    Args:
-        ticket_id: ID del reporte
-        habitacion: Número de habitación
-        prioridad: Prioridad detectada
-    
-    Returns:
-        Texto formateado
-    """
-    prioridad_emoji = {
-        "ALTA": "🔴",
-        "MEDIA": "🟡",
-        "BAJA": "🟢"
-    }.get(prioridad, "🟡")
-    
-    return f"""✅ Reporte #{ticket_id} creado
-{prioridad_emoji} Hab. {habitacion}
-
-Notificado a operaciones ✓"""
+    """Confirmación al worker: reporte/tarea creada."""
+    from gateway_app.core.utils.message_constants import msg_worker_reporte_creado
+    return msg_worker_reporte_creado(ticket_id, habitacion, prioridad)
 
 
 def texto_pedir_habitacion() -> str:

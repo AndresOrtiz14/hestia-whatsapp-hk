@@ -132,68 +132,35 @@ def ordenar_workers_por_score(workers: list, ticket: dict = None) -> list:
 import re
 
 def formatear_ubicacion_con_emoji(ubicacion: str) -> str:
-    """
-    Formatea ubicación con emoji para mensajes del supervisor/worker.
-    Regla simple:
-    - Si es número (habitación): 🛏️ Habitación: XXX
-    - Si es texto (área común u otra): 📍 <texto>
-    """
-    u = (ubicacion or "").strip()
-    if not u:
-        return "📍 Ubicación: ?"
-
-    if re.fullmatch(r"\d{3,4}", u):
-        return f"🛏️ Habitación: {u}"
-
-    return f"📍 {u}"
+    """Wrapper → delega a message_constants.ubicacion_con_emoji."""
+    from gateway_app.core.utils.message_constants import ubicacion_con_emoji
+    return ubicacion_con_emoji(ubicacion)
 
 
 def confirmar_asignacion(from_phone: str, ticket_id: int, worker: dict) -> None:
-    """
-    Confirma la asignación de un ticket a un worker.
-    
-    Args:
-        from_phone: Teléfono del supervisor
-        ticket_id: ID del ticket
-        worker: Datos del worker
-    """
+    """Confirma la asignación de una tarea a un worker."""
     from gateway_app.flows.supervision.outgoing import send_whatsapp
     from gateway_app.services.tickets_db import obtener_ticket_por_id
-    from .ubicacion_helpers import (
-    normalize_area,
-    get_area_emoji,
-    get_area_short,
-    formatear_ubicacion_con_emoji,
-)
-    
-    # Obtener datos del ticket
+    from gateway_app.core.utils.message_constants import (
+        msg_sup_confirmacion, ubicacion_de_ticket,
+    )
+    from .ubicacion_helpers import normalize_area
+
     ticket = obtener_ticket_por_id(ticket_id)
-    
     if not ticket:
-        send_whatsapp(from_phone, f"❌ No encontré el ticket #{ticket_id}")
+        send_whatsapp(from_phone, f"❌ No encontré la tarea #{ticket_id}")
         return
-    
-    # Formatear ubicación con emoji apropiado
+
     ubicacion = ticket.get("ubicacion") or ticket.get("habitacion", "?")
-    ubicacion_fmt = formatear_ubicacion_con_emoji(ubicacion)
-    
-    # Datos del worker
+    detalle = ticket.get("detalle", "Sin detalle")
+    prioridad = ticket.get("prioridad", "MEDIA")
     worker_nombre = worker.get("nombre_completo", worker.get("nombre", "?"))
     worker_area = normalize_area(worker.get("area"))
-    area_emoji = get_area_emoji(worker_area)
-    area_short = get_area_short(worker_area)
-    
-    # Prioridad
-    prioridad = ticket.get("prioridad", "MEDIA")
-    prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
-    
-    # Mensaje al supervisor
-    mensaje = (
-        f"✅ Tarea #{ticket_id} asignada\n\n"
-        f"{ubicacion_fmt}\n"
-        f"📝 Problema: {ticket.get('detalle', 'Sin detalle')}\n"
-        f"{prioridad_emoji} Prioridad: {prioridad}\n"
-        f"👤 Asignado a: {worker_nombre} ({area_emoji} {area_short})"
+
+    send_whatsapp(
+        from_phone,
+        msg_sup_confirmacion(
+            ticket_id, "asignada", ubicacion, detalle, prioridad,
+            worker_nombre, worker_area,
+        )
     )
-    
-    send_whatsapp(from_phone, mensaje)
