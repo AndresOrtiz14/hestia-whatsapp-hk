@@ -185,14 +185,11 @@ def texto_pedir_detalle() -> str:
 
 
 def texto_confirmar_reporte(habitacion: str, detalle: str, prioridad: str) -> str:
-    prioridad_emoji = {
-        "ALTA": "🔴",
-        "MEDIA": "🟡",
-        "BAJA": "🟢"
-    }.get(prioridad, "🟡")
+    from gateway_app.core.utils.message_constants import emoji_prioridad
+    prioridad_emoji = emoji_prioridad(prioridad)
     
     return f"""📋 Confirma el reporte:
-
+    
 🛏️ Habitación: {habitacion}
 📝 Problema: {detalle}
 {prioridad_emoji} Prioridad: {prioridad}
@@ -217,7 +214,8 @@ def texto_confirmar_reporte_adaptado(ubicacion: str, detalle: str, prioridad: st
     """
     from .areas_comunes_helpers import get_texto_por_area
     
-    prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
+    from gateway_app.core.utils.message_constants import emoji_prioridad
+    prioridad_emoji = emoji_prioridad(prioridad)
     ubicacion_label = get_texto_por_area(area_worker, "ubicacion_label")
     
     return (
