@@ -1,0 +1,273 @@
+"""
+Constantes y helpers centralizados para mensajes WhatsApp de Hestia.
+Fuente única de verdad para emojis, formatos y extracción de datos de tickets.
+
+Uso:
+    from gateway_app.core.message_constants import (
+        emoji_prioridad, formatear_linea_ticket, formatear_lista_tickets
+    )
+"""
+
+from datetime import datetime, timezone
+from typing import Dict, Any, List, Optional
+
+# ═══════════════════════════════════════════════════════════════
+# CONSTANTES DE EMOJI
+# ═══════════════════════════════════════════════════════════════
+
+PRIORIDAD_EMOJI = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}
+PRIORIDAD_ORDER = {"ALTA": 0, "MEDIA": 1, "BAJA": 2}
+
+ESTADO_EMOJI = {
+    "PENDIENTE": "⏳",
+    "ASIGNADO": "📋",
+    "EN_CURSO": "🔄",
+    "PAUSADO": "⏸️",
+    "RESUELTO": "✅",
+    "COMPLETADO": "✅",
+}
+
+ESTADO_LABEL = {
+    "PENDIENTE": "Pendiente",
+    "ASIGNADO": "Asignada",
+    "EN_CURSO": "En curso",
+    "PAUSADO": "Pausada",
+    "RESUELTO": "Completada",
+    "COMPLETADO": "Completada",
+}
+
+AREA_EMOJI = {
+    "HOUSEKEEPING": "🏠", "HK": "🏠",
+    "AREAS_COMUNES": "📍", "AC": "📍",
+    "MANTENIMIENTO": "🔧", "MANTENCION": "🔧", "MT": "🔧",
+}
+
+AREA_TAG = {
+    "HOUSEKEEPING": "HK", "HK": "HK",
+    "AREAS_COMUNES": "AC", "AC": "AC",
+    "MANTENIMIENTO": "MT", "MANTENCION": "MT", "MT": "MT",
+}
+
+TURNO_EMOJI = {True: "🟢", False: "🔴"}
+
+
+# ═══════════════════════════════════════════════════════════════
+# HELPERS DE EMOJI
+# ═══════════════════════════════════════════════════════════════
+
+def emoji_prioridad(p: str) -> str:
+    """'ALTA' → '🔴', 'MEDIA' → '🟡', 'BAJA' → '🟢'"""
+    return PRIORIDAD_EMOJI.get(str(p).upper(), "🟡")
+
+
+def emoji_estado(e: str) -> str:
+    """'PENDIENTE' → '⏳', 'EN_CURSO' → '🔄', etc."""
+    return ESTADO_EMOJI.get(str(e).upper(), "❓")
+
+
+def label_estado(e: str) -> str:
+    """'EN_CURSO' → 'En curso', 'PENDIENTE' → 'Pendiente', etc."""
+    return ESTADO_LABEL.get(str(e).upper(), str(e))
+
+
+def emoji_area(a: str) -> str:
+    """'HOUSEKEEPING' → '🏠', 'MANTENIMIENTO' → '🔧', etc."""
+    return AREA_EMOJI.get(str(a).upper(), "👤")
+
+
+def tag_area(a: str) -> str:
+    """'HOUSEKEEPING' → 'HK', 'MANTENIMIENTO' → 'MT', etc."""
+    return AREA_TAG.get(str(a).upper(), str(a)[:3].upper() if a else "?")
+
+
+# ═══════════════════════════════════════════════════════════════
+# HELPERS DE EXTRACCIÓN DE DATOS
+# ═══════════════════════════════════════════════════════════════
+
+def ubicacion_de_ticket(t: dict) -> str:
+    """Extrae ubicación de cualquier ticket dict (maneja múltiples keys)."""
+    return t.get("ubicacion") or t.get("habitacion") or t.get("room") or "?"
+
+
+def ubicacion_corta(t: dict) -> str:
+    """
+    Para listas: 'Hab. 305' o 'Lobby'.
+    Detecta si es número de habitación y agrega prefijo.
+    """
+    ubi = ubicacion_de_ticket(t)
+    if ubi == "?":
+        return ubi
+    # Si es solo dígitos → "Hab. 305"
+    if ubi.strip().isdigit():
+        return f"Hab. {ubi.strip()}"
+    # Si ya tiene prefijo "Hab" → no duplicar
+    if ubi.lower().startswith("hab"):
+        return ubi
+    return ubi
+
+
+def detalle_de_ticket(t: dict, max_len: int = 35) -> str:
+    """Extrae detalle truncado."""
+    d = t.get("detalle") or t.get("descripcion") or "Sin detalle"
+    return (d[:max_len] + "...") if len(d) > max_len else d
+
+
+def nombre_worker_de_ticket(t: dict) -> str:
+    """
+    Extrae nombre del worker asignado. Soporta:
+    - t["worker_name"] (de JOINs)
+    - t["huesped_whatsapp"] formato "phone|nombre"
+    - t["asignado_a_nombre"] (campo enriquecido)
+    """
+    wn = t.get("worker_name")
+    if wn:
+        return wn
+
+    hw = str(t.get("huesped_whatsapp") or "")
+    if "|" in hw:
+        return hw.split("|", 1)[1]
+
+    return t.get("asignado_a_nombre") or "Sin asignar"
+
+
+# ═══════════════════════════════════════════════════════════════
+# CÁLCULO DE TIEMPO
+# ═══════════════════════════════════════════════════════════════
+
+def _parse_fecha(fecha) -> Optional[datetime]:
+    """Parsea fecha de cualquier formato (datetime, str ISO, None)."""
+    if fecha is None:
+        return None
+    if isinstance(fecha, datetime):
+        return fecha
+    try:
+        from dateutil import parser
+        return parser.parse(str(fecha))
+    except Exception:
+        return None
+
+
+def calcular_minutos(fecha) -> int:
+    """
+    Calcula minutos transcurridos desde una fecha hasta ahora.
+    Maneja timezone-aware y naive. Retorna 0 si no puede calcular.
+    """
+    dt = _parse_fecha(fecha)
+    if not dt:
+        return 0
+    try:
+        if dt.tzinfo:
+            now = datetime.now(timezone.utc)
+        else:
+            now = datetime.now()
+        return max(0, int((now - dt).total_seconds() / 60))
+    except Exception:
+        return 0
+
+
+def formato_tiempo(mins: int) -> str:
+    """
+    Formatea minutos a texto legible:
+    - < 60:    '12 min'
+    - 60-1440: '2h 15m'
+    - > 1440:  '1d 3h'
+    """
+    if mins < 60:
+        return f"{mins} min"
+    elif mins < 1440:
+        h, m = divmod(mins, 60)
+        return f"{h}h {m}m"
+    else:
+        d, resto = divmod(mins, 1440)
+        h = resto // 60
+        return f"{d}d {h}h"
+
+
+# ═══════════════════════════════════════════════════════════════
+# FORMATEADORES UNIFICADOS PARA LISTAS DE TICKETS
+# ═══════════════════════════════════════════════════════════════
+
+def formatear_linea_ticket(
+    t: dict,
+    mostrar_tiempo: bool = True,
+    mostrar_worker: bool = False,
+    campo_fecha: str = "created_at",
+) -> str:
+    """
+    Línea estándar de ticket para listas.
+
+    Con tiempo:
+        🟡 #123 · Hab. 305 · ⏱️ 12 min
+           Fuga de agua en baño
+
+    Con worker:
+        🟡 #123 · Hab. 305 · ⏱️ 12 min · 👤 María
+           Fuga de agua en baño
+
+    Sin tiempo:
+        🟡 #123 · Hab. 305
+           Fuga de agua en baño
+    """
+    tid = t.get("id", "?")
+    pri = emoji_prioridad(t.get("prioridad", "MEDIA"))
+    ubi = ubicacion_corta(t)
+    det = detalle_de_ticket(t)
+
+    partes = [f"{pri} #{tid} · {ubi}"]
+
+    if mostrar_tiempo:
+        mins = calcular_minutos(t.get(campo_fecha))
+        if mins > 0:
+            partes.append(f"⏱️ {formato_tiempo(mins)}")
+
+    if mostrar_worker:
+        worker = nombre_worker_de_ticket(t)
+        if worker and worker != "Sin asignar":
+            partes.append(f"👤 {worker[:15]}")
+
+    linea1 = " · ".join(partes)
+    return f"{linea1}\n   {det}"
+
+
+def formatear_lista_tickets(
+    tickets: List[dict],
+    titulo: str,
+    hint: str = "",
+    mostrar_tiempo: bool = True,
+    mostrar_worker: bool = False,
+    campo_fecha: str = "created_at",
+    max_items: int = 10,
+) -> str:
+    """
+    Lista formateada de tickets con título, líneas y hint.
+
+    Resultado:
+        📋 Tareas Pendientes (5)
+
+        🟡 #123 · Hab. 305 · ⏱️ 12 min
+           Fuga de agua en baño
+        🔴 #124 · Hab. 201 · ⏱️ 45 min
+           Vidrio roto
+
+        💡 Di 'asignar [#] a [nombre]'
+    """
+    if not tickets:
+        return "✅ No hay tareas en esta categoría"
+
+    lineas = [f"{titulo} ({len(tickets)})\n"]
+
+    for t in tickets[:max_items]:
+        lineas.append(formatear_linea_ticket(
+            t,
+            mostrar_tiempo=mostrar_tiempo,
+            mostrar_worker=mostrar_worker,
+            campo_fecha=campo_fecha,
+        ))
+
+    if len(tickets) > max_items:
+        lineas.append(f"\n... y {len(tickets) - max_items} más")
+
+    if hint:
+        lineas.append(f"\n{hint}")
+
+    return "\n".join(lineas)

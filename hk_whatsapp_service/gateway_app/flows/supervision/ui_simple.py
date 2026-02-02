@@ -39,25 +39,19 @@ def texto_saludo_supervisor() -> str:
 🎤 Todo funciona con texto y audio."""
 
 def texto_tickets_pendientes_simple(tickets: List[Dict]) -> str:
+    """Lista de tareas pendientes con formato unificado."""
+    from gateway_app.core.utils.message_constants import formatear_lista_tickets
+
     if not tickets:
-        return "✅ No hay tickets pendientes"
+        return "✅ No hay tareas pendientes"
 
-    shown = 10
-    lineas = [f"📋 {len(tickets)} pendiente(s):\n"]
-
-    for ticket in tickets[:shown]:
-        prioridad = (ticket.get("prioridad") or "MEDIA").upper()
-        prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
-
-        hab = ticket.get("ubicacion") or ticket.get("habitacion") or "?"
-        detalle = (ticket.get("detalle") or "")[:30]
-        lineas.append(f"{prioridad_emoji} #{ticket['id']} · Hab. {hab} · {detalle}")
-
-    if len(tickets) > shown:
-        lineas.append(f"\n... y {len(tickets) - shown} más")
-
-    lineas.append("\n💡 Di: 'asignar [#] a [nombre]' o 'más urgente'")
-    return "\n".join(lineas)
+    return formatear_lista_tickets(
+        tickets,
+        titulo="📋 Tareas Pendientes",
+        hint="💡 Di 'asignar [#] a [nombre]' o 'siguiente'",
+        mostrar_tiempo=True,
+        mostrar_worker=False,
+    )
 
 def texto_ticket_asignado_simple(ticket_id: int, worker_nombre: str) -> str:
     """
@@ -122,29 +116,29 @@ def texto_ticket_creado_simple(ticket_id: int, habitacion: str, prioridad: str) 
 
 
 def texto_urgentes(pendientes_urgentes: list, retrasados: list) -> str:
-    """
-    Muestra solo lo urgente.
-    """
-    lineas = ["⚠️ URGENTE:\n"]
-    
-    if pendientes_urgentes:
-        lineas.append(f"📋 {len(pendientes_urgentes)} pendientes hace >5 min:")
-        for t in pendientes_urgentes[:3]:
-            ubicacion = t.get('ubicacion', '?')
-            mins = t.get('tiempo_sin_resolver_mins', '?')
-            lineas.append(f"  🔴 #{t.get('id', '?')} · Hab. {ubicacion} · {mins} min")
-        lineas.append("")
-    
-    if retrasados:
-        lineas.append(f"⏰ {len(retrasados)} retrasados (>10 min):")
-        for t in retrasados[:3]:
-            nombre = t.get('asignado_a_nombre', 'Sin asignar')
-            mins = t.get('tiempo_sin_resolver_mins', '?')
-            lineas.append(f"  ⚠️ #{t.get('id', '?')} · {nombre} · {mins} min")
-    
+    """Muestra tareas urgentes con formato unificado."""
+    from gateway_app.core.utils.message_constants import formatear_linea_ticket
+
     if not pendientes_urgentes and not retrasados:
         return "✅ Todo bien, nada urgente"
-    
-    lineas.append("\n💡 Di: 'asignar [#] a [nombre]'")
-    
+
+    lineas = ["⚠️ Tareas Urgentes\n"]
+
+    if pendientes_urgentes:
+        lineas.append(f"📋 {len(pendientes_urgentes)} pendientes hace >5 min:")
+        for t in pendientes_urgentes[:5]:
+            lineas.append(formatear_linea_ticket(
+                t, mostrar_tiempo=True, mostrar_worker=False,
+            ))
+        lineas.append("")
+
+    if retrasados:
+        lineas.append(f"⏰ {len(retrasados)} retrasadas (>10 min en curso):")
+        for t in retrasados[:5]:
+            lineas.append(formatear_linea_ticket(
+                t, mostrar_tiempo=True, mostrar_worker=True,
+                campo_fecha="started_at",
+            ))
+
+    lineas.append("\n💡 Di 'asignar [#] a [nombre]'")
     return "\n".join(lineas)

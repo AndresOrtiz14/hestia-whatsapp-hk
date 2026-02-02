@@ -118,68 +118,28 @@ def calcular_tiempo_emoji(fecha: Any) -> str:
         return "⚪"
 
 
-def formatear_ticket_con_tiempo(ticket: Dict[str, Any], 
+def formatear_ticket_con_tiempo(ticket: Dict[str, Any],
                                   mostrar_asignado: bool = False) -> str:
-    """
-    Formatea un ticket incluyendo tiempo transcurrido.
-    
-    Formato:
-    🟡 #123 · Hab. 305 · 45 min
-       Fuga de agua en baño
-    """
-    ticket_id = ticket.get("id", "?")
-    ubicacion = ticket.get("ubicacion") or ticket.get("habitacion", "?")
-    detalle = (ticket.get("detalle") or "Sin detalle")
-    prioridad = (ticket.get("prioridad") or "MEDIA").upper()
-    created_at = ticket.get("created_at")
-    estado = (ticket.get("estado") or "PENDIENTE").upper()
-    
-    # Tiempo transcurrido
-    tiempo = calcular_tiempo_transcurrido(created_at)
-    tiempo_emoji = calcular_tiempo_emoji(created_at)
-    
-    # Emoji de prioridad
-    prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
-    
-    # Truncar detalle si es muy largo
-    if len(detalle) > 40:
-        detalle = detalle[:37] + "..."
-    
-    linea = f"{prioridad_emoji} #{ticket_id} · {ubicacion} · ⏱️{tiempo}"
-    
-    # Si se pide mostrar asignado
-    if mostrar_asignado:
-        huesped_wa = ticket.get("huesped_whatsapp", "")
-        if "|" in huesped_wa:
-            _, nombre_asignado = huesped_wa.split("|", 1)
-            linea += f" · 👤{nombre_asignado}"
-        elif estado == "PENDIENTE":
-            linea += " · Sin asignar"
-    
-    linea += f"\n   {detalle}"
-    
-    return linea
+    """Wrapper → delega a message_constants.formatear_linea_ticket."""
+    from gateway_app.core.utils.message_constants import formatear_linea_ticket
+    return formatear_linea_ticket(
+        ticket, mostrar_tiempo=True, mostrar_worker=mostrar_asignado,
+    )
 
 
-def formatear_lista_tickets_con_tiempo(tickets: List[Dict[str, Any]], 
-                                        titulo: str = "📋 Tickets",
+def formatear_lista_tickets_con_tiempo(tickets: List[Dict[str, Any]],
+                                        titulo: str = "📋 Tareas",
                                         mostrar_asignado: bool = True,
                                         max_items: int = 10) -> str:
-    """
-    Formatea una lista de tickets con tiempo transcurrido.
-    """
-    if not tickets:
-        return f"{titulo}\n\n✅ No hay tickets"
-    
-    lineas = [f"{titulo} ({len(tickets)})\n"]
-    
-    for ticket in tickets[:max_items]:
-        lineas.append(formatear_ticket_con_tiempo(ticket, mostrar_asignado))
-    
-    if len(tickets) > max_items:
-        lineas.append(f"\n... y {len(tickets) - max_items} más")
-    
-    return "\n".join(lineas)
+    """Wrapper → delega a message_constants.formatear_lista_tickets."""
+    from gateway_app.core.utils.message_constants import formatear_lista_tickets
+    return formatear_lista_tickets(
+        tickets,
+        titulo=titulo,
+        mostrar_tiempo=True,
+        mostrar_worker=mostrar_asignado,
+        max_items=max_items,
+    )
 
 
 # ============================================================
