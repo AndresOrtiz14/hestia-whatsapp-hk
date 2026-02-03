@@ -285,9 +285,29 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
             send_whatsapp(from_phone, mensaje)
             return
         
-        # 4.11) Cancelar
+        # 4.11) Cancelar - ✅ FIX: Limpiar TODOS los estados pendientes
         if raw in ["cancelar", "cancel", "salir", "atras", "atrás"]:
-            send_whatsapp(from_phone, "✅ No hay nada que cancelar ahora")
+            # Verificar si hay algo que cancelar
+            tiene_pendiente = (
+                state.get("esperando_asignacion") or
+                state.get("confirmacion_pendiente") or
+                state.get("seleccion_worker_pendiente") or
+                state.get("seleccion_mucamas") or
+                state.get("ticket_seleccionado")
+            )
+            
+            # Limpiar todos los estados de flujo
+            state["esperando_asignacion"] = False
+            state["ticket_seleccionado"] = None
+            state.pop("confirmacion_pendiente", None)
+            state.pop("seleccion_worker_pendiente", None)
+            state.pop("seleccion_mucamas", None)
+            persist_supervisor_state(from_phone, state)
+            
+            if tiene_pendiente:
+                send_whatsapp(from_phone, "❌ Operación cancelada")
+            else:
+                send_whatsapp(from_phone, "✅ No hay nada que cancelar ahora")
             return
         
         # 4.12) Ayuda
@@ -1294,10 +1314,17 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         mostrar_opciones_workers(from_phone, workers, ticket_id)
         return True
 
-    # Caso 1: Asignar ticket existente
+# Caso 1: Asignar ticket existente
     if intent == "asignar_ticket":
         ticket_id = intent_data["ticket_id"]
         worker_query = normalizar_nombre(intent_data["worker"])
+
+        # Limpieza defensiva COMPLETA al inicio de nuevo intent
+        state["esperando_asignacion"] = False
+        state["ticket_seleccionado"] = None
+        state.pop("seleccion_worker_pendiente", None)
+        state.pop("confirmacion_pendiente", None)
+        state.pop("seleccion_mucamas", None)
 
         from gateway_app.services.workers_db import buscar_workers_por_nombre
         from gateway_app.services.tickets_db import obtener_ticket_por_id
@@ -1316,10 +1343,6 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         detalle = ticket.get("detalle") or ticket.get("descripcion") or "Tarea asignada"
         prioridad = str(ticket.get("prioridad") or "MEDIA").upper()
         ubicacion = ticket.get("ubicacion") or ticket.get("habitacion") or "?"
-
-        # Limpieza preventiva de estados viejos
-        state.pop("seleccion_worker_pendiente", None)
-        state.pop("confirmacion_pendiente", None)
 
         # Caso A: 1 match -> pedir SI/NO
         if len(candidatas) == 1:
@@ -1341,31 +1364,40 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 from_phone,
                 msg_sup_dialogo(ticket_id, ubicacion, detalle, prioridad, worker_nombre),
             )
+            return True  # ✅ FIX: Evita que Caso B se ejecute
 
         # Caso B: múltiples -> pedir número
-        candidatas_top = candidatas[:5]
-        state["seleccion_worker_pendiente"] = {
-            "tipo": "asignar",
-            "ticket_id": ticket_id,
-            "workers": candidatas_top,
-            "detalle": detalle,
-            "prioridad": prioridad,
-            "ubicacion": ubicacion,
-        }
-        persist_supervisor_state(from_phone, state)
+        else:  # ✅ FIX: Convertido a else (defensa adicional)
+            candidatas_top = candidatas[:5]
+            state["seleccion_worker_pendiente"] = {
+                "tipo": "asignar",
+                "ticket_id": ticket_id,
+                "workers": candidatas_top,
+                "detalle": detalle,
+                "prioridad": prioridad,
+                "ubicacion": ubicacion,
+            }
+            persist_supervisor_state(from_phone, state)
 
-        send_whatsapp(
-            from_phone,
-            formato_lista_workers(candidatas_top) + "\n\n"
-            "💡 Responde con el número (1-5) o 'cancelar'."
-        )
-        return True
+            send_whatsapp(
+                from_phone,
+                formato_lista_workers(candidatas_top) + "\n\n"
+                "💡 Responde con el número (1-5) o 'cancelar'."
+            )
+            return True
 
     
     # Caso 1.5: Reasignar ticket existente
     if intent == "reasignar_ticket":
         ticket_id = intent_data["ticket_id"]
         worker_nombre = intent_data["worker"]
+        
+        # ✅ FIX 3: Limpieza defensiva al inicio
+        state["esperando_asignacion"] = False
+        state["ticket_seleccionado"] = None
+        state.pop("seleccion_worker_pendiente", None)
+        state.pop("confirmacion_pendiente", None)
+        state.pop("seleccion_mucamas", None)
         
         from .worker_search import normalizar_nombre
         worker_nombre = normalizar_nombre(worker_nombre)

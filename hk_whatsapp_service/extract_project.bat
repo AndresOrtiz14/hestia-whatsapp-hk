@@ -8,6 +8,7 @@ set FILES=.env.example app.py extract_project.bat render.yaml requirements.txt ^
 gateway_app\config.py gateway_app\__init__.py ^
 gateway_app\core\utils\horario.py ^
 gateway_app\core\utils\location_format.py ^
+gateway_app\core\utils\message_constants.py ^
 gateway_app\core\utils\__init__.py ^
 gateway_app\flows\housekeeping_flows.py gateway_app\flows\__init__.py ^
 gateway_app\flows\housekeeping\areas_comunes_helpers.py ^
