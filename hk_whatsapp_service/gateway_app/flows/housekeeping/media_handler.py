@@ -36,7 +36,7 @@ def handle_media_message(
         media_type: "image" o "video"
         caption: Texto que acompaña al media (puede ser None)
     """
-    from .state_simple import get_state, persist_state
+    from .state_simple import get_user_state as get_state, persist_user_state as persist_state
     from .outgoing import send_whatsapp
     from gateway_app.services.media_storage import process_and_store_media
     
@@ -131,7 +131,7 @@ def handle_media_context_response(from_phone: str, text: str) -> bool:
     Returns:
         True si se manejó, False si no había media pendiente
     """
-    from .state_simple import get_state, persist_state
+    from .state_simple import get_user_state as get_state, persist_user_state as persist_state
     from .outgoing import send_whatsapp
     
     state = get_state(from_phone)
@@ -226,7 +226,7 @@ def handle_media_detail_response(from_phone: str, text: str) -> bool:
     Returns:
         True si se manejó, False si no había media_para_ticket
     """
-    from .state_simple import get_state, persist_state
+    from .state_simple import get_user_state as get_state, persist_user_state as persist_state
     from .outgoing import send_whatsapp
     
     state = get_state(from_phone)
