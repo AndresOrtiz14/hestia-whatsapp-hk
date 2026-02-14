@@ -6,7 +6,8 @@ VERSIÓN CON SOPORTE PARA ÁREAS COMUNES.
 
 import re
 from typing import Dict, Any, Optional, Tuple
-from venv import logger
+import logging
+logger = logging.getLogger(__name__)
 from gateway_app.flows.housekeeping.intents import detectar_prioridad
 
 def extract_ticket_id(text: str) -> Optional[int]:
