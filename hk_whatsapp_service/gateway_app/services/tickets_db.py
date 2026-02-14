@@ -382,3 +382,62 @@ def obtener_pendientes(
         """,
         [org_id, hotel_id, *estados],
     ) or []
+
+def tomar_ticket_asignado(ticket_id: int, worker_phone: str) -> bool:
+    """
+    ✅ FIX C1: Marca un ticket como EN_CURSO SOLO si está asignado a ese worker.
+    Valida pertenencia via huesped_whatsapp (formato "phone|nombre").
+    
+    Nota: Actualmente no se usa (el orquestador HK usa actualizar_ticket_estado),
+    pero queda disponible si se necesita validación estricta de pertenencia.
+    """
+    p = _norm_phone(worker_phone)
+    if not p:
+        return False
+
+    table = "public.tickets" if using_pg() else "tickets"
+
+    # Verificar que el ticket pertenece al worker y está en estado válido
+    ticket = fetchone(
+        f"""
+        SELECT id, huesped_whatsapp, estado
+        FROM {table}
+        WHERE id = ?
+          AND estado IN ('ASIGNADO', 'PENDIENTE')
+        """,
+        [ticket_id],
+    )
+
+    if not ticket:
+        logger.warning(f"⚠️ tomar_ticket_asignado: ticket #{ticket_id} no encontrado o estado inválido")
+        return False
+
+    # Validar que huesped_whatsapp empieza con el teléfono del worker
+    hw = ticket.get("huesped_whatsapp") or ""
+    hw_phone = hw.split("|")[0] if "|" in hw else hw
+    hw_phone_norm = _norm_phone(hw_phone)
+
+    if hw_phone_norm != p:
+        logger.warning(
+            f"⚠️ tomar_ticket_asignado: ticket #{ticket_id} asignado a {hw_phone_norm}, "
+            f"no a {p}"
+        )
+        return False
+
+    # Actualizar estado
+    try:
+        execute(
+            f"""
+            UPDATE {table}
+            SET estado = 'EN_CURSO',
+                started_at = COALESCE(started_at, {'NOW()' if using_pg() else 'CURRENT_TIMESTAMP'})
+            WHERE id = ?
+            """,
+            [ticket_id],
+            commit=True,
+        )
+        logger.info(f"✅ tomar_ticket_asignado: ticket #{ticket_id} tomado por {p}")
+        return True
+    except Exception as e:
+        logger.exception(f"❌ Error tomando ticket {ticket_id} para {p}: {e}")
+        return False

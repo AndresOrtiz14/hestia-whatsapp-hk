@@ -69,38 +69,27 @@ def _brief_state(state: Dict[str, Any]) -> str:
 
 def get_user_state(phone: str) -> Dict[str, Any]:
     """
-    Load state from cache -> DB -> default.
+    ✅ FIX A4: Siempre leer de BD para evitar desincronización con Gunicorn multi-worker.
+    El cache solo se usa como escritura rápida (persist actualiza ambos).
     """
+    # ✅ Siempre leer de BD (multi-worker safe)
     state = load_runtime_session(phone)
-    logger.info("HK_STATE get_user_state(%s) cache=%s", phone, phone in _STATE_CACHE)
-
-    if phone in _STATE_CACHE:
-        logger.info("HK_STATE cache_hit(%s) %s", phone, _brief_state(_STATE_CACHE[phone]))
-        return _STATE_CACHE[phone]
-
-    state = load_runtime_session(phone)
-    logger.info("HK_STATE loaded_from_db(%s) is_none=%s raw_type=%s", phone, state is None, type(state).__name__)
+    logger.info("HK_STATE loaded_from_db(%s) is_none=%s", phone, state is None)
 
     base = _default_state()
 
     if isinstance(state, dict):
-        # Merge loaded into defaults (keeps compatibility when schema/state evolves)
         base.update(state)
-
-        # Ensure nested structures exist
         if not isinstance(base.get("ticket_draft"), dict):
             base["ticket_draft"] = _default_state()["ticket_draft"]
 
     _STATE_CACHE[phone] = base
 
-    # If DB had no state, persist the default immediately
     if state is None:
-        logger.info("HK_STATE no_db_state(%s) -> persisting default %s", phone, _brief_state(base))
+        logger.info("HK_STATE no_db_state(%s) -> persisting default", phone)
         save_runtime_session(phone, base)
 
-    logger.info("HK_STATE final(%s) %s", phone, _brief_state(base))
     return base
-
 
 def persist_user_state(phone: str, state: Dict[str, Any]) -> None:
     """
@@ -117,3 +106,5 @@ def reset_ticket_draft(phone: str) -> None:
         "detalle": None,
         "prioridad": None,
     }
+    # ✅ FIX M11: Persistir el reset para que sobreviva a multi-worker
+    persist_user_state(phone, state)

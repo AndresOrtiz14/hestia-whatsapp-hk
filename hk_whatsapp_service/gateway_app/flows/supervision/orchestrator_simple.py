@@ -574,13 +574,11 @@ def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
             )
 
             prioridad = str(ticket_data.get("prioridad") or "MEDIA").upper()
-            prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
 
-            ubicacion_fmt = formatear_ubicacion_con_emoji(str(ubicacion))
-
+            # ✅ FIX A3: Usar template unificado en vez de formato inline
             send_whatsapp_text(
                 to=worker_phone,
-                body=msg_worker_nueva_tarea(ticket_id, ubicacion, detalle, prioridad)
+                body=msg_worker_nueva_tarea(ticket_id, ubicacion, detalle, prioridad),
             )
             
             state["esperando_asignacion"] = False
@@ -672,7 +670,7 @@ def asignar_siguiente(from_phone: str) -> None:
             if isinstance(created_at, str):
                 created_at = parser.parse(created_at)
             tiempo_mins = int((datetime.now(created_at.tzinfo) - created_at).total_seconds() / 60)
-        except:
+        except Exception:
             tiempo_mins = 0
     else:
         tiempo_mins = 0
@@ -687,17 +685,8 @@ def asignar_siguiente(from_phone: str) -> None:
     
     # Mostrar recomendaciones compactas (inline, no función externa)
     workers = obtener_todos_workers()
-    workers_con_score = []
-    for worker in workers:
-        score = calcular_score_worker(worker, ticket)
-
-        workers_con_score.append({**worker, "score": score})
-    
-    workers_con_score.sort(key=lambda m: m["score"], reverse=True)
-    
-    mostrar_opciones_workers(from_phone, workers_con_score, ticket_id)
+    mostrar_opciones_workers(from_phone, workers, ticket_id)
     state["esperando_asignacion"] = True
-
 
 def mostrar_urgentes(from_phone: str) -> None:
     """Muestra tareas urgentes: pendientes >5 min y en curso >10 min."""
@@ -944,13 +933,14 @@ def finalizar_ticket_supervisor(from_phone: str, ticket_id: int) -> None:
     ubicacion = ticket.get("ubicacion") or ticket.get("habitacion", "?")
     detalle = ticket.get("detalle", "Sin detalle")
     prioridad = ticket.get("prioridad", "MEDIA")
+
+    # ✅ FIX C5: Extraer worker desde huesped_whatsapp (formato "phone|nombre")
     huesped_wa = ticket.get("huesped_whatsapp") or ""
     if "|" in huesped_wa:
-        worker_phone, worker_nombre = huesped_wa.split("|", 1)
+        worker_phone_dest, worker_nombre = huesped_wa.split("|", 1)
     else:
-        worker_phone = None
+        worker_phone_dest = None
         worker_nombre = ""
-    worker_nombre = ticket.get("asignado_a_nombre", "")
 
     # 4. Calcular duración
     duracion_min = calcular_minutos(ticket.get("created_at"))
@@ -979,13 +969,13 @@ def finalizar_ticket_supervisor(from_phone: str, ticket_id: int) -> None:
     logger.info(f"✅ Tarea #{ticket_id} finalizada por supervisión")
 
     # 7. Notificar al worker si estaba asignado
-    if worker_phone:
+    if worker_phone_dest:
         try:
             send_whatsapp_text(
-                to=worker_phone,
+                to=worker_phone_dest,
                 body=msg_worker_tarea_finalizada_sup(ticket_id, ubicacion, detalle),
             )
-            logger.info(f"✅ Worker {worker_nombre} notificado de finalización")
+            logger.info(f"✅ Worker {worker_phone_dest} notificado de finalización")
         except Exception as e:
             logger.error(f"Error notificando worker: {e}")
 

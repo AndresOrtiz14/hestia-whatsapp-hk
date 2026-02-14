@@ -43,9 +43,7 @@ def _default_supervisor_state(phone: str) -> Dict[str, Any]:
 
 
 def get_supervisor_state(phone: str) -> Dict[str, Any]:
-    if phone in _STATE_CACHE:
-        return _STATE_CACHE[phone]
-
+    """✅ FIX A4: Siempre leer de BD para multi-worker safety."""
     loaded = load_runtime_session(phone)
     base = _default_supervisor_state(phone)
 

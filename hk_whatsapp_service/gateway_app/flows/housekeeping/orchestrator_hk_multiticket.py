@@ -534,7 +534,7 @@ def mostrar_tickets_activos(from_phone: str) -> None:
                 if isinstance(started_at, str):
                     started_at = parser.parse(started_at)
                 tiempo_mins = int((datetime.now(started_at.tzinfo) - started_at).total_seconds() / 60)
-            except:
+            except Exception:
                 tiempo_mins = 0
         else:
             tiempo_mins = 0
@@ -583,11 +583,12 @@ def tomar_ticket(from_phone: str) -> None:
     
     # ✅ Actualizar estado en BD: ASIGNADO → EN_CURSO
     if actualizar_estado_ticket(ticket_id, "EN_CURSO"):
-        # Registrar timestamps
-        from datetime import datetime
+        # ✅ FIX M9: Usar timezone-aware para compatibilidad con PostgreSQL TIMESTAMPTZ
+        from datetime import datetime, timezone
+        now_utc = datetime.now(timezone.utc)
         execute(
             "UPDATE public.tickets SET started_at = ?, accepted_at = ? WHERE id = ?",
-            [datetime.now(), datetime.now(), ticket_id],
+            [now_utc, now_utc, ticket_id],
             commit=True
         )
         
@@ -670,10 +671,10 @@ def finalizar_ticket_especifico(from_phone: str, ticket_id: int) -> None:
         send_whatsapp(from_phone, f"⚠️ La tarea #{ticket_id} no está en progreso\n\n💡 Di 'M' para volver al menú")
         return
     
-    # ✅ Actualizar estado en BD: EN_CURSO → RESUELTO
+# ✅ Actualizar estado en BD: EN_CURSO → RESUELTO
     if actualizar_estado_ticket(ticket_id, "RESUELTO"):
-        # Registrar finished_at
-        from datetime import datetime, timezone
+        # ✅ FIX A7: Usar timezone-aware para compatibilidad con PostgreSQL TIMESTAMPTZ
+        from datetime import timezone
         now = datetime.now(timezone.utc)
         execute(
             "UPDATE public.tickets SET finished_at = ? WHERE id = ?",

@@ -5,8 +5,6 @@ Webhook de WhatsApp con routing por rol (Supervisor vs Mucama).
 from flask import Blueprint, request, jsonify
 import logging
 
-import logging
-
 from gateway_app.config import Config
 from gateway_app.services.whatsapp_client import send_whatsapp_text
 
@@ -248,7 +246,14 @@ def db_status():
     """
     Endpoint para verificar estado de la base de datos.
     Muestra qué tablas existen y su contenido.
+    Requiere ADMIN_TOKEN como query param.
     """
+    # ✅Proteger con token
+    admin_token = os.getenv("ADMIN_TOKEN", "")
+    provided_token = request.args.get("token", "")
+    if not admin_token or provided_token != admin_token:
+        return jsonify({"error": "unauthorized"}), 403
+
     from gateway_app.services.db import fetchall, fetchone, using_pg
     
     status = {
