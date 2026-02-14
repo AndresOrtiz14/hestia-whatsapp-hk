@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 from gateway_app.flows.housekeeping.turno_auto import verificar_y_activar_turno_auto
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from .state_simple import (
     get_user_state,
     reset_ticket_draft,
@@ -673,7 +673,8 @@ def finalizar_ticket_especifico(from_phone: str, ticket_id: int) -> None:
     # ✅ Actualizar estado en BD: EN_CURSO → RESUELTO
     if actualizar_estado_ticket(ticket_id, "RESUELTO"):
         # Registrar finished_at
-        now = datetime.now()
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
         execute(
             "UPDATE public.tickets SET finished_at = ? WHERE id = ?",
             [now, ticket_id],
