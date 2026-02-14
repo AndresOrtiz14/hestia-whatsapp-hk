@@ -950,7 +950,12 @@ def finalizar_ticket_supervisor(from_phone: str, ticket_id: int) -> None:
     ubicacion = ticket.get("ubicacion") or ticket.get("habitacion", "?")
     detalle = ticket.get("detalle", "Sin detalle")
     prioridad = ticket.get("prioridad", "MEDIA")
-    asignado_a = ticket.get("asignado_a_telefono")
+    huesped_wa = ticket.get("huesped_whatsapp") or ""
+    if "|" in huesped_wa:
+        worker_phone, worker_nombre = huesped_wa.split("|", 1)
+    else:
+        worker_phone = None
+        worker_nombre = ""
     worker_nombre = ticket.get("asignado_a_nombre", "")
 
     # 4. Calcular duración
@@ -980,13 +985,13 @@ def finalizar_ticket_supervisor(from_phone: str, ticket_id: int) -> None:
     logger.info(f"✅ Tarea #{ticket_id} finalizada por supervisión")
 
     # 7. Notificar al worker si estaba asignado
-    if asignado_a:
+    if worker_phone:
         try:
             send_whatsapp_text(
-                to=asignado_a,
+                to=worker_phone,
                 body=msg_worker_tarea_finalizada_sup(ticket_id, ubicacion, detalle),
             )
-            logger.info(f"✅ Worker {asignado_a} notificado de finalización")
+            logger.info(f"✅ Worker {worker_nombre} notificado de finalización")
         except Exception as e:
             logger.error(f"Error notificando worker: {e}")
 
