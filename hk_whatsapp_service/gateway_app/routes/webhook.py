@@ -126,7 +126,7 @@ def inbound():
     y rutea al bot correspondiente.
     """
     payload = request.get_json(silent=True) or {}
-
+    wamid = None  # Para dedupe y manejo de errores
     try:
         entry = payload["entry"][0]
         change = entry["changes"][0]
