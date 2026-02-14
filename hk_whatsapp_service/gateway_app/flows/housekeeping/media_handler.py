@@ -1,18 +1,56 @@
 # gateway_app/flows/housekeeping/media_handler.py
 """
-Manejo de medios (fotos/videos) enviados por trabajadores.
-Soporta:
-- Foto con nuevo reporte (ubicación + descripción)
-- Foto para ticket existente
-- Foto sin contexto (el bot pregunta)
+Manejo de medios (fotos/videos) enviados por trabajadores Y supervisores.
+VERSIÓN CORREGIDA: Usa el estado correcto según el rol del usuario.
 """
 
 import logging
 import re
-from typing import Optional, Dict, Any
+import os
+from typing import Optional, Dict, Any, Callable
 
 logger = logging.getLogger(__name__)
 
+# ============================================================
+# HELPER: Detectar rol y obtener funciones de estado correctas
+# ============================================================
+
+def _get_state_functions(phone: str) -> tuple:
+    """
+    Retorna las funciones de estado correctas según el rol del usuario.
+    
+    Returns:
+        (get_state_func, persist_state_func, is_supervisor)
+    """
+    supervisor_phones_str = os.getenv("SUPERVISOR_PHONES", "")
+    supervisor_phones = [p.strip() for p in supervisor_phones_str.split(",") if p.strip()]
+    
+    is_supervisor = phone in supervisor_phones
+    
+    if is_supervisor:
+        from gateway_app.flows.supervision.state import (
+            get_supervisor_state,
+            persist_supervisor_state
+        )
+        return get_supervisor_state, persist_supervisor_state, True
+    else:
+        from gateway_app.flows.housekeeping.state_simple import (
+            get_user_state,
+            persist_user_state
+        )
+        return get_user_state, persist_user_state, False
+
+
+def _get_send_function(phone: str):
+    """Retorna la función de envío correcta."""
+    # Ambos usan el mismo cliente de WhatsApp
+    from gateway_app.flows.housekeeping.outgoing import send_whatsapp
+    return send_whatsapp
+
+
+# ============================================================
+# HANDLER PRINCIPAL
+# ============================================================
 
 def handle_media_message(
     from_phone: str,
@@ -22,37 +60,23 @@ def handle_media_message(
 ) -> None:
     """
     Punto de entrada para mensajes con media.
-    
-    Flujos posibles:
-    1. Media con caption que incluye ubicación → crear ticket con media
-    2. Media con caption "foto 123" → agregar a ticket existente
-    3. Media con caption pero sin ubicación → preguntar contexto
-    4. Media sin caption → preguntar contexto
-    5. Media cuando hay media_pendiente en estado → asociar al contexto
-    
-    Args:
-        from_phone: Teléfono del trabajador
-        media_id: ID del media de WhatsApp
-        media_type: "image" o "video"
-        caption: Texto que acompaña al media (puede ser None)
+    Funciona tanto para workers como supervisores.
     """
-    from .state_simple import get_user_state as get_state, persist_user_state as persist_state
-    from .outgoing import send_whatsapp
-    from gateway_app.services.media_storage import process_and_store_media
+    get_state, persist_state, is_supervisor = _get_state_functions(from_phone)
+    send_whatsapp = _get_send_function(from_phone)
     
     state = get_state(from_phone)
     caption_text = (caption or "").strip()
     caption_lower = caption_text.lower()
     
-    logger.info(f"📸 HK | {from_phone} | Media: {media_type} | Caption: '{caption_text[:50] if caption_text else '(sin caption)'}'")
+    rol_str = "SUP" if is_supervisor else "HK"
+    logger.info(f"📸 {rol_str} | {from_phone} | Media: {media_type} | Caption: '{caption_text[:50] if caption_text else '(sin caption)'}'")
     
     # ─────────────────────────────────────────────────────────────
     # CASO 1: Hay un flujo de media pendiente esperando ubicación
     # ─────────────────────────────────────────────────────────────
     if state.get("media_pendiente"):
-        # El trabajador ya envió una foto antes y estamos esperando contexto
-        # Ahora envió OTRA foto - reemplazamos la anterior
-        logger.info(f"📸 HK | Reemplazando media pendiente anterior")
+        logger.info(f"📸 {rol_str} | Reemplazando media pendiente anterior")
         state["media_pendiente"] = {
             "media_id": media_id,
             "media_type": media_type,
@@ -85,7 +109,6 @@ def handle_media_message(
         ubicacion = _extraer_ubicacion(caption_text)
         
         if ubicacion:
-            # Crear ticket con el media adjunto
             _crear_ticket_con_media(
                 from_phone=from_phone,
                 media_id=media_id,
@@ -122,17 +145,13 @@ def handle_media_message(
 def handle_media_context_response(from_phone: str, text: str) -> bool:
     """
     Maneja la respuesta cuando hay un media pendiente esperando contexto.
-    Se llama desde el orchestrator principal cuando detecta media_pendiente.
-    
-    Args:
-        from_phone: Teléfono del trabajador
-        text: Respuesta del trabajador
+    Se llama desde el orchestrator (tanto de HK como de supervisión).
     
     Returns:
         True si se manejó, False si no había media pendiente
     """
-    from .state_simple import get_user_state as get_state, persist_user_state as persist_state
-    from .outgoing import send_whatsapp
+    get_state, persist_state, is_supervisor = _get_state_functions(from_phone)
+    send_whatsapp = _get_send_function(from_phone)
     
     state = get_state(from_phone)
     media_info = state.get("media_pendiente")
@@ -152,16 +171,16 @@ def handle_media_context_response(from_phone: str, text: str) -> bool:
         return True
     
     # ─────────────────────────────────────────────────────────────
-    # Opción: Agregar a ticket existente "foto 123"
+    # Opción: Agregar a ticket existente "foto 123" o solo número pequeño
     # ─────────────────────────────────────────────────────────────
     ticket_match = re.search(r'(?:foto|video|adjuntar|agregar|ticket)?\s*#?(\d+)', text_lower)
-    if ticket_match and text_lower.replace(" ", "").isdigit() is False:
-        # Verificar que no sea solo un número de habitación (3-4 dígitos típicos de hab)
+    if ticket_match:
         num = int(ticket_match.group(1))
         
-        # Heurística: tickets suelen ser < 1000, habitaciones 100-999 o 1000-9999
-        # Si el número es pequeño (< 200), probablemente es un ticket
-        if num < 200:
+        # Heurística: Si el número es < 200, probablemente es un ticket ID
+        # Si es >= 200 (como 305, 420), probablemente es una habitación
+        if num < 200 and not text_lower.replace(" ", "").isdigit():
+            # Parece un ticket ID con contexto (ej: "foto 123", "ticket 45")
             media_id = media_info["media_id"]
             media_type = media_info["media_type"]
             
@@ -183,7 +202,7 @@ def handle_media_context_response(from_phone: str, text: str) -> bool:
         state.pop("media_pendiente", None)
         persist_state(from_phone, state)
         
-        # Preguntar por el detalle del problema
+        # Guardar para el siguiente paso (esperar descripción)
         state["media_para_ticket"] = {
             "media_id": media_id,
             "media_type": media_type,
@@ -219,15 +238,11 @@ def handle_media_detail_response(from_phone: str, text: str) -> bool:
     """
     Maneja la respuesta con el detalle del problema (después de dar ubicación).
     
-    Args:
-        from_phone: Teléfono del trabajador
-        text: Descripción del problema
-    
     Returns:
         True si se manejó, False si no había media_para_ticket
     """
-    from .state_simple import get_user_state as get_state, persist_user_state as persist_state
-    from .outgoing import send_whatsapp
+    get_state, persist_state, is_supervisor = _get_state_functions(from_phone)
+    send_whatsapp = _get_send_function(from_phone)
     
     state = get_state(from_phone)
     media_info = state.get("media_para_ticket")
@@ -263,26 +278,22 @@ def handle_media_detail_response(from_phone: str, text: str) -> bool:
     return True
 
 
+# ============================================================
+# FUNCIONES AUXILIARES
+# ============================================================
+
 def _extraer_ubicacion(text: str) -> Optional[str]:
-    """
-    Extrae ubicación (habitación o área común) del texto.
-    
-    Returns:
-        Ubicación formateada o None
-    """
-    # Importar funciones de audio_commands de supervisión (reutilizar lógica)
+    """Extrae ubicación (habitación o área común) del texto."""
     try:
         from gateway_app.flows.supervision.audio_commands import (
             extract_habitacion,
             extract_area_comun
         )
         
-        # Intentar habitación primero
         habitacion = extract_habitacion(text)
         if habitacion:
             return habitacion
         
-        # Intentar área común
         area = extract_area_comun(text)
         if area:
             return area
@@ -295,7 +306,6 @@ def _extraer_ubicacion(text: str) -> Optional[str]:
         return None
         
     except ImportError:
-        # Fallback si no existe el módulo
         text_clean = text.strip()
         if re.match(r'^\d{3,4}$', text_clean):
             return text_clean
@@ -309,22 +319,17 @@ def _crear_ticket_con_media(
     ubicacion: str,
     detalle: str
 ) -> None:
-    """
-    Crea un ticket nuevo con media adjunto y notifica al supervisor.
-    """
-    from .outgoing import send_whatsapp
+    """Crea un ticket nuevo con media adjunto y notifica al supervisor."""
+    from gateway_app.flows.housekeeping.outgoing import send_whatsapp
     from gateway_app.services.tickets_db import crear_ticket
     from gateway_app.services.media_storage import process_and_store_media
     
-    # Detectar prioridad del texto
     prioridad = _detectar_prioridad(detalle)
     
-    # Detectar área
     area = "HOUSEKEEPING"
-    if not ubicacion.isdigit():
+    if not str(ubicacion).isdigit():
         area = "AREAS_COMUNES"
     
-    # Crear ticket en BD
     try:
         ticket = crear_ticket(
             habitacion=ubicacion,
@@ -332,7 +337,7 @@ def _crear_ticket_con_media(
             prioridad=prioridad,
             area=area,
             creado_por=from_phone,
-            origen="trabajador"
+            origen="supervisor"  # O detectar según rol
         )
         
         if not ticket:
@@ -352,27 +357,27 @@ def _crear_ticket_con_media(
         media_emoji = "📸" if media_type == "image" else "🎥"
         prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
         
-        # Confirmar al trabajador
         send_whatsapp(
             from_phone,
             f"✅ Ticket #{ticket_id} creado {media_emoji}\n\n"
             f"📍 Ubicación: {ubicacion}\n"
             f"📝 {detalle}\n"
-            f"{prioridad_emoji} Prioridad: {prioridad}\n\n"
-            f"El supervisor será notificado."
+            f"{prioridad_emoji} Prioridad: {prioridad}"
         )
         
-        # Notificar al supervisor
-        _notificar_supervisor_nuevo_ticket(
-            ticket_id=ticket_id,
-            ubicacion=ubicacion,
-            detalle=detalle,
-            prioridad=prioridad,
-            media_id=media_id,
-            media_type=media_type,
-            reportado_por=from_phone,
-            storage_url=media_result.get("storage_url")
-        )
+        # Notificar al supervisor (si quien envía no es supervisor)
+        _, _, is_supervisor = _get_state_functions(from_phone)
+        if not is_supervisor:
+            _notificar_supervisor_nuevo_ticket(
+                ticket_id=ticket_id,
+                ubicacion=ubicacion,
+                detalle=detalle,
+                prioridad=prioridad,
+                media_id=media_id,
+                media_type=media_type,
+                reportado_por=from_phone,
+                storage_url=media_result.get("storage_url")
+            )
         
         logger.info(f"✅ Ticket #{ticket_id} creado con {media_type} por {from_phone}")
         
@@ -387,21 +392,17 @@ def _agregar_media_a_ticket(
     media_type: str,
     ticket_id: int
 ) -> None:
-    """
-    Agrega un media a un ticket existente.
-    """
-    from .outgoing import send_whatsapp
+    """Agrega un media a un ticket existente."""
+    from gateway_app.flows.housekeeping.outgoing import send_whatsapp
     from gateway_app.services.tickets_db import obtener_ticket_por_id
     from gateway_app.services.media_storage import process_and_store_media
     
-    # Verificar que el ticket existe
     ticket = obtener_ticket_por_id(ticket_id)
     
     if not ticket:
         send_whatsapp(from_phone, f"❌ No encontré el ticket #{ticket_id}")
         return
     
-    # Procesar y guardar media
     media_result = process_and_store_media(
         media_id=media_id,
         media_type=media_type,
@@ -444,12 +445,8 @@ def _notificar_supervisor_nuevo_ticket(
     reportado_por: str,
     storage_url: Optional[str] = None
 ) -> None:
-    """
-    Notifica al supervisor sobre un nuevo ticket con foto/video.
-    Envía la imagen por WhatsApp.
-    """
+    """Notifica al supervisor sobre un nuevo ticket con foto/video."""
     from gateway_app.services.whatsapp_client import send_whatsapp_image, send_whatsapp_text
-    import os
     
     supervisor_phones_str = os.getenv("SUPERVISOR_PHONES", "")
     supervisor_phones = [p.strip() for p in supervisor_phones_str.split(",") if p.strip()]
@@ -471,7 +468,6 @@ def _notificar_supervisor_nuevo_ticket(
     
     for sup_phone in supervisor_phones:
         try:
-            # Enviar imagen con caption
             if media_type == "image":
                 result = send_whatsapp_image(
                     to=sup_phone,
@@ -479,12 +475,9 @@ def _notificar_supervisor_nuevo_ticket(
                     caption=caption
                 )
                 if not result.get("success"):
-                    # Fallback: enviar texto + link
                     send_whatsapp_text(to=sup_phone, body=caption)
             else:
-                # Para videos, enviar texto (más pesado)
                 send_whatsapp_text(to=sup_phone, body=caption)
-                # TODO: Implementar send_whatsapp_video si es necesario
             
             logger.info(f"✅ Supervisor {sup_phone} notificado de ticket #{ticket_id}")
             
@@ -499,12 +492,9 @@ def _notificar_supervisor_media_agregado(
     agregado_por: str,
     storage_url: Optional[str] = None
 ) -> None:
-    """
-    Notifica al supervisor que se agregó una foto a un ticket existente.
-    """
+    """Notifica al supervisor que se agregó una foto a un ticket existente."""
     from gateway_app.services.whatsapp_client import send_whatsapp_image, send_whatsapp_text
     from gateway_app.services.tickets_db import obtener_ticket_por_id
-    import os
     
     supervisor_phones_str = os.getenv("SUPERVISOR_PHONES", "")
     supervisor_phones = [p.strip() for p in supervisor_phones_str.split(",") if p.strip()]

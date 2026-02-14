@@ -92,6 +92,27 @@ def infer_area_from_ubicacion(ubicacion: str) -> str:
 
 def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
     state = get_supervisor_state(from_phone)
+
+    # ═══════════════════════════════════════════════════════════════
+    # ✅ NUEVO: Verificar si hay media pendiente ANTES de todo
+    # ═══════════════════════════════════════════════════════════════
+    if state.get("media_pendiente") or state.get("media_para_ticket"):
+        from gateway_app.flows.housekeeping.media_handler import (
+            handle_media_context_response,
+            handle_media_detail_response
+        )
+        
+        # Primero verificar media_para_ticket (esperando descripción)
+        if state.get("media_para_ticket"):
+            if handle_media_detail_response(from_phone, text):
+                return
+        
+        # Luego verificar media_pendiente (esperando ubicación)
+        if state.get("media_pendiente"):
+            if handle_media_context_response(from_phone, text):
+                return
+    # ═══════════════════════════════════════════════════════════════
+
     try:
         raw = (text or "").strip().lower()
         logger.info(f"👔 SUP | {from_phone} | Comando: '{raw[:30]}...'")
