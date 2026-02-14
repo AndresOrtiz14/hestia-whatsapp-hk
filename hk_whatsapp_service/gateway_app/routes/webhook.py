@@ -116,15 +116,13 @@ def verify():
 
 
 @bp.post("/webhook")
-def inbound():
+def inbound_updated():
     """
     Webhook principal con routing por rol.
-    
-    Detecta si el mensaje viene de un supervisor o mucama
-    y rutea al bot correspondiente.
+    VERSIÓN ACTUALIZADA con soporte para imágenes y videos.
     """
     payload = request.get_json(silent=True) or {}
-    wamid = None  # Para dedupe y manejo de errores
+
     try:
         entry = payload["entry"][0]
         change = entry["changes"][0]
@@ -182,25 +180,52 @@ def inbound():
             message_data["media_id"] = media_id
             logger.info(f"   🎤 Audio ID: {media_id}")
 
-        # CASO 3: Otros tipos (ignorar por ahora)
+        # ✅ CASO 3: Mensaje de imagen
+        elif msg_type == "image":
+            image_data = msg.get("image") or {}
+            media_id = image_data.get("id")
+            caption = image_data.get("caption", "")
+            
+            if not media_id:
+                logger.warning("⚠️ Imagen sin media_id")
+                return jsonify(ok=True), 200
+            
+            message_data["media_id"] = media_id
+            message_data["caption"] = caption
+            logger.info(f"   📸 Imagen ID: {media_id} | Caption: '{caption[:30] if caption else '(sin caption)'}'")
+
+        # ✅ CASO 4: Mensaje de video
+        elif msg_type == "video":
+            video_data = msg.get("video") or {}
+            media_id = video_data.get("id")
+            caption = video_data.get("caption", "")
+            
+            if not media_id:
+                logger.warning("⚠️ Video sin media_id")
+                return jsonify(ok=True), 200
+            
+            message_data["media_id"] = media_id
+            message_data["caption"] = caption
+            logger.info(f"   🎥 Video ID: {media_id} | Caption: '{caption[:30] if caption else '(sin caption)'}'")
+
+        # CASO 5: Otros tipos (ignorar)
         else:
-            logger.info(f"   ⏭️ Tipo no soportado, ignorando")
+            logger.info(f"   ⏭️ Tipo '{msg_type}' no soportado, ignorando")
             return jsonify(ok=True), 200
 
         # ROUTING POR ROL
         if user_role == "supervisor":
             logger.info(f"   🎯 Ruta: BOT SUPERVISIÓN")
             
-            # Supervisor: Texto + Audio
+            # Supervisor: Texto
             if msg_type == "text":
                 try:
                     handle_supervisor_message(from_phone, message_data["text"])
                 except Exception as e:
-                    logger.exception("❌ ERROR procesando webhook (pero respondo 200 para evitar retries): %s", e)
-                    # Opcional: avisar al supervisor
-                    # send_whatsapp(from_phone, "⚠️ Ocurrió un error interno. Intenta de nuevo.")
+                    logger.exception("❌ ERROR procesando webhook: %s", e)
                 return jsonify(ok=True), 200
 
+            # Supervisor: Audio
             elif msg_type in ["audio", "voice"]:
                 logger.info(f"   🔄 Transcribiendo audio...")
                 from gateway_app.flows.housekeeping.audio_integration import transcribe_hk_audio
@@ -208,7 +233,7 @@ def inbound():
                 result = transcribe_hk_audio(message_data["media_id"])
                 
                 if result["success"]:
-                    logger.info(f"   ✅ Transcripción: '{result['text'][:50]}{'...' if len(result['text']) > 50 else ''}'")
+                    logger.info(f"   ✅ Transcripción: '{result['text'][:50]}...'")
                     send_whatsapp_text(
                         to=from_phone,
                         body=f"🎤 Escuché: \"{result['text']}\""
@@ -220,14 +245,37 @@ def inbound():
                         to=from_phone,
                         body="❌ No pude transcribir el audio. Intenta de nuevo."
                     )
+            
+            # ✅ Supervisor: Imagen/Video (opcional - crear tickets)
+            elif msg_type in ["image", "video"]:
+                from gateway_app.flows.housekeeping.media_handler import handle_media_message
+                handle_media_message(
+                    from_phone=from_phone,
+                    media_id=message_data["media_id"],
+                    media_type=msg_type,
+                    caption=message_data.get("caption")
+                )
         
         else:  # housekeeper
             logger.info(f"   🎯 Ruta: BOT HOUSEKEEPING")
-            handle_hk_message_with_audio(
-                from_phone,
-                message_data,
-                show_transcription=True
-            )
+            
+            # ✅ NUEVO: Manejar imágenes y videos
+            if msg_type in ["image", "video"]:
+                from gateway_app.flows.housekeeping.media_handler import handle_media_message
+                
+                handle_media_message(
+                    from_phone=from_phone,
+                    media_id=message_data["media_id"],
+                    media_type=msg_type,
+                    caption=message_data.get("caption")
+                )
+            else:
+                # Texto y audio se manejan con el handler existente
+                handle_hk_message_with_audio(
+                    from_phone,
+                    message_data,
+                    show_transcription=True
+                )
 
         logger.info(f"   ✅ Procesado correctamente")
         logger.info("=" * 60)

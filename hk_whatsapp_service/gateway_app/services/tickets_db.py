@@ -441,3 +441,195 @@ def tomar_ticket_asignado(ticket_id: int, worker_phone: str) -> bool:
     except Exception as e:
         logger.exception(f"❌ Error tomando ticket {ticket_id} para {p}: {e}")
         return False
+
+def agregar_media_a_ticket(
+    ticket_id: int,
+    media_type: str,
+    storage_url: str,
+    whatsapp_media_id: str,
+    mime_type: str,
+    file_size_bytes: int,
+    uploaded_by: str
+) -> Optional[int]:
+    """
+    Agrega un registro de media a un ticket.
+    
+    Args:
+        ticket_id: ID del ticket
+        media_type: 'image', 'video', 'document', 'audio'
+        storage_url: URL en Supabase Storage (puede ser vacío si falló el upload)
+        whatsapp_media_id: ID original del media en WhatsApp
+        mime_type: Tipo MIME (image/jpeg, video/mp4, etc.)
+        file_size_bytes: Tamaño en bytes
+        uploaded_by: Teléfono del usuario que subió el media
+    
+    Returns:
+        ID del registro creado o None si falló
+    """
+    from gateway_app.services.db import execute, fetchone, using_pg
+    
+    table = "public.ticket_media" if using_pg() else "ticket_media"
+    
+    sql = f"""
+        INSERT INTO {table} 
+        (ticket_id, media_type, storage_url, whatsapp_media_id, mime_type, file_size_bytes, uploaded_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        RETURNING id
+    """
+    
+    try:
+        if using_pg():
+            result = fetchone(sql, [
+                ticket_id, media_type, storage_url, whatsapp_media_id,
+                mime_type, file_size_bytes, uploaded_by
+            ])
+            return result["id"] if result else None
+        else:
+            # SQLite no soporta RETURNING
+            execute(sql.replace("RETURNING id", ""), [
+                ticket_id, media_type, storage_url, whatsapp_media_id,
+                mime_type, file_size_bytes, uploaded_by
+            ], commit=True)
+            result = fetchone("SELECT last_insert_rowid() as id")
+            return result["id"] if result else None
+            
+    except Exception as e:
+        logger.exception(f"❌ Error agregando media a ticket #{ticket_id}: {e}")
+        return None
+
+
+def obtener_media_de_ticket(ticket_id: int) -> List[Dict[str, Any]]:
+    """
+    Obtiene todos los medios asociados a un ticket.
+    
+    Args:
+        ticket_id: ID del ticket
+    
+    Returns:
+        Lista de registros de media
+    """
+    from gateway_app.services.db import fetchall, using_pg
+    
+    table = "public.ticket_media" if using_pg() else "ticket_media"
+    
+    sql = f"""
+        SELECT id, ticket_id, media_type, storage_url, whatsapp_media_id,
+               mime_type, file_size_bytes, uploaded_by, created_at
+        FROM {table}
+        WHERE ticket_id = ?
+        ORDER BY created_at ASC
+    """
+    
+    try:
+        return fetchall(sql, [ticket_id]) or []
+    except Exception as e:
+        logger.exception(f"❌ Error obteniendo media de ticket #{ticket_id}: {e}")
+        return []
+
+
+def contar_media_de_ticket(ticket_id: int) -> int:
+    """
+    Cuenta cuántos medios tiene un ticket.
+    
+    Args:
+        ticket_id: ID del ticket
+    
+    Returns:
+        Cantidad de medios
+    """
+    from gateway_app.services.db import fetchone, using_pg
+    
+    table = "public.ticket_media" if using_pg() else "ticket_media"
+    
+    sql = f"SELECT COUNT(*) as count FROM {table} WHERE ticket_id = ?"
+    
+    try:
+        result = fetchone(sql, [ticket_id])
+        return result["count"] if result else 0
+    except Exception as e:
+        logger.exception(f"❌ Error contando media de ticket #{ticket_id}: {e}")
+        return 0
+
+
+def obtener_primer_media_de_ticket(ticket_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Obtiene el primer media de un ticket (útil para previews).
+    
+    Args:
+        ticket_id: ID del ticket
+    
+    Returns:
+        Registro de media o None
+    """
+    from gateway_app.services.db import fetchone, using_pg
+    
+    table = "public.ticket_media" if using_pg() else "ticket_media"
+    
+    sql = f"""
+        SELECT id, ticket_id, media_type, storage_url, whatsapp_media_id,
+               mime_type, file_size_bytes, uploaded_by, created_at
+        FROM {table}
+        WHERE ticket_id = ?
+        ORDER BY created_at ASC
+        LIMIT 1
+    """
+    
+    try:
+        return fetchone(sql, [ticket_id])
+    except Exception as e:
+        logger.exception(f"❌ Error obteniendo primer media de ticket #{ticket_id}: {e}")
+        return None
+
+
+def eliminar_media(media_id: int) -> bool:
+    """
+    Elimina un registro de media.
+    
+    Args:
+        media_id: ID del registro de media
+    
+    Returns:
+        True si se eliminó correctamente
+    """
+    from gateway_app.services.db import execute, using_pg
+    
+    table = "public.ticket_media" if using_pg() else "ticket_media"
+    
+    sql = f"DELETE FROM {table} WHERE id = ?"
+    
+    try:
+        execute(sql, [media_id], commit=True)
+        return True
+    except Exception as e:
+        logger.exception(f"❌ Error eliminando media #{media_id}: {e}")
+        return False
+
+
+def mover_media_a_ticket(whatsapp_media_id: str, ticket_id: int) -> bool:
+    """
+    Mueve un media pendiente (sin ticket) a un ticket específico.
+    Útil cuando se crea el ticket después de recibir el media.
+    
+    Args:
+        whatsapp_media_id: ID del media en WhatsApp
+        ticket_id: ID del ticket destino
+    
+    Returns:
+        True si se actualizó correctamente
+    """
+    from gateway_app.services.db import execute, using_pg
+    
+    table = "public.ticket_media" if using_pg() else "ticket_media"
+    
+    sql = f"""
+        UPDATE {table}
+        SET ticket_id = ?
+        WHERE whatsapp_media_id = ? AND ticket_id IS NULL
+    """
+    
+    try:
+        execute(sql, [ticket_id, whatsapp_media_id], commit=True)
+        return True
+    except Exception as e:
+        logger.exception(f"❌ Error moviendo media a ticket #{ticket_id}: {e}")
+        return False

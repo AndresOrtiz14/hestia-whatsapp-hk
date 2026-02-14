@@ -39,11 +39,16 @@ def _default_state() -> Dict[str, Any]:
             "prioridad": None,
         },
         "last_greet_date": None,
+        # ✅ NUEVO: Estados para manejo de medios
+        "media_pendiente": None,      # {"media_id": str, "media_type": str}
+        "media_para_ticket": None,    # {"media_id": str, "media_type": str, "ubicacion": str}
         # Sistema de turnos
         "turno_activo": False,
         "turno_inicio": None,
         "turno_fin": None,
     }
+
+
 
 def _brief_state(state: Dict[str, Any]) -> str:
     ticket_activo = state.get("ticket_activo")
@@ -82,6 +87,12 @@ def get_user_state(phone: str) -> Dict[str, Any]:
         base.update(state)
         if not isinstance(base.get("ticket_draft"), dict):
             base["ticket_draft"] = _default_state()["ticket_draft"]
+    
+    # ✅ NUEVO: Asegurar que campos de media existen
+    if "media_pendiente" not in base:
+        base["media_pendiente"] = None
+    if "media_para_ticket" not in base:
+        base["media_para_ticket"] = None
 
     _STATE_CACHE[phone] = base
 

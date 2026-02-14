@@ -84,6 +84,53 @@ def create_tickets_table():
     execute(sql, commit=True)
     logger.info("✅ Tabla 'tickets' creada")
 
+def create_ticket_media_table():
+    """Crea la tabla para almacenar medios (fotos/videos) de tickets."""
+    logger.info("📦 Creando tabla 'ticket_media'...")
+    
+    sql = """
+        CREATE TABLE IF NOT EXISTS public.ticket_media (
+            id SERIAL PRIMARY KEY,
+            ticket_id INTEGER REFERENCES public.tickets(id) ON DELETE CASCADE,
+            media_type TEXT NOT NULL CHECK (media_type IN ('image', 'video', 'document', 'audio')),
+            storage_url TEXT,
+            whatsapp_media_id TEXT,
+            mime_type TEXT,
+            file_size_bytes INTEGER,
+            uploaded_by TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """
+    
+    if not using_pg():
+        # SQLite no soporta REFERENCES con CASCADE, simplificar
+        sql = """
+            CREATE TABLE IF NOT EXISTS ticket_media (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticket_id INTEGER,
+                media_type TEXT NOT NULL CHECK (media_type IN ('image', 'video', 'document', 'audio')),
+                storage_url TEXT,
+                whatsapp_media_id TEXT,
+                mime_type TEXT,
+                file_size_bytes INTEGER,
+                uploaded_by TEXT NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+    
+    execute(sql, commit=True)
+    
+    # Crear índice
+    idx_sql = "CREATE INDEX IF NOT EXISTS idx_ticket_media_ticket_id ON public.ticket_media(ticket_id)"
+    if not using_pg():
+        idx_sql = idx_sql.replace("public.ticket_media", "ticket_media")
+    
+    try:
+        execute(idx_sql, commit=True)
+    except Exception as e:
+        logger.warning(f"⚠️ Índice ya existe o error: {e}")
+    
+    logger.info("✅ Tabla 'ticket_media' creada")
 
 def create_indices():
     """Crea índices para optimizar búsquedas."""
@@ -257,7 +304,7 @@ def seed_workers():
     
     logger.info("🎉 Workers de prueba listos")
     
-def run_migrations():
+def run_migrations_updated():
     """
     Ejecuta todas las migraciones necesarias.
     Se llama al iniciar la app.
@@ -267,8 +314,9 @@ def run_migrations():
     logger.info("=" * 60)
     
     try:
-        # Verificar si la tabla existe
+        # Verificar si las tablas existen
         tickets_exists = table_exists("tickets")
+        ticket_media_exists = table_exists("ticket_media")
         
         if tickets_exists:
             logger.info("✅ Tabla 'tickets' ya existe")
@@ -279,21 +327,21 @@ def run_migrations():
             count = count_result['count'] if count_result else 0
             
             logger.info(f"📊 La tabla tiene {count} registros")
-            logger.info("⏭️  Saltando creación de tablas (ya existen)")
-            
-            # ✅ Siempre verificar y crear datos base
-            seed_base_data()
-            seed_workers()  # ← AGREGAR AQUÍ
-            
-            logger.info("=" * 60)
-            return
+        else:
+            logger.info("📦 Tabla 'tickets' no existe, creando...")
+            create_tickets_table()
+            create_indices()
+            create_trigger_updated_at()
         
-        logger.info("📦 Tabla 'tickets' no existe, creando...")
-        create_tickets_table()
-        create_indices()
-        create_trigger_updated_at()
+        # ✅ NUEVO: Verificar/crear tabla ticket_media
+        if not ticket_media_exists:
+            create_ticket_media_table()
+        else:
+            logger.info("✅ Tabla 'ticket_media' ya existe")
+        
+        # Siempre verificar y crear datos base
         seed_base_data()
-        seed_workers()  # ← Y AQUÍ TAMBIÉN
+        seed_workers()
         
         logger.info("🎉 Migraciones completadas exitosamente")
         logger.info("=" * 60)
@@ -301,5 +349,4 @@ def run_migrations():
     except Exception as e:
         logger.exception("❌ ERROR EN MIGRACIONES")
         logger.error("=" * 60)
-        # NO lanzar excepción, dejar que la app siga
         logger.warning("⚠️ La app continuará sin migraciones")

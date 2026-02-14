@@ -50,7 +50,7 @@ from .intents import (
     detectar_prioridad,
     extraer_habitacion
 )
-from .outgoing import send_whatsapp
+from .outgoing import send_whatsapp 
 from .demo_tickets import DEMO_TICKETS, elegir_mejor_ticket
 from gateway_app.services.tickets_db import obtener_tickets_asignados_a
 
@@ -62,6 +62,8 @@ from .areas_comunes_helpers import (
     get_texto_por_area,
     formatear_ubicacion_para_mensaje
 )
+
+from .media_handler import handle_media_context_response, handle_media_detail_response
 
 def verificar_turno_activo(from_phone: str) -> bool:
     """
@@ -230,6 +232,16 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
     if mensaje_turno_auto:
         send_whatsapp(from_phone, mensaje_turno_auto)
         # NO hacer return aquí - dejar que continúe procesando el mensaje
+        
+    if state.get("media_pendiente"):
+         from .media_handler import handle_media_context_response
+         if handle_media_context_response(from_phone, text):
+             return
+     
+    if state.get("media_para_ticket"):
+         from .media_handler import handle_media_detail_response
+         if handle_media_detail_response(from_phone, text):
+             return
 
     try:
         raw = (text or "").strip().lower()
