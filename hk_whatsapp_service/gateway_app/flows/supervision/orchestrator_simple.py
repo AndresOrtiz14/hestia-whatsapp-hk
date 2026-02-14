@@ -580,12 +580,7 @@ def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
 
             send_whatsapp_text(
                 to=worker_phone,
-                body=f"📋 Nueva tarea asignada\n\n"
-                     f"#{ticket_id} · {ubicacion_fmt}\n"
-                     f"{detalle}\n"
-                     f"{prioridad_emoji} Prioridad: {prioridad}\n\n"
-                     f"💡 Responde 'tomar' para aceptar"
-                     f"💡 O 'tomar {ticket_id}' si te lo pido"
+                body=msg_worker_nueva_tarea(ticket_id, ubicacion, detalle, prioridad)
             )
             
             state["esperando_asignacion"] = False
