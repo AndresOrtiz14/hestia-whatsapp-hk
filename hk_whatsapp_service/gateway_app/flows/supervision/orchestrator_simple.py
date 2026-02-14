@@ -695,8 +695,7 @@ def asignar_siguiente(from_phone: str) -> None:
     
     workers_con_score.sort(key=lambda m: m["score"], reverse=True)
     
-    workers = obtener_todos_workers()
-    mostrar_opciones_workers(from_phone, workers, ticket_id)
+    mostrar_opciones_workers(from_phone, workers_con_score, ticket_id)
     state["esperando_asignacion"] = True
 
 
