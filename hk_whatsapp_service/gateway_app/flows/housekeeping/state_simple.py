@@ -71,6 +71,7 @@ def get_user_state(phone: str) -> Dict[str, Any]:
     """
     Load state from cache -> DB -> default.
     """
+    state = load_runtime_session(phone)
     logger.info("HK_STATE get_user_state(%s) cache=%s", phone, phone in _STATE_CACHE)
 
     if phone in _STATE_CACHE:
