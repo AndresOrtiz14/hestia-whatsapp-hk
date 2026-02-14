@@ -76,18 +76,3 @@ def save_runtime_session(phone: str, data: Dict[str, Any]) -> None:
             [phone, payload],
             commit=True,
         )
-        
-def persist_state(phone: str, state: dict) -> None:
-    """Persiste el estado del usuario."""
-    # Si usas runtime_sessions en PostgreSQL:
-    from gateway_app.services.db import execute
-    import json
-    
-    sql = """
-        INSERT INTO runtime_sessions (phone, data, updated_at)
-        VALUES (?, ?::jsonb, NOW())
-        ON CONFLICT (phone) DO UPDATE SET
-            data = EXCLUDED.data,
-            updated_at = NOW()
-    """
-    execute(sql, [phone, json.dumps(state)], commit=True)
