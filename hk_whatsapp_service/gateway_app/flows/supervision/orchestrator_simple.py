@@ -79,6 +79,49 @@ def calcular_tiempo_desde(fecha_str: str) -> str:
         logger.warning(f"Error calculando tiempo desde {fecha_str}")
         return "?"
 
+def notificar_worker_nueva_tarea(worker_phone: str, ticket_id: int, 
+                                  ubicacion: str, detalle: str, prioridad: str) -> None:
+    """
+    Envía notificación de nueva tarea al worker + reenvía media asociada si existe.
+    """
+    from gateway_app.services.whatsapp_client import (
+        send_whatsapp_text, send_whatsapp_image, send_whatsapp_video
+    )
+    from gateway_app.services.tickets_db import obtener_media_de_ticket
+
+    # 1) Mensaje de texto con la tarea
+    send_whatsapp_text(
+        to=worker_phone,
+        body=msg_worker_nueva_tarea(ticket_id, ubicacion, detalle, prioridad),
+    )
+
+    # 2) Reenviar media asociada (si existe)
+    try:
+        medias = obtener_media_de_ticket(ticket_id)
+        for media in medias:
+            storage_url = media.get("storage_url")
+            media_type = media.get("media_type", "image")
+            
+            if not storage_url:
+                continue
+            
+            caption = f"📎 Foto de tarea #{ticket_id}"
+            
+            if media_type == "video":
+                send_whatsapp_video(
+                    to=worker_phone,
+                    video_url=storage_url,
+                    caption=caption,
+                )
+            else:
+                send_whatsapp_image(
+                    to=worker_phone,
+                    image_url=storage_url,
+                    caption=caption,
+                )
+            logger.info(f"📤 Media reenviada a worker {worker_phone} | Ticket #{ticket_id} | {media_type}")
+    except Exception as e:
+        logger.error(f"⚠️ Error reenviando media de ticket #{ticket_id} a {worker_phone}: {e}")
 
 def infer_area_from_ubicacion(ubicacion: str) -> str:
     if not ubicacion:
@@ -183,11 +226,7 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
                     )
 
                     # 2) Notificación al worker
-                    from gateway_app.services.whatsapp_client import send_whatsapp_text
-                    send_whatsapp_text(
-                        to=worker_phone,
-                        body=msg_worker_nueva_tarea(ticket_id, ubicacion, detalle, prioridad),
-                    )
+                    notificar_worker_nueva_tarea(worker_phone, ticket_id, ubicacion, detalle, prioridad)
 
                     # Limpiar estado de confirmación
                     state.pop("confirmacion_pendiente", None)
@@ -597,10 +636,7 @@ def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
             prioridad = str(ticket_data.get("prioridad") or "MEDIA").upper()
 
             # ✅ FIX A3: Usar template unificado en vez de formato inline
-            send_whatsapp_text(
-                to=worker_phone,
-                body=msg_worker_nueva_tarea(ticket_id, ubicacion, detalle, prioridad),
-            )
+            notificar_worker_nueva_tarea(worker_phone, ticket_id, ubicacion, detalle, prioridad)
             
             state["esperando_asignacion"] = False
             state["ticket_seleccionado"] = None
@@ -1069,10 +1105,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                     )
                 )
 
-                send_whatsapp_text(
-                    to=worker_phone,
-                    body=msg_worker_nueva_tarea(ticket_id, ubicacion, detalle, prioridad),
-                )
+                notificar_worker_nueva_tarea(worker_phone, ticket_id, ubicacion, detalle, prioridad)
 
                 # Notificar al worker original si es reasignación
                 if seleccion_info.get("tipo") == "reasignar":
@@ -1156,11 +1189,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                     )
 
                     # 3. Notificar al NUEVO worker
-                    from gateway_app.services.whatsapp_client import send_whatsapp_text
-                    send_whatsapp_text(
-                        worker_phone,
-                        msg_worker_nueva_tarea(ticket_id, ubicacion, detalle, prioridad),
-                    )
+                    notificar_worker_nueva_tarea(worker_phone, ticket_id, ubicacion, detalle, prioridad)
 
                     return True
                 else:
@@ -1472,11 +1501,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 )
 
                 # 3. Notificar al NUEVO worker
-                from gateway_app.services.whatsapp_client import send_whatsapp_text
-                send_whatsapp_text(
-                    to=worker_phone,
-                    body=msg_worker_nueva_tarea(ticket_id, ubicacion, detalle, prioridad),
-                )
+                notificar_worker_nueva_tarea(worker_phone, ticket_id, ubicacion, detalle, prioridad)
 
                 logger.info(f"✅ Tarea #{ticket_id} reasignada de {worker_original_name} a {worker_nombre_completo}")
                 return True
