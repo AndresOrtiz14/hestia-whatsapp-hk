@@ -370,9 +370,9 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
             "• 'asignar [#] a [nombre]'\n"
             "• 'finalizar [#]'"
         )
-    
-    finally:
-        persist_supervisor_state(from_phone, state)
+    except Exception as e:
+        logger.exception(f"❌ Error en supervisor handler: {e}")
+        send_whatsapp(from_phone, "❌ Error interno. Intenta de nuevo.")
 
 def mostrar_opciones_workers(from_phone: str, workers: list, ticket_id: int) -> None:
     """

@@ -15,6 +15,7 @@ gateway_app\flows\housekeeping\areas_comunes_helpers.py ^
 gateway_app\flows\housekeeping\audio_integration.py ^
 gateway_app\flows\housekeeping\demo_tickets.py ^
 gateway_app\flows\housekeeping\intents.py ^
+gateway_app\flows\housekeeping\media_handler.py ^
 gateway_app\flows\housekeeping\message_handler.py ^
 gateway_app\flows\housekeeping\orchestrator_hk_multiticket.py ^
 gateway_app\flows\housekeeping\outgoing.py ^
@@ -38,6 +39,7 @@ gateway_app\routes\webhook.py gateway_app\routes\__init__.py ^
 gateway_app\services\audio.py ^
 gateway_app\services\daily_scheduler.py ^
 gateway_app\services\db.py ^
+gateway_app\services\media_storage.py ^
 gateway_app\services\migrations.py ^
 gateway_app\services\runtime_state.py ^
 gateway_app\services\tickets_db.py ^

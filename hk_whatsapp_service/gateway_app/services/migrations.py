@@ -350,3 +350,5 @@ def run_migrations_updated():
         logger.exception("❌ ERROR EN MIGRACIONES")
         logger.error("=" * 60)
         logger.warning("⚠️ La app continuará sin migraciones")
+
+run_migrations = run_migrations_updated
