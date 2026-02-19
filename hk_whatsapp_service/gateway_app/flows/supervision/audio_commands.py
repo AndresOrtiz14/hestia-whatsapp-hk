@@ -175,13 +175,15 @@ def extract_habitacion(text: str) -> Optional[str]:
         "la 210" -> "210"
     """
     patterns = [
-        r'habitación\s*(\d{3,4})',
-        r'cuarto\s*(\d{3,4})',
-        r'pieza\s*(\d{3,4})',
-        r'hab\s+(\d{3,4})',
-        r'la\s+(\d{3,4})',
-        r'número\s+(\d{3,4})',
-    ]
+    r'habitaci[oó]n\s*(\d{3,4})',   # con y sin tilde
+    r'cuarto\s*(\d{3,4})',
+    r'pieza\s*(\d{3,4})',
+    r'hab\s+(\d{3,4})',
+    r'la\s+(\d{3,4})',
+    r'número\s+(\d{3,4})',
+    r'\ben\s+(\d{3,4})\b',           # ← NUEVO: "en 204", "en 310"
+    r'\bpiso\s+(\d{1,2})\b',         # ← NUEVO: "piso 3" (útil para áreas comunes)
+]
     
     text_lower = text.lower()
     

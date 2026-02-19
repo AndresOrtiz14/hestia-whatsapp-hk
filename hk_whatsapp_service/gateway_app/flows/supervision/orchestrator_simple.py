@@ -1660,22 +1660,30 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
 
     # Caso 3: Solo crear
     if intent == "crear_ticket":
-        ubicacion = intent_data.get("ubicacion", intent_data.get("habitacion"))  # ✅ MODIFICADO
+        ubicacion = intent_data.get("ubicacion", intent_data.get("habitacion"))
         detalle = intent_data["detalle"]
-        prioridad = intent_data["prioridad"]
         
-        # ✅ GUARDAR EN DB REAL
         from gateway_app.services.tickets_db import crear_ticket
-        
+        from gateway_app.services.ticket_classifier import clasificar_ticket  # ← NUEVO
         try:
-            area = infer_area_from_ubicacion(ubicacion)
-            ticket = crear_ticket(
-                habitacion=ubicacion,  # ✅ MODIFICADO: Genérico
+            # ── Clasificación inteligente ────────────────────────────────
+            clasificacion = clasificar_ticket(
                 detalle=detalle,
-                prioridad=prioridad,
-                area=area,
+                ubicacion=str(ubicacion) if ubicacion else "",
+            )
+            # ────────────────────────────────────────────────────────────
+            
+            ticket = crear_ticket(
+                habitacion=ubicacion,
+                detalle=detalle,
+                prioridad=clasificacion["prioridad"],          # ← antes era intent_data["prioridad"]
+                area=clasificacion["area"],                    # ← antes era infer_area_from_ubicacion()
                 creado_por=from_phone,
-                origen="supervisor"
+                origen="supervisor",
+                routing_source=clasificacion["routing_source"],    # ← NUEVO
+                routing_reason=clasificacion["routing_reason"],    # ← NUEVO
+                routing_confidence=clasificacion["routing_confidence"],  # ← NUEVO
+                routing_version=clasificacion["routing_source"],   # ← NUEVO
             )
             
             if ticket:
