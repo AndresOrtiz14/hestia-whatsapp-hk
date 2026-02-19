@@ -46,12 +46,18 @@ def crear_ticket(
     *,
     area: str = "HOUSEKEEPING",
     canal_origen: str = "WHATSAPP_BOT_SUPERVISION",
-    org_id: Optional[int] = None,
-    hotel_id: Optional[int] = None,
-) -> Optional[Dict[str, Any]]:
+    org_id=None,
+    hotel_id=None,
+    # ── NUEVOS parámetros de routing ──────────────────────────
+    routing_source: str = None,
+    routing_reason: str = None,
+    routing_confidence: float = None,
+    routing_version: str = None,
+):
     """
-    Crea un ticket en public.tickets (schema real).
-    org_id/hotel_id se toman desde env (ORG_ID_DEFAULT/HOTEL_ID_DEFAULT) si no se pasan.
+    Crea un ticket en public.tickets.
+    org_id/hotel_id se toman desde env si no se pasan.
+    routing_* se toman del clasificador de tickets.
     """
     if org_id is None or hotel_id is None:
         d_org, d_hotel = _default_scope()
@@ -62,8 +68,10 @@ def crear_ticket(
     estado = "PENDIENTE"
 
     logger.info(
-        "Creando ticket | Org=%s | Hotel=%s | Ubic=%s | Prioridad=%s | Area=%s",
-        org_id, hotel_id, habitacion, prioridad, area
+        "Creando ticket | Org=%s | Hotel=%s | Ubic=%s | Prioridad=%s | Area=%s | Routing=%s (%.2f)",
+        org_id, hotel_id, habitacion, prioridad, area,
+        routing_source or "none",
+        routing_confidence or 0.0,
     )
 
     if using_pg():
@@ -76,6 +84,10 @@ def crear_ticket(
                 assignment_notif_sent,
                 csat_survey_triggered,
                 in_progress_notif_sent,
+                routing_source,
+                routing_reason,
+                routing_confidence,
+                routing_version,
                 created_at
             )
             VALUES (
@@ -86,6 +98,10 @@ def crear_ticket(
                 false,
                 false,
                 false,
+                ?,
+                ?,
+                ?,
+                ?,
                 NOW()
             )
             RETURNING *
@@ -100,13 +116,17 @@ def crear_ticket(
                 estado,
                 detalle,
                 canal_origen,
-                habitacion,   # ubicacion
-                creado_por,   # huesped_whatsapp
+                habitacion,         # ubicacion
+                creado_por,         # huesped_whatsapp
+                routing_source,
+                routing_reason,
+                routing_confidence,
+                routing_version,
             ],
         )
         return ticket
 
-    # SQLite fallback (solo para dev local si lo usas)
+    # SQLite fallback (dev local)
     sql = f"""
         INSERT INTO {table} (
             org_id, hotel_id, area, prioridad, estado, detalle,
@@ -116,40 +136,30 @@ def crear_ticket(
             assignment_notif_sent,
             csat_survey_triggered,
             in_progress_notif_sent,
+            routing_source,
+            routing_reason,
+            routing_confidence,
+            routing_version,
             created_at
         )
         VALUES (
             ?, ?, ?, ?, ?, ?,
             ?, ?,
             ?,
-            0,
-            0,
-            0,
-            0,
-            CURRENT_TIMESTAMP
+            0, 0, 0, 0,
+            ?, ?, ?, ?,
+            datetime('now')
         )
     """
-    execute(
-        sql,
-        [
-            org_id,
-            hotel_id,
-            area,
-            prioridad,
-            estado,
-            detalle,
-            canal_origen,
-            habitacion,
-            creado_por,
-        ],
-        commit=True,
-    )
-
-    ticket = fetchone(
-        f"SELECT * FROM {table} WHERE huesped_whatsapp = ? ORDER BY created_at DESC LIMIT 1",
-        [creado_por],
-    )
-    return ticket
+    # (Para SQLite, el RETURNING * no funciona igual;
+    #  adaptar según tu setup local si lo usas)
+    execute(sql, [
+        org_id, hotel_id, area, prioridad, estado, detalle,
+        canal_origen, habitacion,
+        creado_por,
+        routing_source, routing_reason, routing_confidence, routing_version,
+    ])
+    return fetchone(f"SELECT * FROM {table} ORDER BY id DESC LIMIT 1")
 
 
 def asignar_ticket(ticket_id: int, asignado_a_phone: str, asignado_a_nombre: str) -> bool:

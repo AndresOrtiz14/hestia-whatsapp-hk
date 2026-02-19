@@ -1038,28 +1038,32 @@ def handle_confirmando_reporte(from_phone: str, raw: str) -> None:
 
 
 
-def crear_ticket_directo(from_phone: str, reporte: dict, area_worker: str = "HOUSEKEEPING") -> None:
-    """
-    Crea ticket desde reporte directo (texto/audio) y lo guarda en public.tickets.
-    
-    Args:
-        from_phone: Teléfono del worker
-        reporte: Dict con ubicacion, detalle, prioridad
-        area_worker: Área del worker
-    """
+def crear_ticket_directo_DESPUES(from_phone: str, reporte: dict, area_worker: str = "HOUSEKEEPING") -> None:
     from gateway_app.services.tickets_db import crear_ticket, obtener_tickets_asignados_a
-
+    from gateway_app.services.ticket_classifier import clasificar_ticket  # ← NUEVO
 
     try:
-        # ✅ MODIFICADO: Usar campo genérico "ubicacion"
-        ticket = crear_ticket(
-            habitacion=reporte["ubicacion"],  # Se guarda en campo habitacion como ubicación genérica
+        # ── NUEVO: Clasificar con IA ───────────────────────────────
+        clasificacion = clasificar_ticket(
             detalle=reporte["detalle"],
-            prioridad=reporte["prioridad"],
+            ubicacion=reporte["ubicacion"],
+            area_worker=area_worker,
+        )
+        # ──────────────────────────────────────────────────────────
+
+        ticket = crear_ticket(
+            habitacion=reporte["ubicacion"],
+            detalle=reporte["detalle"],
+            prioridad=clasificacion["prioridad"],          # ← ahora viene del clasificador
             creado_por=from_phone,
             origen="trabajador",
             canal_origen="WHATSAPP_BOT_HOUSEKEEPING",
-            area=area_worker,  # ✅ MODIFICADO: Usa área real del worker
+            area=clasificacion["area"],                    # ← ahora viene del clasificador
+            # ── NUEVO: pasar metadata de routing ──────────────────
+            routing_source=clasificacion["routing_source"],
+            routing_reason=clasificacion["routing_reason"],
+            routing_confidence=clasificacion["routing_confidence"],
+            routing_version=clasificacion["routing_source"],
         )
 
         if not ticket:
@@ -1121,14 +1125,34 @@ def crear_ticket_desde_draft(from_phone: str) -> None:
         # ✅ NUEVO: Obtener área del worker
         area_worker = state.get("area_worker", "HOUSEKEEPING")
         
+        # ── NUEVO: Clasificar con IA ───────────────────────────────
+        from gateway_app.services.ticket_classifier import clasificar_ticket
+        clasificacion = clasificar_ticket(
+            detalle=draft["detalle"],
+            ubicacion=ubicacion,
+            area_worker=area_worker,
+        )
+        # ──────────────────────────────────────────────────────────
+
         ticket = tickets_db.crear_ticket(
             habitacion=ubicacion,
             detalle=draft["detalle"],
-            prioridad=draft["prioridad"],
+            prioridad=clasificacion["prioridad"],         # ← CAMBIADO
             creado_por=from_phone,
             origen="trabajador",
             canal_origen="WHATSAPP_BOT_HOUSEKEEPING",
-            area=area_worker,
+            area=clasificacion["area"],                   # ← CAMBIADO
+            routing_source=clasificacion["routing_source"],    # ← NUEVO
+            routing_reason=clasificacion["routing_reason"],    # ← NUEVO
+            routing_confidence=clasificacion["routing_confidence"],  # ← NUEVO
+            routing_version=clasificacion["routing_source"],   # ← NUEVO
+        )
+
+# Y actualizar el mensaje de confirmación para usar clasificacion["prioridad"]
+#en lugar de draft["prioridad"] si los vas a mostrar al trabajador:
+
+        prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢", "URGENTE": "🚨"}.get(
+            clasificacion["prioridad"], "🟡"
         )
 
         logger.info(

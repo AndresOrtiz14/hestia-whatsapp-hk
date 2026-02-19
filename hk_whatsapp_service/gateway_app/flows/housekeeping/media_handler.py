@@ -324,11 +324,13 @@ def _crear_ticket_con_media(
     from gateway_app.services.tickets_db import crear_ticket
     from gateway_app.services.media_storage import process_and_store_media
     
-    prioridad = _detectar_prioridad(detalle)
-    
-    area = "HOUSEKEEPING"
-    if not str(ubicacion).isdigit():
-        area = "AREAS_COMUNES"
+    from gateway_app.services.ticket_classifier import clasificar_ticket
+    clasificacion = clasificar_ticket(
+        detalle=detalle,
+        ubicacion=str(ubicacion),
+    )
+    prioridad = clasificacion["prioridad"]
+    area = clasificacion["area"]
     
     try:
         ticket = crear_ticket(
@@ -337,7 +339,11 @@ def _crear_ticket_con_media(
             prioridad=prioridad,
             area=area,
             creado_por=from_phone,
-            origen="supervisor"  # O detectar según rol
+            origen="supervisor",
+            routing_source=clasificacion["routing_source"],
+            routing_reason=clasificacion["routing_reason"],
+            routing_confidence=clasificacion["routing_confidence"],
+            routing_version=clasificacion["routing_source"],  
         )
         
         if not ticket:
