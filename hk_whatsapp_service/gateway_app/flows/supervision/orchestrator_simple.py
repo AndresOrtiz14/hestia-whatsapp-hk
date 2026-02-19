@@ -1671,6 +1671,8 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 detalle=detalle,
                 ubicacion=str(ubicacion) if ubicacion else "",
             )
+            prioridad = clasificacion["prioridad"] 
+            area = clasificacion["area"]
             # ────────────────────────────────────────────────────────────
             
             ticket = crear_ticket(
