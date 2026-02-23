@@ -352,7 +352,31 @@ def actualizar_estado_ticket(ticket_id: int, nuevo_estado: str) -> bool:
     except Exception as e:
         logger.exception(f"❌ Error actualizando estado de ticket: {e}")
         return False
-    
+
+def completar_ticket(ticket_id: int) -> bool:
+    """
+    Marca un ticket como RESUELTO y registra finished_at.
+    Usar siempre en lugar de actualizar_estado_ticket cuando el estado
+    final es RESUELTO o RESUELTO.
+    """
+    from datetime import datetime, timezone
+    table = "public.tickets" if using_pg() else "tickets"
+    now = datetime.now(timezone.utc)
+
+    sql = f"""
+        UPDATE {table}
+        SET estado = 'RESUELTO',
+            finished_at = ?
+        WHERE id = ?
+    """
+    try:
+        execute(sql, [now, ticket_id], commit=True)
+        logger.info(f"✅ Ticket #{ticket_id} completado | finished_at={now.isoformat()}")
+        return True
+    except Exception as e:
+        logger.exception(f"❌ Error completando ticket #{ticket_id}: {e}")
+        return False
+
 # ============================================================
 # COMPAT / ALIASES para orchestrator_hk_multiticket.py
 # (evita ImportError cuando el HK intenta "tomar")

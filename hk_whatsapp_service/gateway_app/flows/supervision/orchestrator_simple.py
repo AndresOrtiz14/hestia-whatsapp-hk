@@ -942,9 +942,9 @@ def finalizar_ticket_supervisor(from_phone: str, ticket_id: int) -> None:
     4. Notificar supervisor y worker
     """
     from gateway_app.services.tickets_db import (
-        obtener_ticket_por_id,
-        actualizar_estado_ticket
-    )
+    obtener_ticket_por_id,
+    completar_ticket          # ← usa la nueva función
+)
     from gateway_app.services.whatsapp_client import send_whatsapp_text
     from datetime import datetime
     
@@ -1003,7 +1003,7 @@ def finalizar_ticket_supervisor(from_phone: str, ticket_id: int) -> None:
     duracion_min = calcular_minutos(ticket.get("created_at"))
 
     # 5. Actualizar en BD
-    exito = actualizar_estado_ticket(ticket_id, "COMPLETADO")
+    exito = completar_ticket(ticket_id)
 
     if not exito:
         send_whatsapp(
@@ -1035,6 +1035,44 @@ def finalizar_ticket_supervisor(from_phone: str, ticket_id: int) -> None:
             logger.info(f"✅ Worker {worker_phone_dest} notificado de finalización")
         except Exception as e:
             logger.error(f"Error notificando worker: {e}")
+    
+    # ── NUEVO: 8. Notificar al huésped si el ticket vino del canal guest ──
+    canal = ticket.get("canal_origen", "")
+    huesped_phone = None
+
+    if canal == "huesped_whatsapp":
+        # En tickets de huésped, huesped_whatsapp contiene el teléfono del guest
+        raw = ticket.get("huesped_whatsapp") or ""
+        # Puede venir como "phone|nombre" (formato worker) o solo "phone" (formato guest)
+        huesped_phone = raw.split("|")[0].strip() if raw else None
+
+    if huesped_phone:
+        try:
+            send_whatsapp_text(
+                to=huesped_phone,
+                body=(
+                    f"✅ Tu solicitud ha sido atendida\n\n"
+                    f"📍 {ubicacion}\n"
+                    f"📝 {detalle}\n\n"
+                    f"Gracias por avisarnos. Si necesitas algo más, escríbenos."
+                ),
+            )
+            logger.info(f"✅ Huésped {huesped_phone} notificado de resolución ticket #{ticket_id}")
+
+            # ── NUEVO: 9. Marcar csat_survey_triggered = true ─────────────
+            # (el scheduler o ticket_watch se encargará de enviarla después)
+            from gateway_app.services.db import execute as db_execute
+            table = "public.tickets" if using_pg() else "tickets"
+            db_execute(
+                f"UPDATE {table} SET csat_survey_triggered = true WHERE id = ?",
+                [ticket_id],
+                commit=True,
+            )
+            logger.info(f"📊 CSAT survey marcada como triggered para ticket #{ticket_id}")
+
+        except Exception as e:
+            logger.error(f"Error notificando huésped o marcando CSAT: {e}")
+    # ─────────────────────────────────────────────────────────────────────
 
 def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
     """
