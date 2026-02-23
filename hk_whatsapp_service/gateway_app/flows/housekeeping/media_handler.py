@@ -77,12 +77,51 @@ def handle_media_message(
     # ─────────────────────────────────────────────────────────────
     if state.get("media_pendiente"):
         logger.info(f"📸 {rol_str} | Reemplazando media pendiente anterior")
+        
+        # ── NUEVO: aunque haya media_pendiente, si el caption tiene
+        # ubicación + detalle, procesarlo directo en lugar de preguntar ──
+        if caption_text:
+            ubicacion = _extraer_ubicacion(caption_text)
+            if ubicacion:
+                detalle = caption_text.strip()
+                if detalle.startswith(ubicacion):
+                    detalle = detalle[len(ubicacion):].strip(" .,:-")
+                
+                if detalle:
+                    # Caption completo: crear ticket directo y limpiar state
+                    state.pop("media_pendiente", None)
+                    persist_state(from_phone, state)
+                    _crear_ticket_con_media(
+                        from_phone=from_phone,
+                        media_id=media_id,
+                        media_type=media_type,
+                        ubicacion=ubicacion,
+                        detalle=detalle
+                    )
+                    return
+                else:
+                    # Caption solo tiene ubicación: guardarla y pedir detalle
+                    state["media_pendiente"] = {
+                        "media_id": media_id,
+                        "media_type": media_type,
+                        "ubicacion": ubicacion,
+                    }
+                    persist_state(from_phone, state)
+                    send_whatsapp(
+                        from_phone,
+                        f"📍 Ubicación: {ubicacion}\n\n"
+                        "¿Cuál es el problema?\n"
+                        "(Describe brevemente o envía audio)"
+                    )
+                    return
+        # ────────────────────────────────────────────────────────────────
+
+        # Sin caption útil: actualizar media y preguntar ubicación
         state["media_pendiente"] = {
             "media_id": media_id,
             "media_type": media_type,
         }
         persist_state(from_phone, state)
-        
         send_whatsapp(
             from_phone,
             f"📸 Nueva {'foto' if media_type == 'image' else 'video'} recibida.\n\n"
