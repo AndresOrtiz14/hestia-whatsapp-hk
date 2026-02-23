@@ -108,21 +108,36 @@ def handle_media_message(
     if caption_text:
         ubicacion = _extraer_ubicacion(caption_text)
         if ubicacion:
-            # Limpiar la ubicación del detalle para no repetirla
             detalle = caption_text.strip()
             if detalle.startswith(ubicacion):
                 detalle = detalle[len(ubicacion):].strip(" .,:-")
-            detalle = detalle or caption_text  # fallback si queda vacío
             
+            # ── NUEVO: si no quedó descripción, preguntar ──────────────
+            if not detalle:
+                state["media_pendiente"] = {
+                    "media_id": media_id,
+                    "media_type": media_type,
+                    "ubicacion": ubicacion,   # ← ya la tenemos, no preguntar de nuevo
+                }
+                persist_state(from_phone, state)
+                send_whatsapp(
+                    from_phone,
+                    f"📍 Ubicación: {ubicacion}\n\n"
+                    "¿Cuál es el problema?\n"
+                    "(Describe brevemente o envía audio)"
+                )
+                return
+            # ──────────────────────────────────────────────────────────
+
             _crear_ticket_con_media(
                 from_phone=from_phone,
                 media_id=media_id,
                 media_type=media_type,
                 ubicacion=ubicacion,
-                detalle=detalle          # ← "se salió el cable."
+                detalle=detalle
             )
             return
-    
+
     # ─────────────────────────────────────────────────────────────
     # CASO 4: Media sin contexto claro → preguntar
     # ─────────────────────────────────────────────────────────────
@@ -160,9 +175,19 @@ def handle_media_context_response(from_phone: str, text: str) -> bool:
     
     state = get_state(from_phone)
     media_info = state.get("media_pendiente")
-    
-    if not media_info:
-        return False
+    ubicacion_guardada = media_info.get("ubicacion") if media_info else None
+    if ubicacion_guardada:
+    # Ya tenemos ubicación, el texto que llegó ES el detalle
+        _crear_ticket_con_media(
+            from_phone=from_phone,
+            media_id=media_info["media_id"],
+            media_type=media_info["media_type"],
+            ubicacion=ubicacion_guardada,
+            detalle=text.strip()
+        )
+        state.pop("media_pendiente", None)
+        persist_state(from_phone, state)
+        return True
     
     text_lower = text.strip().lower()
     
@@ -313,7 +338,12 @@ def _extraer_ubicacion(text: str) -> Optional[str]:
         match = re.match(r'^(\d{3,4})\b', text_clean)
         if match:
             return match.group(1)
-        # ──────────────────────────────────────────────────────────
+        
+        # ── NUEVO Fallback 3: número al FINAL ─────────────────────────
+        # Cubre "Sale agua 319", "Fuga 204", "Limpieza urgente 512"
+        match = re.search(r'\b(\d{3,4})$', text_clean.rstrip(' .,!?'))
+        if match:
+            return match.group(1)
 
         return None
         
