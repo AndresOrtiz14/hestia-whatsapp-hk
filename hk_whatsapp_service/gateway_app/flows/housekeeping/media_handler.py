@@ -107,14 +107,19 @@ def handle_media_message(
     # ─────────────────────────────────────────────────────────────
     if caption_text:
         ubicacion = _extraer_ubicacion(caption_text)
-        
         if ubicacion:
+            # Limpiar la ubicación del detalle para no repetirla
+            detalle = caption_text.strip()
+            if detalle.startswith(ubicacion):
+                detalle = detalle[len(ubicacion):].strip(" .,:-")
+            detalle = detalle or caption_text  # fallback si queda vacío
+            
             _crear_ticket_con_media(
                 from_phone=from_phone,
                 media_id=media_id,
                 media_type=media_type,
                 ubicacion=ubicacion,
-                detalle=caption_text
+                detalle=detalle          # ← "se salió el cable."
             )
             return
     
@@ -297,18 +302,29 @@ def _extraer_ubicacion(text: str) -> Optional[str]:
         area = extract_area_comun(text)
         if area:
             return area
-        
-        # Fallback: si es solo un número de 3-4 dígitos, es habitación
+
+        # Fallback 1: número solo (mensaje es solo el número)
         text_clean = text.strip()
         if re.match(r'^\d{3,4}$', text_clean):
             return text_clean
-        
+
+        # ── NUEVO Fallback 2: número al INICIO del caption ────────
+        # Cubre el caso "913 se salió el cable" o "204 fuga de agua"
+        match = re.match(r'^(\d{3,4})\b', text_clean)
+        if match:
+            return match.group(1)
+        # ──────────────────────────────────────────────────────────
+
         return None
         
     except ImportError:
         text_clean = text.strip()
         if re.match(r'^\d{3,4}$', text_clean):
             return text_clean
+        # NUEVO: mismo fallback en el except
+        match = re.match(r'^(\d{3,4})\b', text_clean)
+        if match:
+            return match.group(1)
         return None
 
 
