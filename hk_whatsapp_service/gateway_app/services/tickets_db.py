@@ -353,6 +353,49 @@ def actualizar_estado_ticket(ticket_id: int, nuevo_estado: str) -> bool:
         logger.exception(f"❌ Error actualizando estado de ticket: {e}")
         return False
 
+def actualizar_area_ticket(ticket_id: int, nueva_area: str) -> bool:
+    """
+    Actualiza el área de un ticket.
+
+    Returns:
+        True si se actualizó correctamente, False si no encontró el ticket.
+    """
+    table = "public.tickets" if using_pg() else "tickets"
+
+    if using_pg():
+        sql = f"""
+            UPDATE {table}
+            SET area = ?
+            WHERE id = ?
+            RETURNING id
+        """
+        try:
+            result = fetchone(sql, [nueva_area, ticket_id])
+            if result:
+                logger.info("Ticket #%s: area actualizada a %s", ticket_id, nueva_area)
+                return True
+            else:
+                logger.warning("actualizar_area_ticket: ticket #%s no encontrado", ticket_id)
+                return False
+        except Exception as e:
+            logger.exception("Error actualizando area de ticket #%s: %s", ticket_id, e)
+            return False
+
+    # SQLite fallback
+    sql = f"UPDATE {table} SET area = ? WHERE id = ?"
+    try:
+        execute(sql, [nueva_area, ticket_id], commit=True)
+        result = fetchone(f"SELECT id FROM {table} WHERE id = ?", [ticket_id])
+        if result:
+            logger.info("Ticket #%s: area actualizada a %s", ticket_id, nueva_area)
+            return True
+        else:
+            logger.warning("actualizar_area_ticket: ticket #%s no encontrado", ticket_id)
+            return False
+    except Exception as e:
+        logger.exception("Error actualizando area de ticket #%s: %s", ticket_id, e)
+        return False
+
 def completar_ticket(ticket_id: int) -> bool:
     """
     Marca un ticket como RESUELTO y registra finished_at.
