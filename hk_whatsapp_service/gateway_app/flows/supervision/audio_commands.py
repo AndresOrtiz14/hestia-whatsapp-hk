@@ -672,6 +672,12 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
             "text": text
         }
     
+    # Patrón ver_ticket: "ver 1503", "detalle 1503", "info 1503", "ticket 1503"
+    es_ver_ticket = any(w in text_normalized for w in ['ver', 'detalle', 'info'])
+    es_ticket_standalone = bool(re.match(r'^\s*ticket\s*#?\s*\d+\s*$', text_normalized))
+    if ticket_id and (es_ver_ticket or es_ticket_standalone) and not es_asignar and not es_reasignar:
+        return {"intent": "ver_ticket", "ticket_id": ticket_id, "text": text}
+
     # Patrón 5: Ver estado
     if any(word in text_lower for word in ['ver', 'muestra', 'mostrar', 'estado', 'cómo van']):
         if 'pendiente' in text_lower:

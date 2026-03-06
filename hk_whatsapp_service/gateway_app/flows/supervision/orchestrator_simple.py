@@ -1894,4 +1894,24 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
 
         return True
 
+    if intent == "ver_ticket":
+        ticket_id = intent_data.get("ticket_id")
+        ticket = obtener_ticket_por_id(ticket_id)
+        if not ticket:
+            send_whatsapp(from_phone, f"❌ No encontré el ticket #{ticket_id}")
+            return True
+        ubicacion = ticket.get("ubicacion") or ticket.get("habitacion") or "?"
+        detalle = ticket.get("detalle", "?")
+        prioridad = ticket.get("prioridad", "MEDIA")
+        area = ticket.get("area", None)
+        send_whatsapp(
+            from_phone,
+            msg_sup_confirmacion(
+                ticket_id, "consultado", ubicacion, detalle, prioridad,
+                ticket_area=area,
+                hint=f"💡 Di 'asignar {ticket_id} a [nombre]' | 'área {ticket_id} [area]'",
+            )
+        )
+        return True
+
     return False
