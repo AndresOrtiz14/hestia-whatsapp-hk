@@ -162,5 +162,6 @@ def confirmar_asignacion(from_phone: str, ticket_id: int, worker: dict) -> None:
         msg_sup_confirmacion(
             ticket_id, "asignada", ubicacion, detalle, prioridad,
             worker_nombre, worker_area,
+            ticket_area=ticket.get("area", ""),
         )
     )

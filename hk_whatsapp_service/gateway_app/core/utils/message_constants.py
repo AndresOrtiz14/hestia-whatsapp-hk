@@ -313,6 +313,7 @@ def msg_sup_confirmacion(
     worker_area: str = None,
     duracion_min: int = None,
     hint: str = None,
+    ticket_area: str = None,
 ) -> str:
     """
     Template unificado para confirmaciones al supervisor.
@@ -355,6 +356,9 @@ def msg_sup_confirmacion(
         }.get(verbo, "Asignada a")
         lineas.append(f"👤 {verbo_worker}: {worker_info}")
 
+    if ticket_area:
+        lineas.append(f"{emoji_area(ticket_area)} Área: {tag_area(ticket_area)}")
+
     if duracion_min is not None:
         lineas.append(f"⏱️ Duración: {formato_tiempo(duracion_min)}")
 
@@ -371,6 +375,7 @@ def msg_sup_dialogo(
     prioridad: str,
     worker_nombre: str,
     es_creacion: bool = False,
+    ticket_area: str = None,
 ) -> str:
     """
     Diálogo de confirmación antes de asignar.
@@ -391,13 +396,15 @@ def msg_sup_dialogo(
     ubi_fmt = ubicacion_con_emoji(ubicacion)
     titulo = f"📋 Tarea #{ticket_id}" + (" creada" if es_creacion else "")
 
+    area_linea = f"{emoji_area(ticket_area)} Área: {tag_area(ticket_area)}\n" if ticket_area else ""
     return (
         f"🟦 Confirmar asignación\n\n"
         f"{titulo}\n"
         f"{ubi_fmt}\n"
         f"📝 {detalle}\n"
-        f"{pri} Prioridad: {str(prioridad).upper()}\n\n"
-        f"👤 ¿Asignar a: {worker_nombre}?\n\n"
+        f"{pri} Prioridad: {str(prioridad).upper()}\n"
+        f"{area_linea}"
+        f"\n👤 ¿Asignar a: {worker_nombre}?\n\n"
         f"Responde 'si' o 'no'"
     )
 
@@ -592,7 +599,7 @@ def msg_notif_ticket_a_supervisor(
     pri = emoji_prioridad(prioridad)
 
     return (
-        f"{area_emoji} Nuevo ticket · {area_tag}\n\n"
+        f"{area_emoji} Nuevo ticket #{ticket_id} · {area_tag}\n\n"
         f"{ubi_fmt}\n"
         f"📝 {detalle}\n"
         f"{pri} Prioridad: {str(prioridad).upper()}\n"

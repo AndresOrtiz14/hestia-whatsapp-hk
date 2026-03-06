@@ -222,6 +222,7 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
                         msg_sup_confirmacion(
                             ticket_id, "asignada", ubicacion, detalle,
                             prioridad, worker_nombre, worker_area,
+                            ticket_area=ticket.get("area", ""),
                         )
                     )
 
@@ -1021,6 +1022,7 @@ def finalizar_ticket_supervisor(from_phone: str, ticket_id: int) -> None:
             ticket_id, "finalizada", ubicacion, detalle, prioridad,
             worker_nombre=worker_nombre or None,
             duracion_min=duracion_min,
+            ticket_area=ticket.get("area", ""),
         )
     )
     logger.info(f"✅ Tarea #{ticket_id} finalizada por supervisión")
@@ -1140,6 +1142,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                     from_phone,
                     msg_sup_confirmacion(
                         ticket_id, "asignada", ubicacion, detalle, prioridad, worker_nombre,
+                        ticket_area=ticket.get("area", ""),
                     )
                 )
 
@@ -1223,6 +1226,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                         msg_sup_confirmacion(
                             ticket_id, "reasignada", ubicacion, detalle,
                             prioridad, worker_nombre_completo,
+                            ticket_area=ticket.get("area", ""),
                         )
                     )
 
@@ -1439,7 +1443,8 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
 
             send_whatsapp(
                 from_phone,
-                msg_sup_dialogo(ticket_id, ubicacion, detalle, prioridad, worker_nombre),
+                msg_sup_dialogo(ticket_id, ubicacion, detalle, prioridad, worker_nombre,
+                                ticket_area=ticket.get("area", "")),
             )
             return True  # ✅ FIX: Evita que Caso B se ejecute
 
@@ -1535,6 +1540,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                     msg_sup_confirmacion(
                         ticket_id, "reasignada", ubicacion, detalle,
                         prioridad, worker_nombre_completo,
+                        ticket_area=ticket.get("area", ""),
                     )
                 )
 
@@ -1625,6 +1631,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                     msg_sup_dialogo(
                         ticket_id, ubicacion, detalle, prioridad,
                         worker_nombre, es_creacion=True,
+                        ticket_area=area,
                     )
                 )
                 return True
@@ -1639,6 +1646,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                     msg_sup_confirmacion(
                         ticket_id, "creada", ubicacion, detalle, prioridad,
                         hint=f"📋 Encontré {len(coincidencias)} personas con '{nombre_trabajador}':",
+                        ticket_area=area,
                     )
                 )
                 
@@ -1670,6 +1678,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                     msg_sup_confirmacion(
                         ticket_id, "creada", ubicacion, detalle, prioridad,
                         hint=f"⚠️ No encontré a '{nombre_trabajador}'\nMostrando todas las opciones:",
+                        ticket_area=area,
                     )
                 )
                 
@@ -1747,6 +1756,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                     msg_sup_confirmacion(
                         ticket_id, "creada", ubicacion, detalle, prioridad,
                         hint=f"💡 Di 'asignar {ticket_id} a [nombre]'",
+                        ticket_area=clasificacion["area"],
                     )
                 )
                 
@@ -1863,6 +1873,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 from_phone,
                 msg_sup_confirmacion(
                     ticket_id, "reclasificada", ubicacion, detalle, prioridad,
+                    ticket_area=nueva_area,
                 )
             )
 
