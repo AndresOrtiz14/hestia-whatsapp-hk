@@ -182,13 +182,13 @@ def extract_habitacion(text: str) -> Optional[str]:
         "la 210" -> "210"
     """
     patterns = [
-    r'habitaci[oó]n\s*(\d{3,4})',
-    r'habt?\s*\.?\s*(\d{3,4})',    # ← NUEVO: "habt 1013", "hab. 205"
-    r'cuarto\s*(\d{3,4})',
-    r'pieza\s*(\d{3,4})',
-    r'la\s+(\d{3,4})',
-    r'número\s+(\d{3,4})',
-    r'\ben\s+(\d{3,4})\b',
+    r'habitaci[oó]n\s*(\d{1,4})',
+    r'habt?\s*\.?\s*(\d{1,4})',    # "habt 1013", "hab. 205", "hab 12"
+    r'cuarto\s*(\d{1,4})',
+    r'pieza\s*(\d{1,4})',
+    r'la\s+(\d{3,4})',             # genérico: mantener 3-4 dígitos
+    r'número\s+(\d{3,4})',         # genérico: mantener 3-4 dígitos
+    r'\ben\s+(\d{3,4})\b',        # genérico: mantener 3-4 dígitos
     r'\bpiso\s+(\d{1,2})\b',
 ]
     
@@ -424,6 +424,27 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
     )
 
     logger.info(f"🔍 text_normalized = '{text_normalized}'")
+
+    # PRIORIDAD: "habitación/hab/cuarto/pieza N tiene/hay/presenta ..." → crear_ticket
+    # Evita que el número de habitación sea capturado como ticket_id
+    _room_report_match = re.search(
+        r'(?:habitaci[oó]n|hab\.?t?|cuarto|pieza)\s+(\d{1,4})\s+'
+        r'(?:tiene|hay|presenta|reporta|con)\b(.+)',
+        text,
+        re.IGNORECASE,
+    )
+    if _room_report_match:
+        _room_num = _room_report_match.group(1)
+        _detalle = _room_report_match.group(2).strip()
+        logger.info(f"✅ MATCH room-report: habitación {_room_num} | detalle='{_detalle}'")
+        return {
+            "intent": "crear_ticket",
+            "ubicacion": f"habitación {_room_num}",
+            "detalle": _detalle if _detalle else "Problema reportado",
+            "prioridad": detect_priority(text),
+            "ticket_id": None,
+            "text": text,
+        }
 
     # Extraer componentes
     ticket_id = extract_ticket_id(text)
