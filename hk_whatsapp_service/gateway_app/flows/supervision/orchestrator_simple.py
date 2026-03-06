@@ -419,8 +419,6 @@ def mostrar_opciones_workers(from_phone: str, workers: list, ticket_id: int) -> 
     ✅ MODIFICADO: Muestra workers con estado de turno.
     Prioriza los que tienen turno activo.
     """
-    from gateway_app.services.tickets_db import obtener_ticket_por_id
-    
     ticket = obtener_ticket_por_id(ticket_id)
     mensaje = formatear_workers_para_asignacion(workers, ticket)
     
@@ -520,8 +518,7 @@ def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
         index = int(raw) - 1
         
         from gateway_app.services.workers_db import obtener_todos_workers
-        from gateway_app.services.tickets_db import obtener_ticket_por_id
-        
+
         # ✅ OBTENER TICKET para scoring
         ticket = obtener_ticket_por_id(ticket_id)
         
@@ -819,7 +816,6 @@ def mostrar_retrasados(from_phone: str) -> None:
 
 def mostrar_info_ticket(from_phone: str, ticket_id: int) -> None:
     """Muestra detalle completo de una tarea."""
-    from gateway_app.services.tickets_db import obtener_ticket_por_id
     from gateway_app.core.utils.message_constants import (
         emoji_prioridad, emoji_estado, label_estado,
         ubicacion_de_ticket, calcular_minutos, formato_tiempo,
@@ -943,7 +939,6 @@ def finalizar_ticket_supervisor(from_phone: str, ticket_id: int) -> None:
     4. Notificar supervisor y worker
     """
     from gateway_app.services.tickets_db import (
-    obtener_ticket_por_id,
     completar_ticket          # ← usa la nueva función
 )
     from gateway_app.services.whatsapp_client import send_whatsapp_text
@@ -1171,7 +1166,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             # ✅ NO normalizar - buscar tal cual viene del intent
             
             # Obtener ticket para guardar worker original
-            from gateway_app.services.tickets_db import obtener_ticket_por_id, asignar_ticket
+            from gateway_app.services.tickets_db import asignar_ticket
             ticket = obtener_ticket_por_id(ticket_id)
             
             if not ticket:
@@ -1376,8 +1371,6 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
     # ✅ NUEVO: Asignar ticket sin especificar worker → mostrar lista
     if intent == "asignar_ticket_sin_worker":
         ticket_id = intent_data["ticket_id"]
-        from gateway_app.services.tickets_db import obtener_ticket_por_id
-        
         ticket = obtener_ticket_por_id(ticket_id)
         if not ticket:
             send_whatsapp(from_phone, f"❌ No encontré la tarea #{ticket_id}")
@@ -1408,7 +1401,6 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         state.pop("seleccion_mucamas", None)
 
         from gateway_app.services.workers_db import buscar_workers_por_nombre
-        from gateway_app.services.tickets_db import obtener_ticket_por_id
 
         candidatas = buscar_workers_por_nombre(worker_query) or []
 
@@ -1485,7 +1477,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         worker_nombre = normalizar_nombre(worker_nombre)
         
         # ✅ Obtener ticket para guardar worker original
-        from gateway_app.services.tickets_db import obtener_ticket_por_id, asignar_ticket
+        from gateway_app.services.tickets_db import asignar_ticket
         ticket = obtener_ticket_por_id(ticket_id)
         
         if not ticket:
@@ -1793,7 +1785,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             return True
         
         from gateway_app.services.workers_db import buscar_worker_por_nombre
-        from gateway_app.services.tickets_db import obtener_tickets_por_estado, asignar_ticket, obtener_ticket_por_id
+        from gateway_app.services.tickets_db import obtener_tickets_por_estado, asignar_ticket
         
         worker = buscar_worker_por_nombre(worker_nombre)
         
