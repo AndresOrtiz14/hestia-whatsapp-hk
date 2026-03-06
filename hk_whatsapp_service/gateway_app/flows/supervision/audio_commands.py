@@ -8,6 +8,13 @@ import re
 import logging
 from typing import Dict, Any, Optional, Tuple
 from gateway_app.flows.housekeeping.intents import detectar_prioridad
+from gateway_app.flows.supervision.ubicacion_helpers import (
+    _AREA_SYNONYMS,
+    _strip_accents,
+    AREA_HOUSEKEEPING,
+    AREA_MANTENIMIENTO,
+    AREA_AREAS_COMUNES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -304,6 +311,37 @@ def extract_area_comun(text: str) -> Optional[str]:
     return None
 
 
+def extract_area_departamento(text: str) -> Optional[str]:
+    """
+    Extrae el área de gestión (HOUSEKEEPING|MANTENIMIENTO|AREAS_COMUNES) del texto.
+    Reutiliza _AREA_SYNONYMS de ubicacion_helpers.
+
+    Ejemplos:
+        "mantencion"    -> "MANTENIMIENTO"
+        "hk"            -> "HOUSEKEEPING"
+        "areas comunes" -> "AREAS_COMUNES"
+        "ac"            -> "AREAS_COMUNES"
+        "mt"            -> "MANTENIMIENTO"
+    """
+    text_n = _strip_accents(text.lower())
+
+    # Multi-palabra primero para evitar match parcial (ej. "ac" antes de "areas comunes")
+    for synonym in sorted(_AREA_SYNONYMS, key=len, reverse=True):
+        pattern = r'\b' + re.escape(synonym.strip()) + r'\b'
+        if re.search(pattern, text_n):
+            return _AREA_SYNONYMS[synonym]
+
+    # Fuzzy fallback
+    if 'mantenc' in text_n or 'mantenim' in text_n:
+        return AREA_MANTENIMIENTO
+    if 'area comun' in text_n or 'areas comun' in text_n:
+        return AREA_AREAS_COMUNES
+    if 'housekeeping' in text_n:
+        return AREA_HOUSEKEEPING
+
+    return None
+
+
 def extract_ubicacion_generica(text: str) -> Optional[str]:
     """
     ✅ NUEVA FUNCIÓN: Extrae ubicación genérica (habitación o área común).
@@ -414,7 +452,25 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
         }
     
     logger.info(f"❌ NO es finalizar, continuando...")
-    
+
+    # ✅ NUEVO: Detectar cambiar_area ANTES de es_reasignar
+    # (es_reasignar captura 'cambiar'/'cambia', por eso va primero)
+    area_dept = extract_area_departamento(text)
+    tiene_area_keyword = 'area' in text_normalized   # "área" → "area" tras quitar tildes
+    es_reclasificar = any(w in text_normalized for w in [
+        'reclasificar', 'reclasifica', 'reclasificacion', 'reclasificacion',
+        'clasificar', 'clasifica',
+    ])
+
+    if (tiene_area_keyword or es_reclasificar) and ticket_id and area_dept:
+        logger.info(f"✅ MATCH: cambiar_area ticket #{ticket_id} → {area_dept}")
+        return {
+            "intent": "cambiar_area",
+            "ticket_id": ticket_id,
+            "area": area_dept,
+            "text": text,
+        }
+
     # ✅ DESPUÉS: Extraer componentes para otros intents
     worker = extract_worker_name(text)
     logger.info(f"🔍 worker = '{worker}'")
