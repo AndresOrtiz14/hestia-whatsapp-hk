@@ -29,9 +29,9 @@ def send_whatsapp(to: str, body: str) -> None:
 
 
 AREA_TO_ENV = {
-    "HOUSEKEEPING": "SUPERVISOR_PHONES_HOUSEKEEPING",
-    "MANTENIMIENTO": "SUPERVISOR_PHONES_MANTENIMIENTO",
-    "AREAS_COMUNES": "SUPERVISOR_PHONES_AREAS_COMUNES",
+    "HOUSEKEEPING":  ["SUPERVISOR_PHONES_HOUSEKEEPING"],
+    "MANTENIMIENTO": ["SUPERVISOR_PHONES_MANTENIMIENTO"],
+    "AREAS_COMUNES": ["SUPERVISOR_PHONES_AREAS_COMUNES", "SUPERVISOR_PHONES_HOUSEKEEPING"],
 }
 
 
@@ -43,14 +43,21 @@ def notificar_supervisor_de_area(
     prioridad: str,
     creado_por_phone: str = "",
 ) -> None:
-    env_key = AREA_TO_ENV.get(area)
-    if not env_key:
+    env_keys = AREA_TO_ENV.get(area)
+    if not env_keys:
         logger.warning("notificar_supervisor_de_area: area desconocida '%s'", area)
         return
 
-    raw = os.getenv(env_key, "")
-    if not raw.strip():
-        logger.warning("notificar_supervisor_de_area: env var '%s' está vacía", env_key)
+    raw = ""
+    for env_key in env_keys:
+        raw = os.getenv(env_key, "")
+        if raw.strip():
+            break
+    else:
+        logger.warning(
+            "notificar_supervisor_de_area: ninguna env var con valor para area '%s' (intentadas: %s)",
+            area, env_keys,
+        )
         return
 
     phones = [p.strip() for p in raw.split(",") if p.strip()]

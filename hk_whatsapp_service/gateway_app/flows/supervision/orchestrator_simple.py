@@ -41,7 +41,7 @@ from .ui_simple import (
     texto_tickets_pendientes_simple,
     texto_urgentes
 )
-from .outgoing import send_whatsapp
+from .outgoing import send_whatsapp, notificar_supervisor_de_area
 
 def calcular_tiempo_desde(fecha_str: str) -> str:
     """
@@ -1729,6 +1729,19 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             if ticket:
                 ticket_id = ticket["id"]
 
+                try:
+                    notificar_supervisor_de_area(
+                        area=clasificacion["area"],
+                        ticket_id=ticket_id,
+                        ubicacion=ubicacion,
+                        detalle=detalle,
+                        prioridad=clasificacion["prioridad"],
+                        creado_por_phone=from_phone,
+                    )
+                except Exception as e:
+                    logger.error(f"❌ Error notificando supervisor de área: {e}")
+                    # No relanzar — el ticket ya existe, la notificación es secundaria
+
                 send_whatsapp(
                     from_phone,
                     msg_sup_confirmacion(
@@ -1828,5 +1841,46 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         else:
             send_whatsapp(from_phone, f"❌ No encontré a '{worker_nombre}'")
             return True
-    
+
+    if intent == "cambiar_area":
+        ticket_id = intent_data.get("ticket_id")
+        nueva_area = intent_data.get("area")
+
+        AREAS_VALIDAS = {"HOUSEKEEPING", "MANTENIMIENTO", "AREAS_COMUNES"}
+        if not ticket_id or nueva_area not in AREAS_VALIDAS:
+            send_whatsapp(from_phone, f"❌ Área inválida: '{nueva_area}'. Opciones: HOUSEKEEPING, MANTENIMIENTO, AREAS_COMUNES")
+            return True
+
+        ok = tickets_db.actualizar_area_ticket(ticket_id, nueva_area)
+
+        if ok:
+            ticket = obtener_ticket_por_id(ticket_id)
+            ubicacion = (ticket.get("ubicacion") or ticket.get("habitacion") or "?") if ticket else "?"
+            detalle = ticket.get("detalle", "?") if ticket else "?"
+            prioridad = ticket.get("prioridad", "MEDIA") if ticket else "MEDIA"
+
+            send_whatsapp(
+                from_phone,
+                msg_sup_confirmacion(
+                    ticket_id, "reclasificada", ubicacion, detalle, prioridad,
+                )
+            )
+
+            try:
+                notificar_supervisor_de_area(
+                    area=nueva_area,
+                    ticket_id=ticket_id,
+                    ubicacion=ubicacion,
+                    detalle=detalle,
+                    prioridad=prioridad,
+                    creado_por_phone=from_phone,
+                )
+            except Exception as e:
+                logger.error(f"❌ Error notificando supervisor tras reclasificación: {e}")
+                # No relanzar — el área ya se actualizó en BD
+        else:
+            send_whatsapp(from_phone, f"❌ No encontré el ticket #{ticket_id} para cambiar su área.")
+
+        return True
+
     return False
