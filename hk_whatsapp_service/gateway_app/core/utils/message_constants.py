@@ -559,3 +559,43 @@ def msg_worker_reporte_creado(ticket_id: int, ubicacion: str, prioridad: str) ->
         f"{pri} {ubi}\n\n"
         f"✓ Notificado a operaciones"
     )
+
+
+# ═══════════════════════════════════════════════════════════════
+# TEMPLATES: NOTIFICACIONES DE TICKET A SUPERVISOR
+# ═══════════════════════════════════════════════════════════════
+
+def msg_notif_ticket_a_supervisor(
+    ticket_id: int,
+    ubicacion: str,
+    detalle: str,
+    prioridad: str,
+    area: str,
+    creado_por_phone: str,
+) -> str:
+    """
+    Notificación a supervisor: nuevo ticket creado.
+
+    Resultado:
+        🔧 Nuevo ticket · MT
+
+        🏠 Habitación 305
+        📝 Fuga de agua en baño
+        🔴 Prioridad: ALTA
+        📤 Creado por: Supervisión (+56912345678)
+
+        💡 Di 'tomar 123' para aceptar
+    """
+    area_emoji = emoji_area(area)
+    area_tag = tag_area(area)
+    ubi_fmt = ubicacion_con_emoji(ubicacion)
+    pri = emoji_prioridad(prioridad)
+
+    return (
+        f"{area_emoji} Nuevo ticket · {area_tag}\n\n"
+        f"{ubi_fmt}\n"
+        f"📝 {detalle}\n"
+        f"{pri} Prioridad: {str(prioridad).upper()}\n"
+        f"📤 Creado por: Supervisión ({creado_por_phone})\n\n"
+        f"💡 Di 'tomar {ticket_id}' para aceptar"
+    )

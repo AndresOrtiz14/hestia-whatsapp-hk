@@ -43,6 +43,7 @@ gateway_app\services\media_storage.py ^
 gateway_app\services\migrations.py ^
 gateway_app\services\runtime_state.py ^
 gateway_app\services\tickets_db.py ^
+gateway_app\services\ticket_classifier.py ^
 gateway_app\services\ticket_watch.py ^
 gateway_app\services\whatsapp_client.py ^
 gateway_app\services\workers_db.py ^
