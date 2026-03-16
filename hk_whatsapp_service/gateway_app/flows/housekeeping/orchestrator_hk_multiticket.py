@@ -700,7 +700,10 @@ def finalizar_ticket_especifico(from_phone: str, ticket_id: int) -> None:
             if isinstance(started_at, str):
                 from dateutil import parser
                 started_at = parser.parse(started_at)
-            
+            # FIX: if DB returned a naive datetime, treat it as UTC
+            if started_at.tzinfo is None:
+                started_at = started_at.replace(tzinfo=timezone.utc)
+
             duracion = now - started_at
             minutos_totales = int(duracion.total_seconds() / 60)
             
