@@ -6,6 +6,73 @@ import re
 from typing import Dict, Any, Optional
 
 
+def convertir_numeros_escritos_a_digitos(text: str) -> str:
+    """
+    Convierte palabras numéricas en español a dígitos.
+    Maneja el rango de habitaciones de hotel (100-999).
+    Ej: "habitación ochocientos diez" → "habitación 810"
+    """
+    CIENTOS = {
+        'cien': 100, 'ciento': 100,
+        'doscientos': 200, 'doscientas': 200,
+        'trescientos': 300, 'trescientas': 300,
+        'cuatrocientos': 400, 'cuatrocientas': 400,
+        'quinientos': 500, 'quinientas': 500,
+        'seiscientos': 600, 'seiscientas': 600,
+        'setecientos': 700, 'setecientas': 700,
+        'ochocientos': 800, 'ochocientas': 800,
+        'novecientos': 900, 'novecientas': 900,
+    }
+    DECENAS = {
+        'diez': 10, 'once': 11, 'doce': 12, 'trece': 13, 'catorce': 14,
+        'quince': 15, 'dieciseis': 16, 'dieciséis': 16,
+        'diecisiete': 17, 'dieciocho': 18, 'diecinueve': 19,
+        'veinte': 20, 'veintiun': 21, 'veintiún': 21, 'veintiuno': 21,
+        'veintidos': 22, 'veintidós': 22,
+        'veintitres': 23, 'veintitrés': 23,
+        'veinticuatro': 24, 'veinticinco': 25,
+        'veintiseis': 26, 'veintiséis': 26,
+        'veintisiete': 27, 'veintiocho': 28, 'veintinueve': 29,
+        'treinta': 30, 'cuarenta': 40, 'cincuenta': 50,
+        'sesenta': 60, 'setenta': 70, 'ochenta': 80, 'noventa': 90,
+    }
+    UNIDADES = {
+        'uno': 1, 'un': 1, 'una': 1, 'dos': 2, 'tres': 3,
+        'cuatro': 4, 'cinco': 5, 'seis': 6, 'siete': 7, 'ocho': 8, 'nueve': 9,
+    }
+
+    c_pat = '|'.join(sorted(CIENTOS, key=len, reverse=True))
+    d_pat = '|'.join(sorted(DECENAS, key=len, reverse=True))
+    u_pat = '|'.join(sorted(UNIDADES, key=len, reverse=True))
+
+    # Patrón: CIENTOS (DECENAS (y UNIDADES)? | UNIDADES)?
+    pattern = (
+        rf'(?:{c_pat})'
+        rf'(?:\s+(?:(?:{d_pat})(?:\s+y\s+(?:{u_pat}))?|(?:{u_pat})))?'
+    )
+
+    def compute(m_text: str) -> int:
+        words = m_text.split()
+        total, i = 0, 0
+        if i < len(words) and words[i] in CIENTOS:
+            total += CIENTOS[words[i]]
+            i += 1
+        if i < len(words) and words[i] in DECENAS:
+            total += DECENAS[words[i]]
+            i += 1
+            if i + 1 < len(words) and words[i] == 'y' and words[i + 1] in UNIDADES:
+                total += UNIDADES[words[i + 1]]
+        elif i < len(words) and words[i] in UNIDADES:
+            total += UNIDADES[words[i]]
+        return total
+
+    def replace_fn(m):
+        n = compute(m.group(0))
+        return str(n) if n >= 100 else m.group(0)
+
+    return re.sub(pattern, replace_fn, text.lower(), flags=re.IGNORECASE)
+
+
 def detectar_prioridad(text: str) -> str:
     """
     Detecta prioridad automáticamente por palabras clave.

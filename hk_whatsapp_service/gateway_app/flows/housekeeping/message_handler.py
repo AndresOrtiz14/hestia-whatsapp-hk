@@ -11,6 +11,7 @@ from .audio_integration import (
     format_transcription_confirmation,
     format_transcription_error
 )
+from .intents import convertir_numeros_escritos_a_digitos
 from .outgoing import send_whatsapp
 from gateway_app.services.workers_db import activar_turno_por_telefono, desactivar_turno_por_telefono
 import re
@@ -93,12 +94,16 @@ def handle_hk_message_with_audio(
         
         # Transcripción exitosa
         transcribed_text = result["text"]
-        
-        # Opcional: Mostrar confirmación de lo que se escuchó
+
+        # Opcional: Mostrar confirmación de lo que se escuchó (texto original)
         if show_transcription:
             confirmation = format_transcription_confirmation(transcribed_text)
             send_whatsapp(from_phone, confirmation)
-        
+
+        # Normalizar números en palabras → dígitos antes de procesar
+        # Ej: "habitación ochocientos diez" → "habitación 810"
+        transcribed_text = convertir_numeros_escritos_a_digitos(transcribed_text)
+
         # Procesar como texto normal
         _handle_hk_message_text(from_phone, transcribed_text)
         return
