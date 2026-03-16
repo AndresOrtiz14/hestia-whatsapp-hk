@@ -687,6 +687,22 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
         if 'worker' in text_lower:
             return {"intent": "ver_workers", "text": text}
     
+    # Patrón 6: Aviso general a todos los trabajadores
+    palabras_aviso = ['aviso', 'avisar', 'comunicado', 'informar a todos', 'notificar a todos']
+    es_aviso = any(w in text_normalized for w in palabras_aviso)
+    if es_aviso:
+        match_aviso = re.search(
+            r'(?:aviso|avisar(?:\s+a\s+todos?)?|comunicado|informar\s+a\s+todos?|notificar\s+a\s+todos?)[,:]?\s*(.+)',
+            text,
+            re.IGNORECASE,
+        )
+        mensaje_aviso = match_aviso.group(1).strip() if match_aviso else text.strip()
+        return {
+            "intent": "aviso_general",
+            "mensaje": mensaje_aviso,
+            "text": text,
+        }
+
     # No se detectó intención clara
     return {
         "intent": "unknown",

@@ -17,6 +17,7 @@ from gateway_app.core.utils.message_constants import (
        msg_worker_tarea_finalizada_sup,
        emoji_prioridad, ubicacion_con_emoji, ubicacion_de_ticket,
        calcular_minutos, formato_tiempo,
+       msg_aviso_general, msg_sup_preview_aviso,
    )
 
 from gateway_app.flows.supervision.tiempo_utils import (
@@ -187,6 +188,26 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
 
             YES = {"si", "sí", "yes", "ok", "confirmar", "dale"}
             NO  = {"no", "cancelar", "cancel", "rechazar"}
+
+            # Caso especial: aviso general
+            if conf.get("tipo") == "aviso_general":
+                if raw_conf_norm in {w.replace("í", "i") for w in YES} or raw_conf in YES:
+                    mensaje_aviso = conf.get("mensaje", "")
+                    workers_en_turno = [w for w in obtener_todos_workers() if w.get("turno_activo")]
+                    enviados = 0
+                    for w in workers_en_turno:
+                        phone = w.get("telefono")
+                        if phone:
+                            send_whatsapp_text(to=phone, body=msg_aviso_general(mensaje_aviso))
+                            enviados += 1
+                    state.pop("confirmacion_pendiente", None)
+                    persist_supervisor_state(from_phone, state)
+                    send_whatsapp(from_phone, f"✅ Aviso enviado a {enviados} trabajador(es).")
+                else:
+                    state.pop("confirmacion_pendiente", None)
+                    persist_supervisor_state(from_phone, state)
+                    send_whatsapp(from_phone, "❌ Aviso cancelado.")
+                return
 
             # Caso 1: el usuario respondió afirmativo
             if raw_conf_norm in {w.replace("í", "i") for w in YES} or raw_conf in YES:
@@ -375,7 +396,28 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
         if raw_cmd in ['ayuda', 'help', 'comandos', 'menu', 'menú', '?']:
             send_whatsapp(from_phone, texto_saludo_supervisor())
             return
-        
+
+        # 4.13) Aviso general a trabajadores en turno
+        if raw.startswith("aviso ") or raw == "aviso":
+            mensaje_aviso = raw[6:].strip() if raw.startswith("aviso ") else ""
+            if not mensaje_aviso:
+                send_whatsapp(
+                    from_phone,
+                    "📢 Para enviar un aviso escribe:\n"
+                    "*aviso [mensaje]*\n\n"
+                    "Ejemplo: _aviso reunión a las 15:00 en el lobby_"
+                )
+                return
+            workers_en_turno = [w for w in obtener_todos_workers() if w.get("turno_activo")]
+            count = len(workers_en_turno)
+            if count == 0:
+                send_whatsapp(from_phone, "⚠️ No hay trabajadores con turno activo ahora.")
+                return
+            state["confirmacion_pendiente"] = {"tipo": "aviso_general", "mensaje": mensaje_aviso}
+            persist_supervisor_state(from_phone, state)
+            send_whatsapp(from_phone, msg_sup_preview_aviso(mensaje_aviso, count))
+            return
+
         # ==================================================
         # 5) COMANDOS DE AUDIO
         # ⚠️ ESTO VA **DESPUÉS** DE LOS COMANDOS DE TEXTO
@@ -1904,6 +1946,21 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 hint=f"💡 Di 'asignar {ticket_id} a [nombre]' | 'área {ticket_id} [area]'",
             )
         )
+        return True
+
+    if intent == "aviso_general":
+        mensaje_aviso = intent_data.get("mensaje", "").strip()
+        if not mensaje_aviso:
+            send_whatsapp(from_phone, "📢 No detecté el mensaje del aviso. Intenta de nuevo.")
+            return True
+        workers_en_turno = [w for w in obtener_todos_workers() if w.get("turno_activo")]
+        count = len(workers_en_turno)
+        if count == 0:
+            send_whatsapp(from_phone, "⚠️ No hay trabajadores con turno activo ahora.")
+            return True
+        state["confirmacion_pendiente"] = {"tipo": "aviso_general", "mensaje": mensaje_aviso}
+        persist_supervisor_state(from_phone, state)
+        send_whatsapp(from_phone, msg_sup_preview_aviso(mensaje_aviso, count))
         return True
 
     return False

@@ -32,6 +32,9 @@ def texto_saludo_supervisor() -> str:
 • `hab 420 limpieza urgente`
 • `crear 305 toallas`
 
+📢 *AVISOS*
+• `aviso [mensaje]` → enviar a todos en turno
+
 ❓ *OTROS*
 • `ayuda` → ver este mensaje
 • `cancelar` → abortar operación

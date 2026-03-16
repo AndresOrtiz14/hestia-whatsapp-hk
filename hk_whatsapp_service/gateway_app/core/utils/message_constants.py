@@ -572,6 +572,24 @@ def msg_worker_reporte_creado(ticket_id: int, ubicacion: str, prioridad: str) ->
 # TEMPLATES: NOTIFICACIONES DE TICKET A SUPERVISOR
 # ═══════════════════════════════════════════════════════════════
 
+def msg_aviso_general(mensaje: str) -> str:
+    """Mensaje de aviso general enviado a cada trabajador en turno."""
+    return (
+        f"📢 *Aviso de Supervisión*\n\n"
+        f"{mensaje}\n\n"
+        f"— Supervisión 🏨"
+    )
+
+
+def msg_sup_preview_aviso(mensaje: str, count: int) -> str:
+    """Preview de confirmación mostrado al supervisor antes de enviar aviso."""
+    return (
+        f"📢 ¿Enviar este aviso a *{count} trabajador(es)* en turno?\n\n"
+        f"_{mensaje}_\n\n"
+        f"Responde *si* para confirmar o *no* para cancelar."
+    )
+
+
 def msg_notif_ticket_a_supervisor(
     ticket_id: int,
     ubicacion: str,
