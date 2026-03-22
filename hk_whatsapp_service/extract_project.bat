@@ -48,7 +48,7 @@ gateway_app\services\ticket_watch.py ^
 gateway_app\services\whatsapp_client.py ^
 gateway_app\services\workers_db.py ^
 gateway_app\services\__init__.py
-
+ex
 for %%F in (%FILES%) do (
   echo === %%F ===>> "%OUT%"
   if exist "%%F" (
