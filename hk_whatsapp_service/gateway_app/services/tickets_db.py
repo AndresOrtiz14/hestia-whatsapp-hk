@@ -1,41 +1,64 @@
 # gateway_app/services/tickets_db.py
 """
-Persistencia de tickets en Supabase (Postgres) o SQLite fallback.
+Persistencia de tickets via NestJS HTTP API.
 
-Alineado al schema REAL de public.tickets:
-(org_id, hotel_id, area, prioridad, estado, detalle, canal_origen, ubicacion, huesped_whatsapp, ...)
+Mantiene las mismas firmas de función que la versión psycopg para no
+tener que modificar los flows existentes.
 
-Convención actual del proyecto:
-- Al crear: huesped_whatsapp = teléfono del supervisor (creado_por)
-- Al asignar: huesped_whatsapp = "{worker_phone}|{worker_name}" (para que HK filtre por phone)
+Excepciones que siguen usando psycopg directo:
+- agregar_media_a_ticket → el endpoint POST /tickets/:id/media aún no existe en NestJS
+- obtener_media_de_ticket, contar_media_de_ticket, obtener_primer_media_de_ticket,
+  eliminar_media, mover_media_a_ticket → ídem, operan sobre ticket_media via db.py
 """
-
-import os
-
 import logging
-from typing import Dict, Any, List, Optional
-
-from gateway_app.services.db import fetchone, fetchall, execute, using_pg
+import os
 import re
+from typing import Any, Dict, List, Optional
+
+from gateway_app.services.api_client import api_get, api_post, api_put
+from gateway_app.services.mappers import (
+    AREA_TO_NESTJS,
+    STATUS_TO_NESTJS,
+    ticket_from_nestjs,
+    ticket_to_nestjs,
+)
 
 logger = logging.getLogger(__name__)
 
-def _env_int(name: str) -> int:
-    v = (os.getenv(name) or "").strip()
+
+# ============================================================
+# HELPERS INTERNOS
+# ============================================================
+
+def _default_property_id() -> str:
+    """
+    Lee PROPERTY_ID_DEFAULT del env.
+    Usado por los stubs de compatibilidad que no reciben property_id explícito.
+    """
+    v = os.getenv("PROPERTY_ID_DEFAULT", "").strip()
     if not v:
-        raise RuntimeError(f"Missing required env var: {name}")
-    try:
-        return int(v)
-    except ValueError as e:
-        raise RuntimeError(f"Env var {name} must be an int, got: {v!r}") from e
+        raise RuntimeError("Missing required env var: PROPERTY_ID_DEFAULT")
+    return v
 
 
-def _default_scope() -> tuple[int, int]:
-    # Source of truth: Render env vars
-    org_id = _env_int("ORG_ID_DEFAULT")
-    hotel_id = _env_int("HOTEL_ID_DEFAULT")
-    return org_id, hotel_id
+def _is_uuid(s: str) -> bool:
+    """Detecta si una cadena es un UUID (para distinguir phone vs worker_id en asignar_ticket)."""
+    return bool(re.match(
+        r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+        (s or '').lower(),
+    ))
 
+
+def _items(data) -> list:
+    """Extrae la lista de items de una respuesta NestJS (lista directa o {items: [...]})."""
+    if isinstance(data, list):
+        return data
+    return (data or {}).get("items", [])
+
+
+# ============================================================
+# CREAR
+# ============================================================
 
 def crear_ticket(
     habitacion: str,
@@ -45,668 +68,419 @@ def crear_ticket(
     origen: str = "supervisor",
     *,
     area: str = "HOUSEKEEPING",
-    canal_origen: str = "WHATSAPP_BOT_SUPERVISION",
+    property_id: str = None,
+    # absorber parámetros de la firma vieja para no romper llamadas existentes
     org_id=None,
     hotel_id=None,
-    # ── NUEVOS parámetros de routing ──────────────────────────
+    canal_origen: str = None,
     routing_source: str = None,
     routing_reason: str = None,
     routing_confidence: float = None,
     routing_version: str = None,
-):
+    **kwargs,
+) -> Optional[str]:
     """
-    Crea un ticket en public.tickets.
-    org_id/hotel_id se toman desde env si no se pasan.
-    routing_* se toman del clasificador de tickets.
+    Crea un ticket en NestJS.
+    Retorna el UUID del ticket creado, o None si falla.
+
+    Acepta tanto la firma nueva (property_id) como la vieja (org_id/hotel_id)
+    para compatibilidad con flows existentes.
     """
-    if org_id is None or hotel_id is None:
-        d_org, d_hotel = _default_scope()
-        org_id = d_org if org_id is None else org_id
-        hotel_id = d_hotel if hotel_id is None else hotel_id
+    if not property_id:
+        property_id = _default_property_id()
 
-    table = "public.tickets" if using_pg() else "tickets"
-    estado = "PENDIENTE"
-
-    logger.info(
-        "Creando ticket | Org=%s | Hotel=%s | Ubic=%s | Prioridad=%s | Area=%s | Routing=%s (%.2f)",
-        org_id, hotel_id, habitacion, prioridad, area,
-        routing_source or "none",
-        routing_confidence or 0.0,
+    payload = ticket_to_nestjs(
+        {
+            "ubicacion": habitacion,
+            "detalle":   detalle,
+            "prioridad": prioridad,
+            "area":      area,
+        },
+        property_id=property_id,
     )
-
-    if using_pg():
-        sql = f"""
-            INSERT INTO {table} (
-                org_id, hotel_id, area, prioridad, estado, detalle,
-                canal_origen, ubicacion,
-                huesped_whatsapp,
-                qr_required,
-                assignment_notif_sent,
-                csat_survey_triggered,
-                in_progress_notif_sent,
-                routing_source,
-                routing_reason,
-                routing_confidence,
-                routing_version,
-                created_at
-            )
-            VALUES (
-                ?, ?, ?, ?, ?, ?,
-                ?, ?,
-                ?,
-                false,
-                false,
-                false,
-                false,
-                ?,
-                ?,
-                ?,
-                ?,
-                NOW()
-            )
-            RETURNING *
-        """
-        ticket = fetchone(
-            sql,
-            [
-                org_id,
-                hotel_id,
-                area,
-                prioridad,
-                estado,
-                detalle,
-                canal_origen,
-                habitacion,         # ubicacion
-                creado_por,         # huesped_whatsapp
-                routing_source,
-                routing_reason,
-                routing_confidence,
-                routing_version,
-            ],
+    result = api_post("/api/v1/tickets", payload)
+    if not result:
+        logger.error(
+            "crear_ticket: api_post falló property=%s habitacion=%s",
+            property_id, habitacion,
         )
-        return ticket
-
-    # SQLite fallback (dev local)
-    sql = f"""
-        INSERT INTO {table} (
-            org_id, hotel_id, area, prioridad, estado, detalle,
-            canal_origen, ubicacion,
-            huesped_whatsapp,
-            qr_required,
-            assignment_notif_sent,
-            csat_survey_triggered,
-            in_progress_notif_sent,
-            routing_source,
-            routing_reason,
-            routing_confidence,
-            routing_version,
-            created_at
-        )
-        VALUES (
-            ?, ?, ?, ?, ?, ?,
-            ?, ?,
-            ?,
-            0, 0, 0, 0,
-            ?, ?, ?, ?,
-            datetime('now')
-        )
-    """
-    # (Para SQLite, el RETURNING * no funciona igual;
-    #  adaptar según tu setup local si lo usas)
-    execute(sql, [
-        org_id, hotel_id, area, prioridad, estado, detalle,
-        canal_origen, habitacion,
-        creado_por,
-        routing_source, routing_reason, routing_confidence, routing_version,
-    ])
-    return fetchone(f"SELECT * FROM {table} ORDER BY id DESC LIMIT 1")
-
-
-def asignar_ticket(ticket_id: int, asignado_a_phone: str, asignado_a_nombre: str) -> bool:
-    """
-    Asigna ticket: estado=ASIGNADO y guarda "phone|nombre" en huesped_whatsapp.
-    """
-    table = "public.tickets" if using_pg() else "tickets"
-
-    sql = f"""
-        UPDATE {table}
-        SET estado = 'ASIGNADO',
-            huesped_whatsapp = ?,
-            assigned_at = NOW()
-        WHERE id = ?
-    """
-    phone_with_name = f"{asignado_a_phone}|{asignado_a_nombre}"
-
-    try:
-        execute(sql, [phone_with_name, ticket_id], commit=True)
-        return True
-    except Exception as e:
-        logger.exception("Error asignando ticket: %s", e)
-        return False
-
-def _norm_phone(phone: str) -> str:
-    return re.sub(r"\D+", "", phone or "")
-
-def obtener_tickets_asignados_a(phone: str) -> List[Dict[str, Any]]:
-    """
-    Retorna tickets asignados al worker.
-    Busca en huesped_whatsapp (formato: "phone|nombre" cuando está asignado).
-    """
-    table = "public.tickets" if using_pg() else "tickets"
-
-    sql = f"""
-    SELECT *
-    FROM {table}
-    WHERE huesped_whatsapp LIKE ?
-      AND estado IN ('ASIGNADO', 'EN_CURSO', 'PAUSADO')
-      AND deleted_at IS NULL
-    ORDER BY 
-        CASE prioridad
-            WHEN 'ALTA' THEN 1
-            WHEN 'MEDIA' THEN 2
-            WHEN 'BAJA' THEN 3
-            ELSE 4
-        END,
-        created_at ASC
-    """
-
-    try:
-        tickets = fetchall(sql, [f"{phone}|%"])
-        logger.info(f"📋 Encontrados {len(tickets)} tickets para {phone}")
-        return tickets
-    except Exception as e:
-        logger.exception("Error obteniendo tickets asignados: %s", e)
-        return []
-
-def obtener_tickets_asignados_y_en_curso(
-    *,
-    org_id: Optional[int] = None,
-    hotel_id: Optional[int] = None,
-) -> list:
-    """
-    Obtiene tickets con estado ASIGNADO o EN_CURSO
-    FILTRADOS por org_id y hotel_id.
-    """
-    if org_id is None or hotel_id is None:
-        d_org, d_hotel = _default_scope()
-        org_id = d_org if org_id is None else org_id
-        hotel_id = d_hotel if hotel_id is None else hotel_id
-
-    try:
-        tickets = fetchall(
-            """
-            SELECT 
-                t.id,
-                t.ubicacion,
-                t.detalle,
-                t.prioridad,
-                t.estado,
-                t.huesped_whatsapp,
-                CASE 
-                    WHEN POSITION('|' IN COALESCE(t.huesped_whatsapp, '')) > 0 
-                    THEN SPLIT_PART(t.huesped_whatsapp, '|', 2)
-                    ELSE NULL
-                END as worker_name,
-                CASE 
-                    WHEN POSITION('|' IN COALESCE(t.huesped_whatsapp, '')) > 0 
-                    THEN SPLIT_PART(t.huesped_whatsapp, '|', 1)
-                    ELSE t.huesped_whatsapp
-                END as worker_phone,
-                t.created_at,
-                t.assigned_at
-            FROM public.tickets t
-            WHERE t.org_id = ?
-              AND t.hotel_id = ?
-              AND t.estado IN ('ASIGNADO', 'EN_CURSO')
-              AND t.deleted_at IS NULL
-            ORDER BY 
-                CASE t.prioridad
-                    WHEN 'ALTA' THEN 1
-                    WHEN 'MEDIA' THEN 2
-                    WHEN 'BAJA' THEN 3
-                    ELSE 4
-                END,
-                t.created_at ASC
-            """,
-            [org_id, hotel_id],
-        )
-        
-        logger.info(f"📊 {len(tickets)} tickets ASIGNADOS/EN_CURSO obtenidos (org={org_id}, hotel={hotel_id})")
-        return tickets
-        
-    except Exception as e:
-        logger.error(f"❌ Error obteniendo tickets asignados/en_curso: {e}")
-        return []
-
-def obtener_tickets_por_worker(worker_phone: str):
-    """
-    Alias por compatibilidad.
-    Algunos orquestadores importan `obtener_tickets_por_worker`.
-    En este proyecto, la función real es `obtener_tickets_asignados_a`.
-    """
-    return obtener_tickets_asignados_a(worker_phone)    
-
-
-def obtener_tickets_por_estado(
-    estado: str,
-    *,
-    org_id: Optional[int] = None,
-    hotel_id: Optional[int] = None,
-) -> List[Dict[str, Any]]:
-    table = "public.tickets" if using_pg() else "tickets"
-
-    if org_id is None or hotel_id is None:
-        d_org, d_hotel = _default_scope()
-        org_id = d_org if org_id is None else org_id
-        hotel_id = d_hotel if hotel_id is None else hotel_id
-
-    try:
-        return fetchall(
-            f"""
-            SELECT *
-            FROM {table}
-            WHERE org_id = ?
-              AND hotel_id = ?
-              AND estado = ?
-              AND deleted_at IS NULL
-            ORDER BY created_at DESC
-            """,
-            [org_id, hotel_id, estado],
-        ) or []
-    except Exception as e:
-        logger.exception("Error obteniendo tickets por estado: %s", e)
-        return []
-
-
-def obtener_ticket_por_id(ticket_id: int) -> Optional[Dict[str, Any]]:
-    table = "public.tickets" if using_pg() else "tickets"
-    try:
-        return fetchone(f"SELECT * FROM {table} WHERE id = ?", [ticket_id])
-    except Exception as e:
-        logger.exception("Error obteniendo ticket por id: %s", e)
         return None
 
-def actualizar_estado_ticket(ticket_id: int, nuevo_estado: str) -> bool:
-    """
-    Actualiza el estado de un ticket.
-    
-    Args:
-        ticket_id: ID del ticket
-        nuevo_estado: Nuevo estado (ASIGNADO, EN_CURSO, PAUSADO, RESUELTO)
-    
-    Returns:
-        True si se actualizó correctamente
-    """
-    table = "public.tickets" if using_pg() else "tickets"
-    
-    sql = f"""
-        UPDATE {table}
-        SET estado = ?
-        WHERE id = ?
-    """
-    
-    try:
-        execute(sql, [nuevo_estado, ticket_id], commit=True)
-        logger.info(f"✅ Ticket #{ticket_id} actualizado a {nuevo_estado}")
-        return True
-    except Exception as e:
-        logger.exception(f"❌ Error actualizando estado de ticket: {e}")
-        return False
+    logger.info("crear_ticket: ticket=%s property=%s", result.get("id"), property_id)
+    # Retorna el ticket normalizado (dict) para que los flows puedan hacer ticket["id"]
+    return ticket_from_nestjs(result)
 
-def actualizar_area_ticket(ticket_id: int, nueva_area: str) -> bool:
-    """
-    Actualiza el área de un ticket.
-
-    Returns:
-        True si se actualizó correctamente, False si no encontró el ticket.
-    """
-    table = "public.tickets" if using_pg() else "tickets"
-
-    if using_pg():
-        sql = f"""
-            UPDATE {table}
-            SET area = ?
-            WHERE id = ?
-            RETURNING id
-        """
-        try:
-            result = fetchone(sql, [nueva_area, ticket_id])
-            if result:
-                logger.info("Ticket #%s: area actualizada a %s", ticket_id, nueva_area)
-                return True
-            else:
-                logger.warning("actualizar_area_ticket: ticket #%s no encontrado", ticket_id)
-                return False
-        except Exception as e:
-            logger.exception("Error actualizando area de ticket #%s: %s", ticket_id, e)
-            return False
-
-    # SQLite fallback
-    sql = f"UPDATE {table} SET area = ? WHERE id = ?"
-    try:
-        execute(sql, [nueva_area, ticket_id], commit=True)
-        result = fetchone(f"SELECT id FROM {table} WHERE id = ?", [ticket_id])
-        if result:
-            logger.info("Ticket #%s: area actualizada a %s", ticket_id, nueva_area)
-            return True
-        else:
-            logger.warning("actualizar_area_ticket: ticket #%s no encontrado", ticket_id)
-            return False
-    except Exception as e:
-        logger.exception("Error actualizando area de ticket #%s: %s", ticket_id, e)
-        return False
-
-def completar_ticket(ticket_id: int) -> bool:
-    """
-    Marca un ticket como RESUELTO y registra finished_at.
-    Usar siempre en lugar de actualizar_estado_ticket cuando el estado
-    final es RESUELTO o RESUELTO.
-    """
-    from datetime import datetime, timezone
-    table = "public.tickets" if using_pg() else "tickets"
-    now = datetime.now(timezone.utc)
-
-    sql = f"""
-        UPDATE {table}
-        SET estado = 'RESUELTO',
-            finished_at = ?
-        WHERE id = ?
-    """
-    try:
-        execute(sql, [now, ticket_id], commit=True)
-        logger.info(f"✅ Ticket #{ticket_id} completado | finished_at={now.isoformat()}")
-        return True
-    except Exception as e:
-        logger.exception(f"❌ Error completando ticket #{ticket_id}: {e}")
-        return False
 
 # ============================================================
-# COMPAT / ALIASES para orchestrator_hk_multiticket.py
-# (evita ImportError cuando el HK intenta "tomar")
+# LEER
 # ============================================================
 
-def actualizar_ticket_estado(ticket_id: int, nuevo_estado: str) -> bool:
-    """
-    Alias compatible con el orquestador HK.
-    Debe actualizar el estado del ticket (ej: ASIGNADO -> EN_CURSO).
-    """
-    # Si ya tienes una función equivalente, úsala aquí:
-    # Ejemplos típicos: actualizar_estado_ticket, set_ticket_estado, cambiar_estado_ticket
-    return actualizar_estado_ticket(ticket_id, nuevo_estado)
+def obtener_ticket_por_id(ticket_id) -> Optional[Dict[str, Any]]:
+    """Retorna el ticket normalizado al formato Flask, o None."""
+    if not ticket_id:
+        return None
+    data = api_get(f"/api/v1/tickets/{ticket_id}")
+    if not data:
+        return None
+    return ticket_from_nestjs(data)
+
 
 def obtener_pendientes(
     *,
-    org_id: Optional[int] = None,
-    hotel_id: Optional[int] = None,
+    property_id: str = None,
+    org_id=None,
+    hotel_id=None,
 ) -> List[Dict[str, Any]]:
-    table = "public.tickets" if using_pg() else "tickets"
+    """Tickets con status open (PENDIENTE en Flask)."""
+    if not property_id:
+        property_id = _default_property_id()
+    data = api_get("/api/v1/tickets", params={
+        "propertyId": property_id,
+        "status":     STATUS_TO_NESTJS["PENDIENTE"],
+    })
+    return [ticket_from_nestjs(t) for t in _items(data)]
 
-    if org_id is None or hotel_id is None:
-        org_id, hotel_id = _default_scope()
 
-    estados = ("PENDIENTE", "PENDIENTE_APROBACION", "PENDIENTE_APROBACIÓN")
-    placeholders = ",".join(["?"] * len(estados))
+def obtener_asignados(*, property_id: str = None) -> List[Dict[str, Any]]:
+    """Tickets con status assigned (ASIGNADO en Flask)."""
+    if not property_id:
+        property_id = _default_property_id()
+    data = api_get("/api/v1/tickets", params={
+        "propertyId": property_id,
+        "status":     STATUS_TO_NESTJS["ASIGNADO"],
+    })
+    return [ticket_from_nestjs(t) for t in _items(data)]
 
-    return fetchall(
-        f"""
-        SELECT *
-        FROM {table}
-        WHERE org_id = ?
-          AND hotel_id = ?
-          AND estado IN ({placeholders})
-          AND deleted_at IS NULL
-        ORDER BY created_at DESC
-        """,
-        [org_id, hotel_id, *estados],
-    ) or []
 
-def tomar_ticket_asignado(ticket_id: int, worker_phone: str) -> bool:
+def obtener_en_curso(*, property_id: str = None) -> List[Dict[str, Any]]:
+    """Tickets con status in_progress (EN_CURSO en Flask)."""
+    if not property_id:
+        property_id = _default_property_id()
+    data = api_get("/api/v1/tickets", params={
+        "propertyId": property_id,
+        "status":     STATUS_TO_NESTJS["EN_CURSO"],
+    })
+    return [ticket_from_nestjs(t) for t in _items(data)]
+
+
+def obtener_tickets_worker(
+    worker_phone: str,
+    *,
+    property_id: str = None,
+) -> List[Dict[str, Any]]:
     """
-    ✅ FIX C1: Marca un ticket como EN_CURSO SOLO si está asignado a ese worker.
-    Valida pertenencia via huesped_whatsapp (formato "phone|nombre").
-    
-    Nota: Actualmente no se usa (el orquestador HK usa actualizar_ticket_estado),
-    pero queda disponible si se necesita validación estricta de pertenencia.
+    Tickets asignados a un worker específico.
+    Busca el user por teléfono para obtener su UUID,
+    luego filtra tickets por assignedToUserId.
     """
-    p = _norm_phone(worker_phone)
-    if not p:
-        return False
+    if not property_id:
+        property_id = _default_property_id()
 
-    table = "public.tickets" if using_pg() else "tickets"
+    from gateway_app.services.workers_db import buscar_worker_por_telefono
+    worker = buscar_worker_por_telefono(worker_phone)
+    if not worker:
+        logger.info("obtener_tickets_worker: no worker para phone=%s", worker_phone)
+        return []
 
-    # Verificar que el ticket pertenece al worker y está en estado válido
-    ticket = fetchone(
-        f"""
-        SELECT id, huesped_whatsapp, estado
-        FROM {table}
-        WHERE id = ?
-          AND estado IN ('ASIGNADO', 'PENDIENTE')
-        """,
-        [ticket_id],
-    )
+    data = api_get("/api/v1/tickets", params={
+        "propertyId":       property_id,
+        "assignedToUserId": worker["id"],
+    })
+    return [ticket_from_nestjs(t) for t in _items(data)]
 
-    if not ticket:
-        logger.warning(f"⚠️ tomar_ticket_asignado: ticket #{ticket_id} no encontrado o estado inválido")
-        return False
 
-    # Validar que huesped_whatsapp empieza con el teléfono del worker
-    hw = ticket.get("huesped_whatsapp") or ""
-    hw_phone = hw.split("|")[0] if "|" in hw else hw
-    hw_phone_norm = _norm_phone(hw_phone)
+# ============================================================
+# ACTUALIZAR ESTADO
+# ============================================================
 
-    if hw_phone_norm != p:
-        logger.warning(
-            f"⚠️ tomar_ticket_asignado: ticket #{ticket_id} asignado a {hw_phone_norm}, "
-            f"no a {p}"
-        )
-        return False
+def asignar_ticket(
+    ticket_id,
+    worker_id: str,
+    asignado_a_nombre: str = "",   # absorbe el 3er arg de la firma vieja
+    *,
+    asignado_por: str = "",
+) -> bool:
+    """
+    Asigna el ticket a un worker y lo mueve a estado assigned.
 
-    # Actualizar estado
-    try:
-        execute(
-            f"""
-            UPDATE {table}
-            SET estado = 'EN_CURSO',
-                started_at = COALESCE(started_at, {'NOW()' if using_pg() else 'CURRENT_TIMESTAMP'})
-            WHERE id = ?
-            """,
-            [ticket_id],
-            commit=True,
-        )
-        logger.info(f"✅ tomar_ticket_asignado: ticket #{ticket_id} tomado por {p}")
-        return True
-    except Exception as e:
-        logger.exception(f"❌ Error tomando ticket {ticket_id} para {p}: {e}")
-        return False
+    Acepta dos calling conventions:
+    - Nueva (NestJS): asignar_ticket(ticket_uuid, worker_uuid)
+    - Antigua (psycopg): asignar_ticket(ticket_int, worker_phone, nombre)
+
+    Si worker_id no parece un UUID se asume que es un teléfono y se busca
+    el UUID correspondiente via workers_db.
+    """
+    if not _is_uuid(str(worker_id)):
+        from gateway_app.services.workers_db import buscar_worker_por_telefono
+        worker = buscar_worker_por_telefono(worker_id)
+        if not worker:
+            logger.error("asignar_ticket: no worker para phone=%s", worker_id)
+            return False
+        worker_id = worker["id"]
+
+    result = api_put(f"/api/v1/tickets/{ticket_id}", {
+        "assignedToUserId": worker_id,
+        "status":           STATUS_TO_NESTJS["ASIGNADO"],
+    })
+    ok = result is not None
+    if ok:
+        logger.info("asignar_ticket: ticket=%s worker=%s", ticket_id, worker_id)
+    else:
+        logger.error("asignar_ticket: falló ticket=%s worker=%s", ticket_id, worker_id)
+    return ok
+
+
+def iniciar_ticket(ticket_id) -> bool:
+    """Mueve el ticket a EN_CURSO."""
+    result = api_put(f"/api/v1/tickets/{ticket_id}", {
+        "status": STATUS_TO_NESTJS["EN_CURSO"],
+    })
+    return result is not None
+
+
+def pausar_ticket(ticket_id, *, motivo: str = "") -> bool:
+    """Mueve el ticket a PAUSADO."""
+    body = {"status": STATUS_TO_NESTJS["PAUSADO"]}
+    if motivo:
+        body["notes"] = motivo
+    result = api_put(f"/api/v1/tickets/{ticket_id}", body)
+    return result is not None
+
+
+def finalizar_ticket(ticket_id, *, motivo: str = "") -> bool:
+    """Mueve el ticket a RESUELTO (finished en NestJS)."""
+    body = {"status": STATUS_TO_NESTJS["RESUELTO"]}
+    if motivo:
+        body["notes"] = motivo
+    result = api_put(f"/api/v1/tickets/{ticket_id}", body)
+    ok = result is not None
+    if ok:
+        logger.info("finalizar_ticket: ticket=%s", ticket_id)
+    return ok
+
+
+# ============================================================
+# MEDIA — fallback psycopg directo hasta que NestJS tenga el endpoint
+# ============================================================
 
 def agregar_media_a_ticket(
-    ticket_id: int,
+    ticket_id,
     media_type: str,
     storage_url: str,
     whatsapp_media_id: str,
     mime_type: str,
     file_size_bytes: int,
-    uploaded_by: str
-) -> Optional[int]:
+    uploaded_by: str,
+) -> Optional[str]:
     """
-    Agrega un registro de media a un ticket.
-    
-    Args:
-        ticket_id: ID del ticket
-        media_type: 'image', 'video', 'document', 'audio'
-        storage_url: URL en Supabase Storage (puede ser vacío si falló el upload)
-        whatsapp_media_id: ID original del media en WhatsApp
-        mime_type: Tipo MIME (image/jpeg, video/mp4, etc.)
-        file_size_bytes: Tamaño en bytes
-        uploaded_by: Teléfono del usuario que subió el media
-    
-    Returns:
-        ID del registro creado o None si falló
+    Guarda media en ticket_media via psycopg directo.
+    TODO: migrar a POST /api/v1/tickets/:id/media cuando el endpoint exista en NestJS.
     """
-    from gateway_app.services.db import execute, fetchone, using_pg
-    
-    table = "public.ticket_media" if using_pg() else "ticket_media"
-    
-    sql = f"""
-        INSERT INTO {table} 
-        (ticket_id, media_type, storage_url, whatsapp_media_id, mime_type, file_size_bytes, uploaded_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        RETURNING id
-    """
-    
+    logger.info(
+        "agregar_media_a_ticket: usando psycopg fallback. ticket=%s", ticket_id
+    )
     try:
-        if using_pg():
-            result = fetchone(sql, [
-                ticket_id, media_type, storage_url, whatsapp_media_id,
-                mime_type, file_size_bytes, uploaded_by
-            ])
-            return result["id"] if result else None
-        else:
-            # SQLite no soporta RETURNING
-            execute(sql.replace("RETURNING id", ""), [
-                ticket_id, media_type, storage_url, whatsapp_media_id,
-                mime_type, file_size_bytes, uploaded_by
-            ], commit=True)
-            result = fetchone("SELECT last_insert_rowid() as id")
-            return result["id"] if result else None
-            
-    except Exception as e:
-        logger.exception(f"❌ Error agregando media a ticket #{ticket_id}: {e}")
+        from gateway_app.services.db import execute
+        execute(
+            """
+            INSERT INTO public.ticket_media
+              (ticket_id, media_type, storage_url, whatsapp_media_id,
+               mime_type, file_size_bytes, uploaded_by, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+            """,
+            [
+                str(ticket_id), media_type, storage_url, whatsapp_media_id,
+                mime_type, file_size_bytes, uploaded_by,
+            ],
+        )
+        return str(ticket_id)
+    except Exception:
+        logger.exception("agregar_media_a_ticket: psycopg falló ticket=%s", ticket_id)
         return None
 
 
-def obtener_media_de_ticket(ticket_id: int) -> List[Dict[str, Any]]:
-    """
-    Obtiene todos los medios asociados a un ticket.
-    
-    Args:
-        ticket_id: ID del ticket
-    
-    Returns:
-        Lista de registros de media
-    """
-    from gateway_app.services.db import fetchall, using_pg
-    
-    table = "public.ticket_media" if using_pg() else "ticket_media"
-    
-    sql = f"""
-        SELECT id, ticket_id, media_type, storage_url, whatsapp_media_id,
-               mime_type, file_size_bytes, uploaded_by, created_at
-        FROM {table}
-        WHERE ticket_id = ?
-        ORDER BY created_at ASC
-    """
-    
+def obtener_media_de_ticket(ticket_id) -> List[Dict[str, Any]]:
+    """Obtiene todos los medios de un ticket via psycopg directo."""
     try:
-        return fetchall(sql, [ticket_id]) or []
-    except Exception as e:
-        logger.exception(f"❌ Error obteniendo media de ticket #{ticket_id}: {e}")
+        from gateway_app.services.db import fetchall
+        return fetchall(
+            "SELECT * FROM public.ticket_media WHERE ticket_id = ? ORDER BY created_at ASC",
+            [str(ticket_id)],
+        ) or []
+    except Exception:
+        logger.exception("obtener_media_de_ticket: psycopg falló ticket=%s", ticket_id)
         return []
 
 
-def contar_media_de_ticket(ticket_id: int) -> int:
-    """
-    Cuenta cuántos medios tiene un ticket.
-    
-    Args:
-        ticket_id: ID del ticket
-    
-    Returns:
-        Cantidad de medios
-    """
-    from gateway_app.services.db import fetchone, using_pg
-    
-    table = "public.ticket_media" if using_pg() else "ticket_media"
-    
-    sql = f"SELECT COUNT(*) as count FROM {table} WHERE ticket_id = ?"
-    
+def contar_media_de_ticket(ticket_id) -> int:
+    """Cuenta cuántos medios tiene un ticket via psycopg directo."""
     try:
-        result = fetchone(sql, [ticket_id])
+        from gateway_app.services.db import fetchone
+        result = fetchone(
+            "SELECT COUNT(*) as count FROM public.ticket_media WHERE ticket_id = ?",
+            [str(ticket_id)],
+        )
         return result["count"] if result else 0
-    except Exception as e:
-        logger.exception(f"❌ Error contando media de ticket #{ticket_id}: {e}")
+    except Exception:
+        logger.exception("contar_media_de_ticket: psycopg falló ticket=%s", ticket_id)
         return 0
 
 
-def obtener_primer_media_de_ticket(ticket_id: int) -> Optional[Dict[str, Any]]:
-    """
-    Obtiene el primer media de un ticket (útil para previews).
-    
-    Args:
-        ticket_id: ID del ticket
-    
-    Returns:
-        Registro de media o None
-    """
-    from gateway_app.services.db import fetchone, using_pg
-    
-    table = "public.ticket_media" if using_pg() else "ticket_media"
-    
-    sql = f"""
-        SELECT id, ticket_id, media_type, storage_url, whatsapp_media_id,
-               mime_type, file_size_bytes, uploaded_by, created_at
-        FROM {table}
-        WHERE ticket_id = ?
-        ORDER BY created_at ASC
-        LIMIT 1
-    """
-    
-    try:
-        return fetchone(sql, [ticket_id])
-    except Exception as e:
-        logger.exception(f"❌ Error obteniendo primer media de ticket #{ticket_id}: {e}")
-        return None
+def obtener_primer_media_de_ticket(ticket_id) -> Optional[Dict[str, Any]]:
+    """Obtiene el primer media de un ticket (útil para previews)."""
+    media = obtener_media_de_ticket(ticket_id)
+    return media[0] if media else None
 
 
-def eliminar_media(media_id: int) -> bool:
-    """
-    Elimina un registro de media.
-    
-    Args:
-        media_id: ID del registro de media
-    
-    Returns:
-        True si se eliminó correctamente
-    """
-    from gateway_app.services.db import execute, using_pg
-    
-    table = "public.ticket_media" if using_pg() else "ticket_media"
-    
-    sql = f"DELETE FROM {table} WHERE id = ?"
-    
+def eliminar_media(media_id) -> bool:
+    """Elimina un registro de media via psycopg directo."""
     try:
-        execute(sql, [media_id], commit=True)
+        from gateway_app.services.db import execute
+        execute(
+            "DELETE FROM public.ticket_media WHERE id = ?",
+            [media_id],
+            commit=True,
+        )
         return True
-    except Exception as e:
-        logger.exception(f"❌ Error eliminando media #{media_id}: {e}")
+    except Exception:
+        logger.exception("eliminar_media: psycopg falló id=%s", media_id)
         return False
 
 
-def mover_media_a_ticket(whatsapp_media_id: str, ticket_id: int) -> bool:
+def mover_media_a_ticket(whatsapp_media_id: str, ticket_id) -> bool:
     """
-    Mueve un media pendiente (sin ticket) a un ticket específico.
-    Útil cuando se crea el ticket después de recibir el media.
-    
-    Args:
-        whatsapp_media_id: ID del media en WhatsApp
-        ticket_id: ID del ticket destino
-    
-    Returns:
-        True si se actualizó correctamente
+    Mueve un media pendiente (sin ticket) a un ticket específico via psycopg directo.
+    Útil cuando el ticket se crea después de recibir el media.
     """
-    from gateway_app.services.db import execute, using_pg
-    
-    table = "public.ticket_media" if using_pg() else "ticket_media"
-    
-    sql = f"""
-        UPDATE {table}
-        SET ticket_id = ?
-        WHERE whatsapp_media_id = ? AND ticket_id IS NULL
-    """
-    
     try:
-        execute(sql, [ticket_id, whatsapp_media_id], commit=True)
+        from gateway_app.services.db import execute
+        execute(
+            """
+            UPDATE public.ticket_media
+            SET ticket_id = ?
+            WHERE whatsapp_media_id = ? AND ticket_id IS NULL
+            """,
+            [str(ticket_id), whatsapp_media_id],
+            commit=True,
+        )
         return True
-    except Exception as e:
-        logger.exception(f"❌ Error moviendo media a ticket #{ticket_id}: {e}")
+    except Exception:
+        logger.exception("mover_media_a_ticket: psycopg falló ticket=%s", ticket_id)
         return False
+
+
+# ============================================================
+# STUBS DE COMPATIBILIDAD
+# Mismos nombres que la versión psycopg — los flows no se tocan.
+# ============================================================
+
+def obtener_tickets_asignados_a(
+    phone: str,
+    *,
+    property_id: str = None,
+) -> List[Dict[str, Any]]:
+    """
+    Tickets asignados al worker identificado por teléfono.
+    Stub compat → delega a obtener_tickets_worker.
+    """
+    if not property_id:
+        property_id = _default_property_id()
+    return obtener_tickets_worker(phone, property_id=property_id)
+
+
+def obtener_tickets_por_worker(worker_phone: str, **kwargs) -> List[Dict[str, Any]]:
+    """Alias de compatibilidad → obtener_tickets_asignados_a."""
+    return obtener_tickets_asignados_a(worker_phone, **kwargs)
+
+
+def obtener_tickets_asignados_y_en_curso(
+    *,
+    org_id=None,
+    hotel_id=None,
+    property_id: str = None,
+) -> List[Dict[str, Any]]:
+    """
+    Tickets ASIGNADO + EN_CURSO.
+    Stub compat → une obtener_asignados + obtener_en_curso.
+    """
+    if not property_id:
+        property_id = _default_property_id()
+    return (
+        obtener_asignados(property_id=property_id)
+        + obtener_en_curso(property_id=property_id)
+    )
+
+
+def obtener_tickets_por_estado(
+    estado: str,
+    *,
+    org_id=None,
+    hotel_id=None,
+    property_id: str = None,
+) -> List[Dict[str, Any]]:
+    """
+    Tickets filtrados por estado Flask (PENDIENTE, ASIGNADO, EN_CURSO…).
+    Stub compat → mapea estado y llama a NestJS.
+    """
+    if not property_id:
+        property_id = _default_property_id()
+    nestjs_status = STATUS_TO_NESTJS.get(estado.upper(), estado.lower())
+    data = api_get("/api/v1/tickets", params={
+        "propertyId": property_id,
+        "status":     nestjs_status,
+    })
+    return [ticket_from_nestjs(t) for t in _items(data)]
+
+
+def actualizar_estado_ticket(ticket_id, nuevo_estado: str) -> bool:
+    """
+    Actualiza el estado de un ticket.
+    Stub compat → despacha a la función NestJS correspondiente.
+    """
+    estado = nuevo_estado.upper()
+    if estado == "EN_CURSO":
+        return iniciar_ticket(ticket_id)
+    if estado == "PAUSADO":
+        return pausar_ticket(ticket_id)
+    if estado in ("RESUELTO", "COMPLETADO"):
+        return finalizar_ticket(ticket_id)
+    # Fallback genérico
+    result = api_put(
+        f"/api/v1/tickets/{ticket_id}",
+        {"status": STATUS_TO_NESTJS.get(estado, estado.lower())},
+    )
+    ok = result is not None
+    if ok:
+        logger.info("actualizar_estado_ticket: ticket=%s → %s", ticket_id, nuevo_estado)
+    return ok
+
+
+def actualizar_ticket_estado(ticket_id, nuevo_estado: str) -> bool:
+    """Alias de compatibilidad → actualizar_estado_ticket."""
+    return actualizar_estado_ticket(ticket_id, nuevo_estado)
+
+
+def actualizar_area_ticket(ticket_id, nueva_area: str) -> bool:
+    """
+    Actualiza el área de un ticket.
+    Stub compat → PUT /api/v1/tickets/:id con areaCode.
+    """
+    area_code = AREA_TO_NESTJS.get(nueva_area.upper(), nueva_area.upper())
+    result = api_put(f"/api/v1/tickets/{ticket_id}", {"areaCode": area_code})
+    ok = result is not None
+    if ok:
+        logger.info("actualizar_area_ticket: ticket=%s → %s", ticket_id, area_code)
+    return ok
+
+
+def completar_ticket(ticket_id) -> bool:
+    """Marca un ticket como RESUELTO. Stub compat → finalizar_ticket."""
+    return finalizar_ticket(ticket_id)
+
+
+def tomar_ticket_asignado(ticket_id, worker_phone: str) -> bool:
+    """
+    Mueve un ticket a EN_CURSO.
+    Stub compat → iniciar_ticket (la validación de pertenencia la hace NestJS).
+    """
+    return iniciar_ticket(ticket_id)
