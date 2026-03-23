@@ -3,7 +3,6 @@ Wrapper de entrada de mensajes con soporte para audio/voz.
 Punto de entrada unificado que maneja texto y audio.
 """
 
-from curses import raw
 from typing import Dict, Any
 from .orchestrator_hk_multiticket import handle_hk_message_simple as _handle_hk_message_text
 from .audio_integration import (
@@ -13,25 +12,6 @@ from .audio_integration import (
 )
 from .intents import convertir_numeros_escritos_a_digitos
 from .outgoing import send_whatsapp
-from gateway_app.services.workers_db import activar_turno_por_telefono, desactivar_turno_por_telefono
-import re
-
-    
-TURN_ON = {
-    "turno on",
-    "iniciar turno",
-    "empezar turno",
-    "inicio",
-    "iniciar",
-    "entrar",
-}
-TURN_OFF = {
-    "turno off",
-    "fin turno",
-    "cerrar turno",
-    "salir",
-    "finalizar",
-}
 
 
 def handle_hk_message_with_audio(
@@ -117,25 +97,6 @@ def handle_hk_message_with_audio(
         "• Mensajes de texto\n"
         "• Notas de voz"
     )
-    raw_n = _norm_cmd(raw)
-    # 2) Comandos de turno (PRIMERO)
-    if raw_n in TURN_ON or raw_n == "turno":
-        ok = activar_turno_por_telefono(phone)
-        if ok:
-            state["turno_activo"] = True
-            send_whatsapp(phone, "✅ Turno activado. Ya puedes recibir tareas.")
-        else:
-            send_whatsapp(phone, "❌ No pude activar tu turno (no encontré tu usuario o hubo un error).")
-        return
-
-    elif raw_n in TURN_OFF:
-        ok = desactivar_turno_por_telefono(phone)
-        if ok:
-            state["turno_activo"] = False
-            send_whatsapp(phone, "✅ Turno finalizado.")
-        else:
-            send_whatsapp(phone, "❌ No pude finalizar tu turno (no encontré tu usuario o hubo un error).")
-        return
 
 
 # Para compatibilidad con código existente que usa handle_hk_message directamente
