@@ -65,9 +65,9 @@ from .areas_comunes_helpers import (
 
 from .media_handler import handle_media_context_response, handle_media_detail_response
 
-def verificar_turno_activo(from_phone: str) -> bool:
+def verificar_turno_activo(from_phone: str, tenant=None) -> bool:
     """
-    Verifica si el turno está activo. 
+    Verifica si el turno está activo.
     YA NO auto-inicia - eso lo hace turno_auto.py
     """
     from gateway_app.services.workers_db import activar_turno_por_telefono
@@ -85,7 +85,7 @@ def verificar_turno_activo(from_phone: str) -> bool:
     
     # Auto-iniciar turno silenciosamente (para acciones que requieren turno)
     from datetime import datetime
-    ok = activar_turno_por_telefono(from_phone)
+    ok = activar_turno_por_telefono(from_phone, property_id=tenant.property_id if tenant else "")
     if ok:
         state["turno_activo"] = True
         state["turno_inicio"] = datetime.now().isoformat()
@@ -224,24 +224,24 @@ def maybe_handle_tomar_anywhere(from_phone: str, text: str, state: dict) -> bool
     )
     return True
 
-def handle_hk_message_simple(from_phone: str, text: str) -> None:
+def handle_hk_message_simple(from_phone: str, text: str, tenant=None) -> None:
     state = get_user_state(from_phone)
 
     from gateway_app.flows.housekeeping.turno_auto import verificar_y_activar_turno_auto
-    mensaje_turno_auto = verificar_y_activar_turno_auto(from_phone, state)
+    mensaje_turno_auto = verificar_y_activar_turno_auto(from_phone, state, tenant=tenant)
     if mensaje_turno_auto:
         send_whatsapp(from_phone, mensaje_turno_auto)
         # NO hacer return aquí - dejar que continúe procesando el mensaje
         
     if state.get("media_pendiente"):
-         from .media_handler import handle_media_context_response
-         if handle_media_context_response(from_phone, text):
-             return
-     
+        from .media_handler import handle_media_context_response
+        if handle_media_context_response(from_phone, text, tenant=tenant):
+            return
+
     if state.get("media_para_ticket"):
-         from .media_handler import handle_media_detail_response
-         if handle_media_detail_response(from_phone, text):
-             return
+        from .media_handler import handle_media_detail_response
+        if handle_media_detail_response(from_phone, text, tenant=tenant):
+            return
 
     try:
         raw = (text or "").strip().lower()
@@ -253,7 +253,7 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
         
         # ✅ NUEVO: Detectar y guardar área del worker
         if "area_worker" not in state:
-            area_worker = obtener_area_worker(from_phone)
+            area_worker = obtener_area_worker(from_phone, tenant=tenant)
             state["area_worker"] = area_worker
             logger.info(f"📍 Worker {from_phone} detectado como área: {area_worker}")
         else:
@@ -326,11 +326,11 @@ def handle_hk_message_simple(from_phone: str, text: str) -> None:
         
         # 2.7) Comandos de turno
         if raw in ['iniciar turno', 'iniciar', 'comenzar turno', 'empezar turno', 'start']:
-            iniciar_turno(from_phone)
+            iniciar_turno(from_phone, tenant=tenant)
             return
 
         if raw in ['terminar turno', 'terminar', 'finalizar turno', 'fin turno', 'stop']:
-            terminar_turno(from_phone)
+            terminar_turno(from_phone, tenant=tenant)
             return
         
         # 2.8) Navegación directa de menú (desde cualquier estado)
@@ -457,7 +457,7 @@ def handle_menu(from_phone: str, raw: str) -> None:
             return
         
         if raw in ['3', 'terminar turno', 'fin turno']:
-            terminar_turno(from_phone)
+            terminar_turno(from_phone, tenant=tenant)
             return
         
         if raw in ['4', 'ayuda', 'help']:
@@ -466,7 +466,7 @@ def handle_menu(from_phone: str, raw: str) -> None:
     else:
         # Menú sin turno activo
         if raw in ['1', 'iniciar turno', 'iniciar']:
-            iniciar_turno(from_phone)
+            iniciar_turno(from_phone, tenant=tenant)
             return
         
         if raw in ['2', 'ayuda', 'help']:
@@ -506,7 +506,7 @@ def mostrar_tickets(from_phone: str) -> None:
     """
     Muestra tickets (tareas) asignados al worker desde la BD real: public.tickets
     """
-    verificar_turno_activo(from_phone)
+    verificar_turno_activo(from_phone, tenant=tenant)
     state = get_user_state(from_phone)
 
     mis_tickets = obtener_tickets_asignados_a(from_phone)
@@ -566,7 +566,7 @@ def tomar_ticket(from_phone: str) -> None:
     ✅ MODIFICADO: Permite tomar múltiples tickets.
     Ya no verifica si hay ticket activo, solo toma el siguiente disponible.
     """
-    verificar_turno_activo(from_phone)
+    verificar_turno_activo(from_phone, tenant=tenant)
     state = get_user_state(from_phone)
     
     # ✅ Buscar tickets ASIGNADOS desde BD
@@ -718,15 +718,16 @@ def finalizar_ticket_especifico(from_phone: str, ticket_id: int) -> None:
             minutos_totales = 0
         
         # ✅ NOTIFICAR AL SUPERVISOR
-        import os
-        supervisor_phones = os.getenv("SUPERVISOR_PHONES", "").split(",")
-        supervisor_phones = [p.strip() for p in supervisor_phones if p.strip()]
-        
+        from gateway_app.services.workers_db import obtener_supervisores_por_area as _get_sups_hk
+        _ticket_area = ticket_data.get("area", "HOUSEKEEPING")
+        _sups = _get_sups_hk(_ticket_area, property_id=tenant.property_id if tenant else "")
+        supervisor_phones = [s["telefono"] for s in _sups if s.get("telefono")]
+
         if supervisor_phones:
             from gateway_app.services.whatsapp_client import send_whatsapp_text
             from gateway_app.services.workers_db import buscar_worker_por_telefono
-            
-            worker = buscar_worker_por_telefono(from_phone)
+
+            worker = buscar_worker_por_telefono(from_phone, property_id=tenant.property_id if tenant else "")
             worker_nombre = worker.get("nombre_completo") if worker else "Trabajador"
             
             prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(
@@ -879,7 +880,7 @@ def iniciar_reporte(from_phone: str) -> None:
     Args:
         from_phone: Número de teléfono
     """
-    verificar_turno_activo(from_phone)
+    verificar_turno_activo(from_phone, tenant=tenant)
     state = get_user_state(from_phone)
     reset_ticket_draft(from_phone)
     
@@ -1145,6 +1146,7 @@ def crear_ticket_desde_draft(from_phone: str) -> None:
             origen="trabajador",
             canal_origen="WHATSAPP_BOT_HOUSEKEEPING",
             area=clasificacion["area"],                   # ← CAMBIADO
+            property_id=tenant.property_id if tenant else None,
             routing_source=clasificacion["routing_source"],    # ← NUEVO
             routing_reason=clasificacion["routing_reason"],    # ← NUEVO
             routing_confidence=clasificacion["routing_confidence"],  # ← NUEVO
@@ -1186,24 +1188,24 @@ def crear_ticket_desde_draft(from_phone: str) -> None:
             f"{prioridad_emoji} Prioridad: {draft['prioridad']}"
         )
 
-        import os
-        supervisor_phones = os.getenv("SUPERVISOR_PHONES", "").split(",")
-        supervisor_phones = [p.strip() for p in supervisor_phones if p.strip()]
-        
+        from gateway_app.services.workers_db import obtener_supervisores_por_area as _get_sups_create
+        _sups_create = _get_sups_create(clasificacion["area"], property_id=tenant.property_id if tenant else "")
+        supervisor_phones = [s["telefono"] for s in _sups_create if s.get("telefono")]
+
         # ====================================================================
         # ✅ NUEVO: CHECK DE HORARIO LABORAL
         # ====================================================================
         if supervisor_phones:
             en_horario = esta_en_horario_laboral()
-            
+
             if en_horario:
                 # ✅ EN HORARIO: Notificar supervisores normalmente
                 logger.info(f"✅ Ticket #{ticket_id} creado EN horario laboral - Notificando {len(supervisor_phones)} supervisores")
-                
+
                 from gateway_app.services.whatsapp_client import send_whatsapp_text
                 from gateway_app.services.workers_db import buscar_worker_por_telefono
-                
-                worker = buscar_worker_por_telefono(from_phone)
+
+                worker = buscar_worker_por_telefono(from_phone, property_id=tenant.property_id if tenant else "")
                 worker_nombre = worker.get("nombre_completo") if worker else "Trabajador"
                 
                 for supervisor_phone in supervisor_phones:
@@ -1239,18 +1241,18 @@ def crear_ticket_desde_draft(from_phone: str) -> None:
 
 
 from gateway_app.services.workers_db import activar_turno_por_telefono, desactivar_turno_por_telefono
-def iniciar_turno(from_phone: str) -> None:
+def iniciar_turno(from_phone: str, tenant=None) -> None:
     """
     Inicia el turno del trabajador.
     """
     from datetime import datetime
     state = get_user_state(from_phone)
-    
+
     if state.get("turno_activo", False):
         send_whatsapp(from_phone, "⚠️ Tu turno ya está activo\n\n💡 Di 'M' para volver al menú")
         return
-    
-    ok = activar_turno_por_telefono(from_phone)
+
+    ok = activar_turno_por_telefono(from_phone, property_id=tenant.property_id if tenant else "")
     if not ok:
         send_whatsapp(from_phone, "❌ No pude activar tu turno en el sistema (usuario no encontrado).")
         return
@@ -1268,7 +1270,7 @@ def iniciar_turno(from_phone: str) -> None:
     state["state"] = MENU
 
 
-def terminar_turno(from_phone: str) -> None:
+def terminar_turno(from_phone: str, tenant=None) -> None:
     """
     ✅ CORREGIDO: Manejo correcto de timezone para calcular duración.
     """
@@ -1283,7 +1285,7 @@ def terminar_turno(from_phone: str) -> None:
         send_whatsapp(from_phone, "⚠️ No tienes turno activo\n\n💡 Di 'M' para volver al menú")
         return
     
-    desactivar_turno_por_telefono(from_phone)
+    desactivar_turno_por_telefono(from_phone, property_id=tenant.property_id if tenant else "")
 
     # Verificar si tiene tickets activos
     tickets = obtener_tickets_asignados_a(from_phone)

@@ -37,7 +37,8 @@ TURN_OFF = {
 def handle_hk_message_with_audio(
     from_phone: str,
     message_data: Dict[str, Any],
-    show_transcription: bool = True
+    show_transcription: bool = True,
+    tenant=None,
 ) -> None:
     """
     Punto de entrada unificado para mensajes de WhatsApp (texto o audio).
@@ -68,7 +69,7 @@ def handle_hk_message_with_audio(
     # CASO 1: Mensaje de texto (flujo normal)
     if msg_type == "text":
         text = message_data.get("text", "").strip()
-        _handle_hk_message_text(from_phone, text)
+        _handle_hk_message_text(from_phone, text, tenant=tenant)
         return
     
     # CASO 2: Mensaje de audio/voz
@@ -105,7 +106,7 @@ def handle_hk_message_with_audio(
         transcribed_text = convertir_numeros_escritos_a_digitos(transcribed_text)
 
         # Procesar como texto normal
-        _handle_hk_message_text(from_phone, transcribed_text)
+        _handle_hk_message_text(from_phone, transcribed_text, tenant=tenant)
         return
     
     # CASO 3: Tipo de mensaje no soportado
@@ -138,13 +139,13 @@ def handle_hk_message_with_audio(
 
 
 # Para compatibilidad con código existente que usa handle_hk_message directamente
-def handle_hk_message(from_phone: str, text: str) -> None:
+def handle_hk_message(from_phone: str, text: str, tenant=None) -> None:
     """
     Función de compatibilidad para código existente.
     Maneja solo mensajes de texto.
-    
+
     Args:
         from_phone: Número de teléfono
         text: Texto del mensaje
     """
-    _handle_hk_message_text(from_phone, text)
+    _handle_hk_message_text(from_phone, text, tenant=tenant)

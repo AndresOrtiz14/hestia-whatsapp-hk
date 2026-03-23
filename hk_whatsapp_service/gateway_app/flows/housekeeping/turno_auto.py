@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 TIMEZONE = ZoneInfo("America/Santiago")
 
 
-def verificar_y_activar_turno_auto(from_phone: str, state: dict) -> Optional[str]:
+def verificar_y_activar_turno_auto(from_phone: str, state: dict, tenant=None) -> Optional[str]:
     """
     Verifica si el worker debe activar turno automáticamente y lo hace.
 
@@ -49,7 +49,8 @@ def verificar_y_activar_turno_auto(from_phone: str, state: dict) -> Optional[str
         return None
 
     # 2. Verificar que sea un worker registrado y activo
-    worker = buscar_worker_por_telefono(from_phone)
+    _property_id = tenant.property_id if tenant else ""
+    worker = buscar_worker_por_telefono(from_phone, property_id=_property_id)
     if not worker:
         logger.warning("⚠️ TURNO_AUTO: Worker no encontrado → skip")
         return None
@@ -58,7 +59,7 @@ def verificar_y_activar_turno_auto(from_phone: str, state: dict) -> Optional[str
     logger.info(f"🟢 TURNO_AUTO: Activando turno para {from_phone}")
 
     try:
-        ok = activar_turno_por_telefono(from_phone)
+        ok = activar_turno_por_telefono(from_phone, property_id=_property_id)
         if not ok:
             logger.error("❌ TURNO_AUTO: activar_turno_por_telefono retornó False")
             return None

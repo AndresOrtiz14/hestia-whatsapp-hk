@@ -6,7 +6,6 @@ VERSIÓN CORREGIDA: Usa el estado correcto según el rol del usuario.
 
 import logging
 import re
-import os
 from typing import Optional, Dict, Any, Callable
 
 logger = logging.getLogger(__name__)
@@ -15,16 +14,16 @@ logger = logging.getLogger(__name__)
 # HELPER: Detectar rol y obtener funciones de estado correctas
 # ============================================================
 
-def _get_state_functions(phone: str) -> tuple:
+def _get_state_functions(phone: str, tenant=None) -> tuple:
     """
     Retorna las funciones de estado correctas según el rol del usuario.
-    
+
     Returns:
         (get_state_func, persist_state_func, is_supervisor)
     """
-    supervisor_phones_str = os.getenv("SUPERVISOR_PHONES", "")
-    supervisor_phones = [p.strip() for p in supervisor_phones_str.split(",") if p.strip()]
-    
+    from gateway_app.services.workers_db import obtener_supervisores_por_area
+    _sups = obtener_supervisores_por_area("", property_id=tenant.property_id if tenant else "")
+    supervisor_phones = {s["telefono"] for s in _sups if s.get("telefono")}
     is_supervisor = phone in supervisor_phones
     
     if is_supervisor:
@@ -56,13 +55,14 @@ def handle_media_message(
     from_phone: str,
     media_id: str,
     media_type: str,  # "image" o "video"
-    caption: Optional[str] = None
+    caption: Optional[str] = None,
+    tenant=None,
 ) -> None:
     """
     Punto de entrada para mensajes con media.
     Funciona tanto para workers como supervisores.
     """
-    get_state, persist_state, is_supervisor = _get_state_functions(from_phone)
+    get_state, persist_state, is_supervisor = _get_state_functions(from_phone, tenant=tenant)
     send_whatsapp = _get_send_function(from_phone)
     
     state = get_state(from_phone)
@@ -96,7 +96,8 @@ def handle_media_message(
                         media_id=media_id,
                         media_type=media_type,
                         ubicacion=ubicacion,
-                        detalle=detalle
+                        detalle=detalle,
+                        tenant=tenant,
                     )
                     return
                 else:
@@ -138,7 +139,7 @@ def handle_media_message(
     ticket_match = re.search(r'(?:foto|video|adjuntar|agregar)\s*#?(\d+)', caption_lower)
     if ticket_match:
         ticket_id = int(ticket_match.group(1))
-        _agregar_media_a_ticket(from_phone, media_id, media_type, ticket_id)
+        _agregar_media_a_ticket(from_phone, media_id, media_type, ticket_id, tenant=tenant)
         return
     
     # ─────────────────────────────────────────────────────────────
@@ -173,7 +174,8 @@ def handle_media_message(
                 media_id=media_id,
                 media_type=media_type,
                 ubicacion=ubicacion,
-                detalle=detalle
+                detalle=detalle,
+                tenant=tenant,
             )
             return
 
@@ -201,15 +203,15 @@ def handle_media_message(
     )
 
 
-def handle_media_context_response(from_phone: str, text: str) -> bool:
+def handle_media_context_response(from_phone: str, text: str, tenant=None) -> bool:
     """
     Maneja la respuesta cuando hay un media pendiente esperando contexto.
     Se llama desde el orchestrator (tanto de HK como de supervisión).
-    
+
     Returns:
         True si se manejó, False si no había media pendiente
     """
-    get_state, persist_state, is_supervisor = _get_state_functions(from_phone)
+    get_state, persist_state, is_supervisor = _get_state_functions(from_phone, tenant=tenant)
     send_whatsapp = _get_send_function(from_phone)
     
     state = get_state(from_phone)
@@ -222,7 +224,8 @@ def handle_media_context_response(from_phone: str, text: str) -> bool:
             media_id=media_info["media_id"],
             media_type=media_info["media_type"],
             ubicacion=ubicacion_guardada,
-            detalle=text.strip()
+            detalle=text.strip(),
+            tenant=tenant,
         )
         state.pop("media_pendiente", None)
         persist_state(from_phone, state)
@@ -255,10 +258,10 @@ def handle_media_context_response(from_phone: str, text: str) -> bool:
             
             state.pop("media_pendiente", None)
             persist_state(from_phone, state)
-            
-            _agregar_media_a_ticket(from_phone, media_id, media_type, num)
+
+            _agregar_media_a_ticket(from_phone, media_id, media_type, num, tenant=tenant)
             return True
-    
+
     # ─────────────────────────────────────────────────────────────
     # Opción: Ubicación (habitación o área común)
     # ─────────────────────────────────────────────────────────────
@@ -303,14 +306,14 @@ def handle_media_context_response(from_phone: str, text: str) -> bool:
     return True
 
 
-def handle_media_detail_response(from_phone: str, text: str) -> bool:
+def handle_media_detail_response(from_phone: str, text: str, tenant=None) -> bool:
     """
     Maneja la respuesta con el detalle del problema (después de dar ubicación).
-    
+
     Returns:
         True si se manejó, False si no había media_para_ticket
     """
-    get_state, persist_state, is_supervisor = _get_state_functions(from_phone)
+    get_state, persist_state, is_supervisor = _get_state_functions(from_phone, tenant=tenant)
     send_whatsapp = _get_send_function(from_phone)
     
     state = get_state(from_phone)
@@ -342,7 +345,8 @@ def handle_media_detail_response(from_phone: str, text: str) -> bool:
         media_id=media_id,
         media_type=media_type,
         ubicacion=ubicacion,
-        detalle=detalle
+        detalle=detalle,
+        tenant=tenant,
     )
     return True
 
@@ -402,7 +406,8 @@ def _crear_ticket_con_media(
     media_id: str,
     media_type: str,
     ubicacion: str,
-    detalle: str
+    detalle: str,
+    tenant=None,
 ) -> None:
     """Crea un ticket nuevo con media adjunto y notifica al supervisor."""
     from gateway_app.flows.housekeeping.outgoing import send_whatsapp
@@ -425,10 +430,11 @@ def _crear_ticket_con_media(
             area=area,
             creado_por=from_phone,
             origen="supervisor",
+            property_id=tenant.property_id if tenant else None,
             routing_source=clasificacion["routing_source"],
             routing_reason=clasificacion["routing_reason"],
             routing_confidence=clasificacion["routing_confidence"],
-            routing_version=clasificacion["routing_source"],  
+            routing_version=clasificacion["routing_source"],
         )
         
         if not ticket:
@@ -457,7 +463,7 @@ def _crear_ticket_con_media(
         )
         
         # Notificar al supervisor (si quien envía no es supervisor)
-        _, _, is_supervisor = _get_state_functions(from_phone)
+        _, _, is_supervisor = _get_state_functions(from_phone, tenant=tenant)
         if not is_supervisor:
             _notificar_supervisor_nuevo_ticket(
                 ticket_id=ticket_id,
@@ -467,7 +473,8 @@ def _crear_ticket_con_media(
                 media_id=media_id,
                 media_type=media_type,
                 reportado_por=from_phone,
-                storage_url=media_result.get("storage_url")
+                storage_url=media_result.get("storage_url"),
+                tenant=tenant,
             )
         
         logger.info(f"✅ Ticket #{ticket_id} creado con {media_type} por {from_phone}")
@@ -481,7 +488,8 @@ def _agregar_media_a_ticket(
     from_phone: str,
     media_id: str,
     media_type: str,
-    ticket_id: int
+    ticket_id: int,
+    tenant=None,
 ) -> None:
     """Agrega un media a un ticket existente."""
     from gateway_app.flows.housekeeping.outgoing import send_whatsapp
@@ -520,7 +528,8 @@ def _agregar_media_a_ticket(
         media_id=media_id,
         media_type=media_type,
         agregado_por=from_phone,
-        storage_url=media_result.get("storage_url")
+        storage_url=media_result.get("storage_url"),
+        tenant=tenant,
     )
     
     logger.info(f"✅ {media_type} agregado a ticket #{ticket_id} por {from_phone}")
@@ -534,14 +543,17 @@ def _notificar_supervisor_nuevo_ticket(
     media_id: str,
     media_type: str,
     reportado_por: str,
-    storage_url: Optional[str] = None
+    storage_url: Optional[str] = None,
+    tenant=None,
 ) -> None:
     """Notifica al supervisor sobre un nuevo ticket con foto/video."""
     from gateway_app.services.whatsapp_client import send_whatsapp_image, send_whatsapp_text
-    
-    supervisor_phones_str = os.getenv("SUPERVISOR_PHONES", "")
-    supervisor_phones = [p.strip() for p in supervisor_phones_str.split(",") if p.strip()]
-    
+    from gateway_app.services.workers_db import obtener_supervisores_por_area
+
+    _area = "HOUSEKEEPING"
+    _sups = obtener_supervisores_por_area(_area, property_id=tenant.property_id if tenant else "")
+    supervisor_phones = [s["telefono"] for s in _sups if s.get("telefono")]
+
     if not supervisor_phones:
         logger.warning("⚠️ No hay supervisores configurados para notificar")
         return
@@ -581,15 +593,17 @@ def _notificar_supervisor_media_agregado(
     media_id: str,
     media_type: str,
     agregado_por: str,
-    storage_url: Optional[str] = None
+    storage_url: Optional[str] = None,
+    tenant=None,
 ) -> None:
     """Notifica al supervisor que se agregó una foto a un ticket existente."""
     from gateway_app.services.whatsapp_client import send_whatsapp_image, send_whatsapp_text
     from gateway_app.services.tickets_db import obtener_ticket_por_id
-    
-    supervisor_phones_str = os.getenv("SUPERVISOR_PHONES", "")
-    supervisor_phones = [p.strip() for p in supervisor_phones_str.split(",") if p.strip()]
-    
+    from gateway_app.services.workers_db import obtener_supervisores_por_area
+
+    _sups = obtener_supervisores_por_area("HOUSEKEEPING", property_id=tenant.property_id if tenant else "")
+    supervisor_phones = [s["telefono"] for s in _sups if s.get("telefono")]
+
     if not supervisor_phones:
         return
     

@@ -11,58 +11,16 @@ from gateway_app.services.whatsapp_client import send_whatsapp_text
 bp = Blueprint("whatsapp_webhook", __name__)
 logger = logging.getLogger(__name__)
 
-# Wire up WhatsApp sender para ambos bots
+# Wire up WhatsApp sender para ambos bots (re-wired per-request con tenant.wa_token)
 import gateway_app.flows.housekeeping.outgoing as hk_outgoing
 import gateway_app.flows.supervision.outgoing as sup_outgoing
-
-hk_outgoing.SEND_IMPL = lambda to, body: send_whatsapp_text(to=to, body=body)
-sup_outgoing.SEND_IMPL = lambda to, body: send_whatsapp_text(to=to, body=body)
 
 # Import handlers
 from gateway_app.flows.housekeeping.message_handler import handle_hk_message_with_audio
 from gateway_app.flows.supervision import handle_supervisor_message
 
 from gateway_app.services.db import fetchone, execute, using_pg
-
-# Configuración: Detectar rol por número de teléfono
-# Lee desde variable de entorno SUPERVISOR_PHONES
 import os
-
-# Leer y parsear números de supervisores desde environment
-supervisor_phones_str = os.getenv("SUPERVISOR_PHONES", "")
-SUPERVISOR_PHONES = [
-    phone.strip() 
-    for phone in supervisor_phones_str.split(",") 
-    if phone.strip()
-]
-
-# Logging para debug
-if not SUPERVISOR_PHONES:
-    logger.warning("⚠️ SUPERVISOR_PHONES no configurado en environment variables")
-else:
-    logger.info(f"✅ {len(SUPERVISOR_PHONES)} supervisor(es) configurado(s)")
-
-
-def get_user_role(phone: str) -> str:
-    """
-    Determina el rol del usuario basado en su número de teléfono.
-    
-    Args:
-        phone: Número de teléfono
-    
-    Returns:
-        "supervisor" o "housekeeper"
-    """
-    # Logging para debug
-    logger.info(f"🔍 Detectando rol para: {phone}")
-    logger.info(f"📋 Supervisores configurados: {SUPERVISOR_PHONES}")
-    
-    if phone in SUPERVISOR_PHONES:
-        logger.info(f"✅ {phone} reconocido como SUPERVISOR")
-        return "supervisor"
-    
-    logger.info(f"👷 {phone} reconocido como HOUSEKEEPER")
-    return "housekeeper"
 
 def is_duplicate_wamid(wamid: str) -> bool:
     """
@@ -123,6 +81,28 @@ def inbound_updated():
     """
     payload = request.get_json(silent=True) or {}
 
+    # Resolver tenant a partir del phone_number_id del webhook
+    phone_number_id = (
+        payload.get("entry", [{}])[0]
+               .get("changes", [{}])[0]
+               .get("value", {})
+               .get("metadata", {})
+               .get("phone_number_id", "")
+    )
+    from gateway_app.services.tenant_resolver import resolve_tenant
+    tenant = resolve_tenant(phone_number_id)
+    if not tenant:
+        logger.warning(
+            "webhook: phone_number_id=%s sin property configurada, ignorando",
+            phone_number_id,
+        )
+        return jsonify(ok=True), 200
+
+    # Wire outgoing con el token de este tenant
+    _wa_token = tenant.wa_token or None
+    hk_outgoing.SEND_IMPL = lambda to, body: send_whatsapp_text(to=to, body=body, token=_wa_token)
+    sup_outgoing.SEND_IMPL = lambda to, body: send_whatsapp_text(to=to, body=body, token=_wa_token)
+
     try:
         entry = payload["entry"][0]
         change = entry["changes"][0]
@@ -146,8 +126,11 @@ def inbound_updated():
             logger.warning("⚠️ Mensaje sin from o type")
             return jsonify(ok=True), 200
 
-        # Detectar rol del usuario
-        user_role = get_user_role(from_phone)
+        # Detectar rol del usuario via tenant
+        from gateway_app.services.workers_db import obtener_supervisores_por_area
+        _sups = obtener_supervisores_por_area("", property_id=tenant.property_id)
+        _sup_phones = {s["telefono"] for s in _sups if s.get("telefono")}
+        user_role = "supervisor" if from_phone in _sup_phones else "housekeeper"
         
         # Log informativo
         logger.info("=" * 60)
@@ -220,7 +203,7 @@ def inbound_updated():
             # Supervisor: Texto
             if msg_type == "text":
                 try:
-                    handle_supervisor_message(from_phone, message_data["text"])
+                    handle_supervisor_message(from_phone, message_data["text"], tenant=tenant)
                 except Exception as e:
                     logger.exception("❌ ERROR procesando webhook: %s", e)
                 return jsonify(ok=True), 200
@@ -229,23 +212,25 @@ def inbound_updated():
             elif msg_type in ["audio", "voice"]:
                 logger.info(f"   🔄 Transcribiendo audio...")
                 from gateway_app.flows.housekeeping.audio_integration import transcribe_hk_audio
-                
+
                 result = transcribe_hk_audio(message_data["media_id"])
-                
+
                 if result["success"]:
                     logger.info(f"   ✅ Transcripción: '{result['text'][:50]}...'")
                     send_whatsapp_text(
                         to=from_phone,
-                        body=f"🎤 Escuché: \"{result['text']}\""
+                        body=f"🎤 Escuché: \"{result['text']}\"",
+                        token=_wa_token,
                     )
-                    handle_supervisor_message(from_phone, result["text"])
+                    handle_supervisor_message(from_phone, result["text"], tenant=tenant)
                 else:
                     logger.error(f"   ❌ Error transcripción: {result.get('error')}")
                     send_whatsapp_text(
                         to=from_phone,
-                        body="❌ No pude transcribir el audio. Intenta de nuevo."
+                        body="❌ No pude transcribir el audio. Intenta de nuevo.",
+                        token=_wa_token,
                     )
-            
+
             # ✅ Supervisor: Imagen/Video (opcional - crear tickets)
             elif msg_type in ["image", "video"]:
                 from gateway_app.flows.housekeeping.media_handler import handle_media_message
@@ -253,7 +238,8 @@ def inbound_updated():
                     from_phone=from_phone,
                     media_id=message_data["media_id"],
                     media_type=msg_type,
-                    caption=message_data.get("caption")
+                    caption=message_data.get("caption"),
+                    tenant=tenant,
                 )
         
         else:  # housekeeper
@@ -262,19 +248,21 @@ def inbound_updated():
             # ✅ NUEVO: Manejar imágenes y videos
             if msg_type in ["image", "video"]:
                 from gateway_app.flows.housekeeping.media_handler import handle_media_message
-                
+
                 handle_media_message(
                     from_phone=from_phone,
                     media_id=message_data["media_id"],
                     media_type=msg_type,
-                    caption=message_data.get("caption")
+                    caption=message_data.get("caption"),
+                    tenant=tenant,
                 )
             else:
                 # Texto y audio se manejan con el handler existente
                 handle_hk_message_with_audio(
                     from_phone,
                     message_data,
-                    show_transcription=True
+                    show_transcription=True,
+                    tenant=tenant,
                 )
 
         logger.info(f"   ✅ Procesado correctamente")

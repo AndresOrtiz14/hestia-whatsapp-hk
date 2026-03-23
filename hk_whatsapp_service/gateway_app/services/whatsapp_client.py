@@ -7,13 +7,14 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def send_whatsapp_text(*, to: str, body: str) -> None:
-    if not Config.WHATSAPP_TOKEN or not Config.PHONE_NUMBER_ID:
+def send_whatsapp_text(*, to: str, body: str, token: str = None) -> None:
+    effective_token = token or Config.WHATSAPP_TOKEN
+    if not effective_token or not Config.PHONE_NUMBER_ID:
         raise RuntimeError("Missing WhatsApp env vars")
 
     url = f"{GRAPH_BASE}/{Config.PHONE_NUMBER_ID}/messages"
     headers = {
-        "Authorization": f"Bearer {Config.WHATSAPP_TOKEN}",
+        "Authorization": f"Bearer {effective_token}",
         "Content-Type": "application/json",
     }
     payload = {
@@ -35,7 +36,8 @@ def send_whatsapp_image(
     to: str,
     media_id: str = None,
     image_url: str = None,
-    caption: str = ""
+    caption: str = "",
+    token: str = None,
 ) -> dict:
     """
     Envía una imagen por WhatsApp.
@@ -58,14 +60,15 @@ def send_whatsapp_image(
     
     if not media_id and not image_url:
         return {"success": False, "error": "Se requiere media_id o image_url"}
-    
+
+    effective_token = token or Config.WHATSAPP_TOKEN
     url = f"https://graph.facebook.com/v18.0/{Config.PHONE_NUMBER_ID}/messages"
-    
+
     headers = {
-        "Authorization": f"Bearer {Config.WHATSAPP_TOKEN}",
+        "Authorization": f"Bearer {effective_token}",
         "Content-Type": "application/json"
     }
-    
+
     # Construir payload según el tipo de media
     if media_id:
         image_payload = {"id": media_id}
@@ -105,7 +108,8 @@ def send_whatsapp_video(
     to: str,
     media_id: str = None,
     video_url: str = None,
-    caption: str = ""
+    caption: str = "",
+    token: str = None,
 ) -> dict:
     """
     Envía un video por WhatsApp.
@@ -124,11 +128,12 @@ def send_whatsapp_video(
     
     if not media_id and not video_url:
         return {"success": False, "error": "Se requiere media_id o video_url"}
-    
+
+    effective_token = token or Config.WHATSAPP_TOKEN
     url = f"https://graph.facebook.com/v18.0/{Config.PHONE_NUMBER_ID}/messages"
-    
+
     headers = {
-        "Authorization": f"Bearer {Config.WHATSAPP_TOKEN}",
+        "Authorization": f"Bearer {effective_token}",
         "Content-Type": "application/json"
     }
     

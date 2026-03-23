@@ -134,7 +134,7 @@ def infer_area_from_ubicacion(ubicacion: str) -> str:
     # Si no es número puro -> área común
     return "AREAS_COMUNES"
 
-def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
+def handle_supervisor_message_simple(from_phone: str, text: str, tenant=None) -> None:
     state = get_supervisor_state(from_phone)
 
     # ═══════════════════════════════════════════════════════════════
@@ -148,12 +148,12 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
         
         # Primero verificar media_para_ticket (esperando descripción)
         if state.get("media_para_ticket"):
-            if handle_media_detail_response(from_phone, text):
+            if handle_media_detail_response(from_phone, text, tenant=tenant):
                 return
-        
+
         # Luego verificar media_pendiente (esperando ubicación)
         if state.get("media_pendiente"):
-            if handle_media_context_response(from_phone, text):
+            if handle_media_context_response(from_phone, text, tenant=tenant):
                 return
     # ═══════════════════════════════════════════════════════════════
 
@@ -193,7 +193,7 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
             if conf.get("tipo") == "aviso_general":
                 if raw_conf_norm in {w.replace("í", "i") for w in YES} or raw_conf in YES:
                     mensaje_aviso = conf.get("mensaje", "")
-                    workers_en_turno = [w for w in obtener_todos_workers() if w.get("turno_activo")]
+                    workers_en_turno = [w for w in obtener_todos_workers(property_id=tenant.property_id if tenant else "") if w.get("turno_activo")]
                     enviados = 0
                     for w in workers_en_turno:
                         phone = w.get("telefono")
@@ -363,7 +363,7 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
         
         # 4.10) Ver estado del equipo
         if raw_cmd in ['equipo', 'trabajadores', 'mucamas', 'team', 'staff', 'trabajadoras']:
-            mensaje = construir_mensaje_equipo()
+            mensaje = construir_mensaje_equipo(property_id=tenant.property_id if tenant else "")
             send_whatsapp(from_phone, mensaje)
             return
         
@@ -408,7 +408,7 @@ def handle_supervisor_message_simple(from_phone: str, text: str) -> None:
                     "Ejemplo: _aviso reunión a las 15:00 en el lobby_"
                 )
                 return
-            workers_en_turno = [w for w in obtener_todos_workers() if w.get("turno_activo")]
+            workers_en_turno = [w for w in obtener_todos_workers(property_id=tenant.property_id if tenant else "") if w.get("turno_activo")]
             count = len(workers_en_turno)
             if count == 0:
                 send_whatsapp(from_phone, "⚠️ No hay trabajadores con turno activo ahora.")
@@ -564,7 +564,7 @@ def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
         # ✅ OBTENER TICKET para scoring
         ticket = obtener_ticket_por_id(ticket_id)
         
-        workers = obtener_todos_workers()
+        workers = obtener_todos_workers(property_id=tenant.property_id if tenant else "")
         
         # ✅ MODIFICADO: Incluir TODOS los workers, no solo con turno activo
         # Separar por turno activo para ordenar (activos primero)
@@ -608,7 +608,7 @@ def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
         
         # Buscar
         from gateway_app.services.workers_db import buscar_workers_por_nombre
-        candidatos = buscar_workers_por_nombre(nombre_limpio)
+        candidatos = buscar_workers_por_nombre(nombre_limpio, property_id=tenant.property_id if tenant else "")
         
         if len(candidatos) == 1:
             worker = candidatos[0]
@@ -781,7 +781,7 @@ def asignar_siguiente(from_phone: str) -> None:
     )
     
     # Mostrar recomendaciones compactas (inline, no función externa)
-    workers = obtener_todos_workers()
+    workers = obtener_todos_workers(property_id=tenant.property_id if tenant else "")
     mostrar_opciones_workers(from_phone, workers, ticket_id)
     state["esperando_asignacion"] = True
 
@@ -1225,7 +1225,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             
             # Buscar nuevo worker
             from gateway_app.services.workers_db import buscar_workers_por_nombre
-            candidatas = buscar_workers_por_nombre(worker_nombre)
+            candidatas = buscar_workers_por_nombre(worker_nombre, property_id=tenant.property_id if tenant else "")
             
             if not candidatas:
                 send_whatsapp(
@@ -1370,7 +1370,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         worker_nombre = normalizar_nombre(worker_nombre)
         
         from gateway_app.services.workers_db import buscar_workers_por_nombre
-        candidatas = buscar_workers_por_nombre(worker_nombre)
+        candidatas = buscar_workers_por_nombre(worker_nombre, property_id=tenant.property_id if tenant else "")
 
         
         if not candidatas:
@@ -1419,7 +1419,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             return True
         
         # Mostrar opciones de workers
-        workers = obtener_todos_workers()
+        workers = obtener_todos_workers(property_id=tenant.property_id if tenant else "")
         
         # Guardar estado para esperar selección
         state["esperando_asignacion"] = True
@@ -1444,7 +1444,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
 
         from gateway_app.services.workers_db import buscar_workers_por_nombre
 
-        candidatas = buscar_workers_por_nombre(worker_query) or []
+        candidatas = buscar_workers_por_nombre(worker_query, property_id=tenant.property_id if tenant else "") or []
 
         if not candidatas:
             send_whatsapp(
@@ -1536,7 +1536,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         
         # Buscar nuevo worker
         from gateway_app.services.workers_db import buscar_workers_por_nombre
-        candidatas = buscar_workers_por_nombre(worker_nombre)
+        candidatas = buscar_workers_por_nombre(worker_nombre, property_id=tenant.property_id if tenant else "")
         
         if not candidatas:
             send_whatsapp(
@@ -1624,7 +1624,8 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 prioridad=prioridad,
                 area=area,
                 creado_por=from_phone,
-                origen="supervisor"
+                origen="supervisor",
+                property_id=tenant.property_id if tenant else None,
             )
             
             if not ticket:
@@ -1636,7 +1637,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
             
             # 2. Buscar trabajador
             from gateway_app.services.workers_db import buscar_workers_por_nombre
-            coincidencias = buscar_workers_por_nombre(nombre_trabajador)
+            coincidencias = buscar_workers_por_nombre(nombre_trabajador, property_id=tenant.property_id if tenant else "")
             
             if len(coincidencias) == 1:
                 # ✅ PEDIR CONFIRMACIÓN
@@ -1688,14 +1689,14 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 from .ui_simple import texto_recomendaciones_simple
                 from gateway_app.services.workers_db import obtener_todos_workers
                 
-                workers = obtener_todos_workers()
+                workers = obtener_todos_workers(property_id=tenant.property_id if tenant else "")
                 workers_con_score = []
                 for worker in workers:
                     score = calcular_score_worker(worker)
                     workers_con_score.append({**worker, "score": score})
                 
                 workers_con_score.sort(key=lambda w: w["score"], reverse=True)
-                workers = obtener_todos_workers()
+                workers = obtener_todos_workers(property_id=tenant.property_id if tenant else "")
                 mostrar_opciones_workers(from_phone, workers, ticket_id)
 
                 state["ticket_seleccionado"] = ticket_id
@@ -1720,14 +1721,14 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 from .ui_simple import texto_recomendaciones_simple
                 from gateway_app.services.workers_db import obtener_todos_workers
                 
-                workers = obtener_todos_workers()
+                workers = obtener_todos_workers(property_id=tenant.property_id if tenant else "")
                 workers_con_score = []
                 for worker in workers:
                     score = calcular_score_worker(worker)
                     workers_con_score.append({**worker, "score": score})
                 
                 workers_con_score.sort(key=lambda w: w["score"], reverse=True)
-                workers = obtener_todos_workers()
+                workers = obtener_todos_workers(property_id=tenant.property_id if tenant else "")
                 mostrar_opciones_workers(from_phone, workers, ticket_id)
 
                 state["ticket_seleccionado"] = ticket_id
@@ -1763,6 +1764,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 area=clasificacion["area"],                    # ← antes era infer_area_from_ubicacion()
                 creado_por=from_phone,
                 origen="supervisor",
+                property_id=tenant.property_id if tenant else None,
                 routing_source=clasificacion["routing_source"],    # ← NUEVO
                 routing_reason=clasificacion["routing_reason"],    # ← NUEVO
                 routing_confidence=clasificacion["routing_confidence"],  # ← NUEVO
@@ -1780,6 +1782,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                         detalle=detalle,
                         prioridad=clasificacion["prioridad"],
                         creado_por_phone=from_phone,
+                        property_id=tenant.property_id if tenant else "",
                     )
                 except Exception as e:
                     logger.error(f"❌ Error notificando supervisor de área: {e}")
@@ -1801,7 +1804,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                 # ✅ Recomendaciones (no deben romper el flujo si falla algo)
                 try:
                     from gateway_app.services.workers_db import obtener_todos_workers
-                    workers = obtener_todos_workers()
+                    workers = obtener_todos_workers(property_id=tenant.property_id if tenant else "")
                     mostrar_opciones_workers(from_phone, workers, ticket_id)
                     
                     return True
@@ -1829,7 +1832,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         from gateway_app.services.workers_db import buscar_worker_por_nombre
         from gateway_app.services.tickets_db import obtener_tickets_por_estado, asignar_ticket
         
-        worker = buscar_worker_por_nombre(worker_nombre)
+        worker = buscar_worker_por_nombre(worker_nombre, property_id=tenant.property_id if tenant else "")
         
         if worker:
             tickets = obtener_pendientes()
@@ -1919,6 +1922,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
                     detalle=detalle,
                     prioridad=prioridad,
                     creado_por_phone=from_phone,
+                    property_id=tenant.property_id if tenant else "",
                 )
             except Exception as e:
                 logger.error(f"❌ Error notificando supervisor tras reclasificación: {e}")
@@ -1953,7 +1957,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
         if not mensaje_aviso:
             send_whatsapp(from_phone, "📢 No detecté el mensaje del aviso. Intenta de nuevo.")
             return True
-        workers_en_turno = [w for w in obtener_todos_workers() if w.get("turno_activo")]
+        workers_en_turno = [w for w in obtener_todos_workers(property_id=tenant.property_id if tenant else "") if w.get("turno_activo")]
         count = len(workers_en_turno)
         if count == 0:
             send_whatsapp(from_phone, "⚠️ No hay trabajadores con turno activo ahora.")

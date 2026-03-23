@@ -4,7 +4,6 @@ Similar a housekeeping/outgoing.py
 """
 
 import logging
-import os
 from typing import Callable
 
 from gateway_app.core.utils.message_constants import msg_notif_ticket_a_supervisor
@@ -28,13 +27,6 @@ def send_whatsapp(to: str, body: str) -> None:
     SEND_IMPL(to, body)
 
 
-AREA_TO_ENV = {
-    "HOUSEKEEPING":  ["SUPERVISOR_PHONES_HOUSEKEEPING"],
-    "MANTENIMIENTO": ["SUPERVISOR_PHONES_MANTENIMIENTO"],
-    "AREAS_COMUNES": ["SUPERVISOR_PHONES_AREAS_COMUNES", "SUPERVISOR_PHONES_HOUSEKEEPING"],
-}
-
-
 def notificar_supervisor_de_area(
     area: str,
     ticket_id: int,
@@ -42,31 +34,18 @@ def notificar_supervisor_de_area(
     detalle: str,
     prioridad: str,
     creado_por_phone: str = "",
+    property_id: str = "",
 ) -> None:
-    env_keys = AREA_TO_ENV.get(area)
-    if not env_keys:
-        logger.warning("notificar_supervisor_de_area: area desconocida '%s'", area)
-        return
+    from gateway_app.services.workers_db import obtener_supervisores_por_area
 
-    raw = ""
-    for env_key in env_keys:
-        raw = os.getenv(env_key, "")
-        if raw.strip():
-            break
-    else:
-        logger.warning(
-            "notificar_supervisor_de_area: ninguna env var con valor para area '%s' (intentadas: %s)",
-            area, env_keys,
-        )
-        return
-
-    phones = [p.strip() for p in raw.split(",") if p.strip()]
+    supervisores = obtener_supervisores_por_area(area, property_id=property_id)
+    phones = [s["telefono"] for s in supervisores if s.get("telefono")]
     phones = [p for p in phones if p != creado_por_phone]
 
     if not phones:
         logger.warning(
-            "notificar_supervisor_de_area: sin destinatarios tras filtrar '%s'",
-            creado_por_phone,
+            "notificar_supervisor_de_area: sin destinatarios para area='%s' property='%s'",
+            area, property_id,
         )
         return
 

@@ -146,13 +146,13 @@ def formatear_lista_tickets_con_tiempo(tickets: List[Dict[str, Any]],
 # FUNCIONES PARA MOSTRAR ESTADO DE TURNOS
 # ============================================================
 
-def obtener_workers_con_estado() -> List[Dict[str, Any]]:
+def obtener_workers_con_estado(property_id: str = "") -> List[Dict[str, Any]]:
     """
     Obtiene todos los workers con su estado de turno.
     """
     from gateway_app.services.workers_db import obtener_todos_workers
-    
-    workers = obtener_todos_workers() or []
+
+    workers = obtener_todos_workers(property_id=property_id) or []
     
     for w in workers:
         turno = w.get("turno_activo", False)
@@ -262,12 +262,12 @@ def formatear_workers_para_asignacion(workers: List[Dict[str, Any]],
     return "\n".join(lineas)
 
 
-def construir_mensaje_equipo() -> str:
+def construir_mensaje_equipo(property_id: str = "") -> str:
     """
     Construye mensaje con el estado del equipo completo.
     Comando: 'equipo' o 'trabajadores' o 'mucamas'
     """
-    workers = obtener_workers_con_estado()
+    workers = obtener_workers_con_estado(property_id=property_id)
     
     if not workers:
         return "📭 No hay trabajadores registrados"

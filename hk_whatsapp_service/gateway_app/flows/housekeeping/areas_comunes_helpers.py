@@ -32,20 +32,20 @@ TEXTOS_POR_AREA = {
 }
 
 
-def obtener_area_worker(from_phone: str) -> str:
+def obtener_area_worker(from_phone: str, tenant=None) -> str:
     """
     Obtiene el área del worker desde la BD.
-    
+
     Args:
         from_phone: Teléfono del worker
-    
+
     Returns:
         'HOUSEKEEPING', 'AREAS_COMUNES', 'MANTENIMIENTO', etc.
         Default: 'HOUSEKEEPING' si no se encuentra
     """
     from gateway_app.services.workers_db import buscar_worker_por_telefono
-    
-    worker = buscar_worker_por_telefono(from_phone)
+
+    worker = buscar_worker_por_telefono(from_phone, property_id=tenant.property_id if tenant else "")
     
     if not worker:
         return "HOUSEKEEPING"  # Default
