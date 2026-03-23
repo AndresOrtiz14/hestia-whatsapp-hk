@@ -1,19 +1,22 @@
 # gateway_app/services/workers_db.py
 """
-Consultas de workers desde Supabase.
+Queries de workers via NestJS HTTP API.
 
-✅ FIX: Todas las queries filtran por org_id/hotel_id usando JOIN con orgusers.
-   - public.users no tiene org_id/hotel_id
-   - public.orgusers SÍ tiene org_id y default_hotel_id
-   - JOIN: users.id = orgusers.user_id → filtra por organización y hotel
+Mantiene las mismas firmas de función que la versión psycopg para no
+tener que modificar los flows existentes.
+
+El estado efímero (pausada, ocupada) sigue leyéndose desde runtime_sessions
+via workers_db_direct.py — NestJS no necesita conocer ese estado.
 """
-import os
+from __future__ import annotations
+
 import logging
 import re
 import unicodedata
-from typing import List, Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 
-from gateway_app.services.db import fetchall, fetchone, execute, using_pg
+from gateway_app.services.api_client import api_get, api_patch
+from gateway_app.services.mappers import worker_from_nestjs, supervisor_from_nestjs
 
 logger = logging.getLogger(__name__)
 
@@ -22,39 +25,8 @@ logger = logging.getLogger(__name__)
 # HELPERS
 # ============================================================
 
-def _env_int(name: str) -> int:
-    v = (os.getenv(name) or "").strip()
-    if not v:
-        raise RuntimeError(f"Missing required env var: {name}")
-    try:
-        return int(v)
-    except ValueError as e:
-        raise RuntimeError(f"Env var {name} must be an int, got: {v!r}") from e
-
-
-def _default_scope() -> tuple[int, int]:
-    """Source of truth: Render env vars ORG_ID_DEFAULT y HOTEL_ID_DEFAULT."""
-    org_id = _env_int("ORG_ID_DEFAULT")
-    hotel_id = _env_int("HOTEL_ID_DEFAULT")
-    return org_id, hotel_id
-
-
-def normalizar_area(area: str) -> str:
-    a = (area or "").strip().upper()
-    if a in ("MANTENCION", "MANTENCIÓN"):
-        return "MANTENIMIENTO"
-    if a in ("AREAS COMUNES", "ÁREAS COMUNES", "AREAS_COMUNES", "AC"):
-        return "AREAS_COMUNES"
-    if a == "HK":
-        return "HOUSEKEEPING"
-    return a or "HOUSEKEEPING"
-
-
-def _normalize_phone(phone: str) -> str:
-    return "".join(ch for ch in (phone or "").strip() if ch.isdigit())
-
-
 def _norm(s: str) -> str:
+    """Normaliza texto para comparación: lowercase, sin tildes, espacios colapsados."""
     if not s:
         return ""
     s = s.strip().lower()
@@ -64,322 +36,216 @@ def _norm(s: str) -> str:
     return s
 
 
-# ============================================================
-# SQL base: SELECT de workers filtrado por org/hotel via orgusers
-# ============================================================
-
-_WORKERS_BASE_SQL = """
-    SELECT 
-        u.id,
-        u.username AS nombre_completo,
-        u.telefono,
-        u.area,
-        u.activo,
-        u.turno_activo
-    FROM public.users u
-    JOIN public.orgusers ou ON ou.user_id = u.id
-    WHERE u.activo = true
-      AND ou.org_id = ?
-      AND ou.default_hotel_id = ?
-      AND u.area IN ('HOUSEKEEPING', 'MANTENCION', 'MANTENIMIENTO', 
-                      'AREAS_COMUNES', 'ROOMSERVICE')
-"""
+def normalizar_area(area: str) -> str:
+    """Normaliza variantes de nombres de área al canónico Flask."""
+    a = (area or "").strip().upper()
+    if a in ("MANTENCION", "MANTENCIÓN", "MAINTENANCE"):
+        return "MANTENIMIENTO"
+    if a in ("AREAS COMUNES", "ÁREAS COMUNES", "AREAS_COMUNES", "AC", "COMMON_AREAS"):
+        return "AREAS_COMUNES"
+    if a in ("HK",):
+        return "HOUSEKEEPING"
+    return a or "HOUSEKEEPING"
 
 
-# ============================================================
-# TURNO (operan por teléfono único, no necesitan filtro org/hotel)
-# ============================================================
-
-def activar_turno_por_telefono(phone: str) -> bool:
-    if not using_pg():
-        logger.warning("Turno no activado: no hay DATABASE_URL (modo SQLite).")
-        return False
-
-    phone_n = _normalize_phone(phone)
-    if not phone_n:
-        return False
-
-    row = fetchone(
-        """
-        UPDATE public.users
-        SET turno_activo = ?,
-            turno_updated_at = now()
-        WHERE telefono = ?
-        RETURNING id;
-        """,
-        (True, phone_n),
-    )
-
-    if row:
-        logger.info("✅ Turno activado: telefono=%s user_id=%s", phone_n, row["id"])
-        return True
-
-    logger.warning("⚠️ No se activó turno: no existe user con telefono=%s", phone_n)
-    return False
+def _normalize_phone(phone: str) -> str:
+    return re.sub(r"\D", "", (phone or "").strip())
 
 
-def desactivar_turno_por_telefono(phone: str) -> bool:
-    phone_n = _normalize_phone(phone)
-    if not phone_n:
-        return False
-
-    execute(
-        "UPDATE public.users SET turno_activo = ?, turno_updated_at = now() WHERE telefono = ?",
-        (False, phone_n),
-    )
-    return True
-
-
-# ============================================================
-# RUNTIME SESSIONS (no depende de org/hotel)
-# ============================================================
-
-def _get_pg_conn():
-    dsn = os.getenv("DATABASE_URL")
-    if not dsn:
-        raise RuntimeError("DATABASE_URL no está configurada")
-
-    try:
-        import psycopg2  # type: ignore
-        return psycopg2.connect(dsn, sslmode="require")
-    except Exception:
-        try:
-            import psycopg  # type: ignore
-            return psycopg.connect(dsn, sslmode="require")
-        except Exception as e:
-            raise RuntimeError("No hay driver Postgres (psycopg2/psycopg)") from e
-
-
-def obtener_runtime_sessions_por_telefonos(phones: list[str]) -> dict[str, dict]:
+def _enriquecer_con_runtime(workers: List[Dict]) -> List[Dict]:
     """
-    Devuelve phone -> {turno_activo, ocupada, pausada, area} desde runtime_sessions.
-    Nunca debe botar la app: si falla, devuelve {}.
+    Superpone estado efímero (pausada, ocupada) desde runtime_sessions.
+    turno_activo viene de NestJS — no se sobreescribe aquí.
     """
-    phones = [str(p).strip() for p in (phones or []) if p]
+    if not workers:
+        return workers
+    phones = [w.get("telefono") for w in workers if w.get("telefono")]
     if not phones:
-        return {}
-
-    sql = """
-      SELECT
-        phone,
-        COALESCE((data->>'turno_activo')::boolean, NULL) AS turno_activo,
-        COALESCE((data->>'ocupada')::boolean, NULL)      AS ocupada,
-        COALESCE((data->>'pausada')::boolean, NULL)      AS pausada,
-        NULLIF(UPPER(data->>'area'), '')                 AS area
-      FROM runtime_sessions
-      WHERE phone = ANY(%s)
-    """
-
+        return workers
     try:
-        conn = _get_pg_conn()
-        try:
-            cur = conn.cursor()
-            cur.execute(sql, (phones,))
-            rows = cur.fetchall()
-            cur.close()
-        finally:
-            conn.close()
-
-        out: dict[str, dict] = {}
-        for phone, turno_activo, ocupada, pausada, area in rows:
-            out[str(phone)] = {
-                "turno_activo": turno_activo,
-                "ocupada": ocupada,
-                "pausada": pausada,
-                "area": area,
-            }
-        return out
+        from gateway_app.services.workers_db_direct import (
+            obtener_runtime_sessions_por_telefonos,
+        )
+        sessions = obtener_runtime_sessions_por_telefonos(phones) or {}
+        for w in workers:
+            sess = sessions.get(w.get("telefono"), {}) or {}
+            w["pausada"] = bool(sess.get("pausada", False))
+            w["ocupada"] = bool(sess.get("ocupada", False))
     except Exception:
-        logger.exception("Error leyendo runtime_sessions; devolviendo {}")
-        return {}
+        logger.exception("_enriquecer_con_runtime: error leyendo runtime_sessions")
+    return workers
 
 
 # ============================================================
-# QUERIES DE WORKERS (todas filtradas por org/hotel via orgusers)
+# WORKERS — LECTURA
 # ============================================================
 
-def obtener_todos_workers(
+def obtener_todos_workers(*, property_id: str) -> List[Dict[str, Any]]:
+    """Retorna todos los workers activos de la property."""
+    data = api_get("/api/v1/users/workers", params={"propertyId": property_id})
+    if not data:
+        return []
+    workers = [worker_from_nestjs(u) for u in (data if isinstance(data, list) else [])]
+    logger.info(
+        "obtener_todos_workers: %s workers property=%s", len(workers), property_id
+    )
+    return _enriquecer_con_runtime(workers)
+
+
+def obtener_supervisores_por_area(
+    area: str,
     *,
-    org_id: Optional[int] = None,
-    hotel_id: Optional[int] = None,
+    property_id: str,
 ) -> List[Dict[str, Any]]:
     """
-    Obtiene trabajadores activos FILTRADOS por org_id y hotel_id.
-    Usa JOIN con orgusers (que tiene org_id y default_hotel_id).
+    Retorna supervisores del área indicada.
+    Reemplaza os.getenv('SUPERVISOR_PHONES_*').
+    Si area está vacío retorna todos los supervisores de la property.
     """
-    if org_id is None or hotel_id is None:
-        d_org, d_hotel = _default_scope()
-        org_id = d_org if org_id is None else org_id
-        hotel_id = d_hotel if hotel_id is None else hotel_id
+    params: Dict[str, str] = {"propertyId": property_id}
+    if area:
+        from gateway_app.services.mappers import AREA_TO_NESTJS
+        params["areaCode"] = AREA_TO_NESTJS.get(area.upper(), area.upper())
 
-    sql = _WORKERS_BASE_SQL + "\n    ORDER BY u.username"
-
-    try:
-        workers = fetchall(sql, [org_id, hotel_id])
-
-        # Enriquecer con runtime_sessions SOLO para flags efímeros (no turno)
-        phones = [w.get("telefono") for w in workers if w.get("telefono")]
-        sessions = obtener_runtime_sessions_por_telefonos(phones) or {}
-
-        for w in workers:
-            phone = w.get("telefono")
-            data = (sessions.get(phone, {}) or {})
-
-            # Turno desde BD (fuente de verdad)
-            w["turno_activo"] = bool(w.get("turno_activo", False))
-
-            # Estado efímero desde runtime
-            w["pausada"] = bool(data.get("pausada", False))
-            w["ocupada"] = bool(data.get("ocupada", False))
-
-            # Área normalizada
-            w["area"] = normalizar_area(w.get("area") or data.get("area") or "HOUSEKEEPING")
-
-        logger.info(
-            f"👥 {len(workers)} workers (org={org_id}, hotel={hotel_id}); "
-            f"turno_activo={sum(1 for w in workers if w.get('turno_activo'))}; "
-            f"areas_sample={[w.get('area') for w in workers[:5]]}"
-        )
-        return workers
-
-    except Exception as e:
-        logger.exception(f"❌ Error obteniendo workers: {e}")
+    data = api_get("/api/v1/users/supervisors", params=params)
+    if not data:
         return []
+    supervisores = [
+        supervisor_from_nestjs(u)
+        for u in (data if isinstance(data, list) else [])
+    ]
+    logger.info(
+        "obtener_supervisores_por_area: %s supervisores area=%s property=%s",
+        len(supervisores), area, property_id,
+    )
+    return supervisores
 
 
 def buscar_worker_por_nombre(
     nombre: str,
     *,
-    org_id: Optional[int] = None,
-    hotel_id: Optional[int] = None,
+    property_id: str,
 ) -> Optional[Dict[str, Any]]:
     """
-    Busca un worker por nombre (case-insensitive + sin tildes).
-    Retorna el mejor match. Filtrado por org/hotel via orgusers.
+    Busca un worker por nombre (case-insensitive, sin tildes).
+    Retorna el mejor match o None.
     """
-    if org_id is None or hotel_id is None:
-        d_org, d_hotel = _default_scope()
-        org_id = d_org if org_id is None else org_id
-        hotel_id = d_hotel if hotel_id is None else hotel_id
-
+    workers = obtener_todos_workers(property_id=property_id) or []
     nombre_norm = _norm(nombre)
     if not nombre_norm:
         return None
 
-    sql = _WORKERS_BASE_SQL
-
-    try:
-        workers = fetchall(sql, [org_id, hotel_id]) or []
-
-        logger.info(f"🔍 Buscando '{nombre}' entre {len(workers)} workers activos (org={org_id}, hotel={hotel_id})")
-
-        # Filtrar candidatos por nombre normalizado
-        candidatos: List[Dict[str, Any]] = []
-        for w in workers:
-            w_norm = _norm(w.get("nombre_completo") or "")
-            if nombre_norm in w_norm:
-                candidatos.append(w)
-                logger.debug(f"   ✓ Match: '{w.get('nombre_completo')}' contiene '{nombre}'")
-
-        if not candidatos:
-            logger.info(f"👥 0 workers encontrados con '{nombre}'")
-            logger.info(f"📋 Workers disponibles:")
-            for w in workers[:5]:
-                logger.info(f"   - {w.get('nombre_completo')}")
-            return None
-
-        # Ranking: exact match > startswith > contains
-        def score(w: Dict[str, Any]) -> int:
-            w_norm = _norm(w.get("nombre_completo") or "")
-            if w_norm == nombre_norm:
-                return 3
-            if w_norm.startswith(nombre_norm):
-                return 2
-            return 1
-
-        candidatos.sort(key=lambda w: (score(w), (w.get("nombre_completo") or "").lower()), reverse=True)
-        elegido = candidatos[0]
-
-        logger.info(f"✅ Worker encontrado: {elegido.get('nombre_completo')} (área: {elegido.get('area')})")
-        return elegido
-
-    except Exception as e:
-        logger.exception(f"❌ Error buscando worker: {e}")
+    candidatos = [
+        w for w in workers
+        if nombre_norm in _norm(w.get("nombre_completo", ""))
+    ]
+    if not candidatos:
+        logger.info(
+            "buscar_worker_por_nombre: no match para '%s' property=%s",
+            nombre, property_id,
+        )
         return None
+
+    def score(w: Dict) -> int:
+        wn = _norm(w.get("nombre_completo", ""))
+        if wn == nombre_norm:           return 3
+        if wn.startswith(nombre_norm):  return 2
+        return 1
+
+    candidatos.sort(key=score, reverse=True)
+    elegido = candidatos[0]
+    logger.info(
+        "buscar_worker_por_nombre: encontrado '%s' property=%s",
+        elegido.get("nombre_completo"), property_id,
+    )
+    return elegido
 
 
 def buscar_workers_por_nombre(
     nombre: str,
     *,
-    org_id: Optional[int] = None,
-    hotel_id: Optional[int] = None,
+    property_id: str,
 ) -> List[Dict[str, Any]]:
-    """
-    Busca múltiples workers que coincidan con el nombre (match sin tildes).
-    Filtrado por org/hotel via orgusers.
-    """
-    if org_id is None or hotel_id is None:
-        d_org, d_hotel = _default_scope()
-        org_id = d_org if org_id is None else org_id
-        hotel_id = d_hotel if hotel_id is None else hotel_id
-
+    """Retorna todos los workers que coinciden con el nombre."""
+    workers = obtener_todos_workers(property_id=property_id) or []
     nombre_norm = _norm(nombre)
     if not nombre_norm:
         return []
-
-    sql = _WORKERS_BASE_SQL + "\n    ORDER BY u.username"
-
-    try:
-        workers = fetchall(sql, [org_id, hotel_id])
-
-        matches = []
-        for w in (workers or []):
-            nombre_worker = _norm(w.get("nombre_completo") or "")
-            if nombre_norm in nombre_worker:
-                w["turno_activo"] = bool(w.get("turno_activo", False))
-                w["area"] = normalizar_area(w.get("area") or "HOUSEKEEPING")
-                matches.append(w)
-
-        logger.info(f"👥 {len(matches)} workers encontrados con '{nombre}' (org={org_id}, hotel={hotel_id})")
-        return matches
-
-    except Exception as e:
-        logger.exception(f"❌ Error buscando workers: {e}")
-        return []
+    return [
+        w for w in workers
+        if nombre_norm in _norm(w.get("nombre_completo", ""))
+    ]
 
 
 def buscar_worker_por_telefono(
     telefono: str,
     *,
-    org_id: Optional[int] = None,
-    hotel_id: Optional[int] = None,
+    property_id: str,
 ) -> Optional[Dict[str, Any]]:
-    """
-    Busca un worker por número de teléfono.
-    Filtrado por org/hotel via orgusers.
-    """
-    if org_id is None or hotel_id is None:
-        d_org, d_hotel = _default_scope()
-        org_id = d_org if org_id is None else org_id
-        hotel_id = d_hotel if hotel_id is None else hotel_id
-
-    sql = _WORKERS_BASE_SQL + """
-        AND u.telefono = ?
-        LIMIT 1
-    """
-
-    try:
-        worker = fetchone(sql, [org_id, hotel_id, telefono])
-
-        if worker:
-            worker["turno_activo"] = bool(worker.get("turno_activo", False))
-            worker["area"] = normalizar_area(worker.get("area") or "HOUSEKEEPING")
-            logger.info(f"✅ Worker encontrado por teléfono: {worker['nombre_completo']} (org={org_id}, hotel={hotel_id})")
-        else:
-            logger.info(f"⚠️ No se encontró worker con teléfono: {telefono} (org={org_id}, hotel={hotel_id})")
-
-        return worker
-
-    except Exception as e:
-        logger.exception(f"❌ Error buscando worker por teléfono: {e}")
+    """Busca un worker por número de teléfono."""
+    phone_clean = _normalize_phone(telefono)
+    if not phone_clean:
         return None
+
+    data = api_get("/api/v1/users/by-phone", params={
+        "phoneNumber": phone_clean,
+        "propertyId":  property_id,
+    })
+    if not data:
+        logger.info(
+            "buscar_worker_por_telefono: no encontrado phone=%s property=%s",
+            phone_clean, property_id,
+        )
+        return None
+
+    worker = worker_from_nestjs(data)
+    logger.info(
+        "buscar_worker_por_telefono: encontrado '%s' phone=%s",
+        worker.get("nombre_completo"), phone_clean,
+    )
+    return worker
+
+
+# ============================================================
+# TURNO
+# ============================================================
+
+def activar_turno_por_telefono(phone: str, *, property_id: str) -> bool:
+    """Activa el turno del worker identificado por su teléfono."""
+    worker = buscar_worker_por_telefono(phone, property_id=property_id)
+    if not worker:
+        logger.warning(
+            "activar_turno_por_telefono: no worker para phone=%s property=%s",
+            phone, property_id,
+        )
+        return False
+    result = api_patch(f"/api/v1/users/{worker['id']}/turno", {"turnoActivo": True})
+    ok = result is not None
+    if ok:
+        logger.info("activar_turno_por_telefono: activado user=%s", worker["id"])
+    return ok
+
+
+def desactivar_turno_por_telefono(phone: str, *, property_id: str) -> bool:
+    """Desactiva el turno del worker identificado por su teléfono."""
+    worker = buscar_worker_por_telefono(phone, property_id=property_id)
+    if not worker:
+        logger.warning(
+            "desactivar_turno_por_telefono: no worker para phone=%s property=%s",
+            phone, property_id,
+        )
+        return False
+    result = api_patch(f"/api/v1/users/{worker['id']}/turno", {"turnoActivo": False})
+    ok = result is not None
+    if ok:
+        logger.info("desactivar_turno_por_telefono: desactivado user=%s", worker["id"])
+    return ok
+
+
+# ── Compat stub ──────────────────────────────────────────────────────────────
+def obtener_runtime_sessions_por_telefonos(phones):
+    """Delegado a workers_db_direct — compat para imports existentes."""
+    from gateway_app.services.workers_db_direct import (
+        obtener_runtime_sessions_por_telefonos as _fn,
+    )
+    return _fn(phones)
