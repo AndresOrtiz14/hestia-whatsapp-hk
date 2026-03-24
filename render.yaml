@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: hk-whatsapp-service
+    env: python
+    plan: free
+    rootDir: hk_whatsapp_service
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --threads 4
