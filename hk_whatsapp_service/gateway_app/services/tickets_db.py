@@ -7,8 +7,8 @@ tener que modificar los flows existentes.
 
 Excepciones que siguen usando psycopg directo:
 - agregar_media_a_ticket → el endpoint POST /tickets/:id/media aún no existe en NestJS
-- obtener_media_de_ticket, contar_media_de_ticket, obtener_primer_media_de_ticket,
-  eliminar_media, mover_media_a_ticket → ídem, operan sobre ticket_media via db.py
+- obtener_media_de_ticket, contar_media_de_ticket, eliminar_media,
+  mover_media_a_ticket → ídem, operan sobre ticket_media via db.py
 """
 import logging
 import os
@@ -326,12 +326,6 @@ def contar_media_de_ticket(ticket_id) -> int:
         return 0
 
 
-def obtener_primer_media_de_ticket(ticket_id) -> Optional[Dict[str, Any]]:
-    """Obtiene el primer media de un ticket (útil para previews)."""
-    media = obtener_media_de_ticket(ticket_id)
-    return media[0] if media else None
-
-
 def eliminar_media(media_id) -> bool:
     """Elimina un registro de media via psycopg directo."""
     try:
@@ -476,11 +470,3 @@ def actualizar_area_ticket(ticket_id, nueva_area: str) -> bool:
 def completar_ticket(ticket_id) -> bool:
     """Marca un ticket como RESUELTO. Stub compat → finalizar_ticket."""
     return finalizar_ticket(ticket_id)
-
-
-def tomar_ticket_asignado(ticket_id, worker_phone: str) -> bool:
-    """
-    Mueve un ticket a EN_CURSO.
-    Stub compat → iniciar_ticket (la validación de pertenencia la hace NestJS).
-    """
-    return iniciar_ticket(ticket_id)

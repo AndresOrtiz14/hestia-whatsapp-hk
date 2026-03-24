@@ -65,10 +65,8 @@ def resolve_tenant(phone_number_id: str) -> Optional[TenantContext]:
 
     from gateway_app.services.api_client import api_get
 
-    raw = api_get(f"/api/v1/properties/workers-phone/{phone_number_id}")
-
-    # El backend devuelve { success, data: {...}, meta }
-    data = raw.get("data") if isinstance(raw, dict) else None
+    # api_client ya desenvuelve {success, data, ...} → devuelve el campo data directamente
+    data = api_get(f"/api/v1/properties/workers-phone/{phone_number_id}")
 
     if not data:
         logger.warning(

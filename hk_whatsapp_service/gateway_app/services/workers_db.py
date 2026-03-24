@@ -242,10 +242,3 @@ def desactivar_turno_por_telefono(phone: str, *, property_id: str) -> bool:
     return ok
 
 
-# ── Compat stub ──────────────────────────────────────────────────────────────
-def obtener_runtime_sessions_por_telefonos(phones):
-    """Delegado a workers_db_direct — compat para imports existentes."""
-    from gateway_app.services.workers_db_direct import (
-        obtener_runtime_sessions_por_telefonos as _fn,
-    )
-    return _fn(phones)

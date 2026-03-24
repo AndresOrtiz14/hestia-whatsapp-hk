@@ -22,6 +22,16 @@ def _headers() -> Dict[str, str]:
     }
 
 
+def _unwrap(resp: Any) -> Optional[Any]:
+    """
+    NestJS siempre devuelve {success, data, error, meta}.
+    Extrae el campo data para que los callers trabajen con el payload directo.
+    """
+    if isinstance(resp, dict) and "success" in resp:
+        return resp.get("data")
+    return resp
+
+
 def api_get(path: str, params: Dict = None) -> Optional[Any]:
     try:
         r = requests.get(
@@ -31,7 +41,7 @@ def api_get(path: str, params: Dict = None) -> Optional[Any]:
             timeout=_TIMEOUT,
         )
         r.raise_for_status()
-        return r.json()
+        return _unwrap(r.json())
     except requests.HTTPError as e:
         logger.error(
             "api_get HTTPError %s %s: %s",
@@ -54,7 +64,7 @@ def api_post(path: str, body: Dict) -> Optional[Any]:
         r.raise_for_status()
         if r.status_code == 204 or not r.content:
             return {}
-        return r.json()
+        return _unwrap(r.json())
     except requests.HTTPError as e:
         logger.error(
             "api_post HTTPError %s %s: %s",
@@ -77,7 +87,7 @@ def api_put(path: str, body: Dict) -> Optional[Any]:
         r.raise_for_status()
         if r.status_code == 204 or not r.content:
             return {}
-        return r.json()
+        return _unwrap(r.json())
     except requests.HTTPError as e:
         logger.error(
             "api_put HTTPError %s %s: %s",
@@ -100,7 +110,7 @@ def api_patch(path: str, body: Dict) -> Optional[Any]:
         r.raise_for_status()
         if r.status_code == 204 or not r.content:
             return {}
-        return r.json()
+        return _unwrap(r.json())
     except requests.HTTPError as e:
         logger.error(
             "api_patch HTTPError %s %s: %s",
