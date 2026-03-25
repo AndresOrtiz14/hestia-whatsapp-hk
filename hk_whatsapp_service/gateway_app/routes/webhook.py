@@ -68,8 +68,8 @@ def inbound_updated():
 
     # Wire outgoing con el token de este tenant
     _wa_token = tenant.wa_token or None
-    hk_outgoing.SEND_IMPL = lambda to, body: send_whatsapp_text(to=to, body=body, token=_wa_token)
-    sup_outgoing.SEND_IMPL = lambda to, body: send_whatsapp_text(to=to, body=body, token=_wa_token)
+    hk_outgoing.SEND_IMPL = lambda to, body: send_whatsapp_text(to=to, body=body, token=_wa_token, phone_number_id=phone_number_id)
+    sup_outgoing.SEND_IMPL = lambda to, body: send_whatsapp_text(to=to, body=body, token=_wa_token, phone_number_id=phone_number_id)
 
     try:
         entry = payload["entry"][0]
@@ -189,6 +189,7 @@ def inbound_updated():
                         to=from_phone,
                         body=f"🎤 Escuché: \"{result['text']}\"",
                         token=_wa_token,
+                        phone_number_id=phone_number_id,
                     )
                     handle_supervisor_message(from_phone, result["text"], tenant=tenant)
                 else:
@@ -197,6 +198,7 @@ def inbound_updated():
                         to=from_phone,
                         body="❌ No pude transcribir el audio. Intenta de nuevo.",
                         token=_wa_token,
+                        phone_number_id=phone_number_id,
                     )
 
             # ✅ Supervisor: Imagen/Video (opcional - crear tickets)

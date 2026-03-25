@@ -569,19 +569,21 @@ def _notificar_supervisor_nuevo_ticket(
         f"💡 Responde 'asignar {ticket_id} a [nombre]'"
     )
     
+    _phone_number_id = tenant.phone_number_id if tenant else None
     for sup_phone in supervisor_phones:
         try:
             if media_type == "image":
                 result = send_whatsapp_image(
                     to=sup_phone,
                     media_id=media_id,
-                    caption=caption
+                    caption=caption,
+                    phone_number_id=_phone_number_id,
                 )
                 if not result.get("success"):
-                    send_whatsapp_text(to=sup_phone, body=caption)
+                    send_whatsapp_text(to=sup_phone, body=caption, phone_number_id=_phone_number_id)
             else:
-                send_whatsapp_text(to=sup_phone, body=caption)
-            
+                send_whatsapp_text(to=sup_phone, body=caption, phone_number_id=_phone_number_id)
+
             logger.info(f"✅ Supervisor {sup_phone} notificado de ticket #{ticket_id}")
             
         except Exception as e:
@@ -617,12 +619,13 @@ def _notificar_supervisor_media_agregado(
         f"📍 {ubicacion}"
     )
     
+    _phone_number_id = tenant.phone_number_id if tenant else None
     for sup_phone in supervisor_phones:
         try:
             if media_type == "image":
-                send_whatsapp_image(to=sup_phone, media_id=media_id, caption=caption)
+                send_whatsapp_image(to=sup_phone, media_id=media_id, caption=caption, phone_number_id=_phone_number_id)
             else:
-                send_whatsapp_text(to=sup_phone, body=caption)
+                send_whatsapp_text(to=sup_phone, body=caption, phone_number_id=_phone_number_id)
         except Exception as e:
             logger.exception(f"❌ Error notificando supervisor: {e}")
 
