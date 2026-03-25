@@ -19,41 +19,9 @@ import gateway_app.flows.supervision.outgoing as sup_outgoing
 from gateway_app.flows.housekeeping.message_handler import handle_hk_message_with_audio
 from gateway_app.flows.supervision import handle_supervisor_message
 
-from gateway_app.services.db import fetchone, execute, using_pg
 import os
 
-def is_duplicate_wamid(wamid: str) -> bool:
-    """
-    Retorna True si ya habíamos procesado este mensaje (dedupe por wamid).
-    Inserta el wamid en runtime_wamids si es primera vez.
-    """
-    if not wamid:
-        return False
-
-    try:
-        if using_pg():
-            # Si inserta -> retorna fila; si ya existía -> retorna None
-            row = fetchone(
-                """
-                INSERT INTO public.runtime_wamids (id)
-                VALUES (?)
-                ON CONFLICT (id) DO NOTHING
-                RETURNING id
-                """,
-                (wamid,),
-            )
-            return row is None
-        else:
-            # SQLite fallback (sin RETURNING)
-            row = fetchone("SELECT id FROM runtime_wamids WHERE id = ?", (wamid,))
-            if row:
-                return True
-            execute("INSERT INTO runtime_wamids (id) VALUES (?)", (wamid,))
-            return False
-
-    except Exception:
-        logger.exception("⚠️ Error deduplicando wamid=%s (continuando sin dedupe)", wamid)
-        return False
+from gateway_app.services.wamid_cache import is_duplicate_wamid
 
 
 @bp.get("/webhook")
@@ -271,10 +239,6 @@ def inbound_updated():
         
     
     except Exception as e:
-        # permitir reintento si falló el procesamiento
-        if wamid:
-            from gateway_app.services.db import execute
-            execute("DELETE FROM public.runtime_wamids WHERE id = ?", (wamid,), commit=True)
         raise
 
 @bp.route("/db-status", methods=["GET"])

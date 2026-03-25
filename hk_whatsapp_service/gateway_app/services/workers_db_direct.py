@@ -20,30 +20,22 @@ def obtener_runtime_sessions_por_telefonos(
     phones: List[str],
 ) -> Dict[str, Dict]:
     """
-    Devuelve phone → {pausada, ocupada} desde runtime_sessions.
+    Devuelve phone -> {pausada, ocupada} desde el store in-memory.
     Nunca debe romper la app: si falla, devuelve {}.
     """
     phones = [str(p).strip() for p in (phones or []) if p]
     if not phones:
         return {}
 
-    sql = """
-        SELECT
-            phone,
-            COALESCE((data->>'pausada')::boolean, false) AS pausada,
-            COALESCE((data->>'ocupada')::boolean,  false) AS ocupada
-        FROM public.runtime_sessions
-        WHERE phone = ANY(%s)
-    """
     try:
-        from gateway_app.services.db import fetchall
-        rows = fetchall(sql, [phones]) or []
+        from gateway_app.services.runtime_state import _sessions
         return {
-            r["phone"]: {
-                "pausada": bool(r.get("pausada", False)),
-                "ocupada": bool(r.get("ocupada", False)),
+            phone: {
+                "pausada": bool(_sessions[phone].get("pausada", False)),
+                "ocupada": bool(_sessions[phone].get("ocupada", False)),
             }
-            for r in rows
+            for phone in phones
+            if phone in _sessions
         }
     except Exception:
         logger.exception("obtener_runtime_sessions_por_telefonos: falló, devolviendo {}")

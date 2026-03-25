@@ -169,90 +169,18 @@ def construir_mensaje_resumen_supervision(resumen: Dict[str, Any]) -> str:
 
 
 def _marcar_recordatorio_enviado_hoy_directo(phone: str) -> bool:
-    """
-    ✅ VERSIÓN DIRECTA: Guarda directamente en la BD sin usar cache.
-    Esto evita problemas de sincronización entre threads.
-    """
-    from gateway_app.services.db import execute, fetchone, using_pg
-    
+    from gateway_app.services.runtime_state import load_runtime_session, save_runtime_session
+
     hoy = datetime.now(TIMEZONE).date().isoformat()
-    
     try:
-        # 1. Leer state actual de la BD
-        table = "public.runtime_sessions" if using_pg() else "runtime_sessions"
-        row = fetchone(f"SELECT data FROM {table} WHERE phone = ?", [phone])
-        
-        if row and row.get("data"):
-            data_raw = row.get("data")
-            if isinstance(data_raw, str):
-                state = json.loads(data_raw)
-            elif isinstance(data_raw, dict):
-                state = data_raw
-            else:
-                state = {}
-        else:
-            state = {}
-        
-        logger.info(f"📝 DAILY: State ANTES: {json.dumps(state, default=str)[:200]}")
-        
-        # 2. Agregar campos de recordatorio
+        state = load_runtime_session(phone) or {}
         state["recordatorio_matutino_fecha"] = hoy
         state["respondio_recordatorio_hoy"] = False
-        
-        logger.info(f"📝 DAILY: State DESPUÉS: {json.dumps(state, default=str)[:200]}")
-        
-        # 3. Guardar directamente en BD
-        payload = json.dumps(state, ensure_ascii=False)
-        
-        if using_pg():
-            execute(
-                """
-                INSERT INTO public.runtime_sessions (phone, data, updated_at)
-                VALUES (?, ?::jsonb, NOW())
-                ON CONFLICT (phone) DO UPDATE
-                SET data = EXCLUDED.data,
-                    updated_at = NOW()
-                """,
-                [phone, payload],
-                commit=True,
-            )
-        else:
-            execute(
-                """
-                INSERT INTO runtime_sessions (phone, data, updated_at)
-                VALUES (?, ?, CURRENT_TIMESTAMP)
-                ON CONFLICT(phone) DO UPDATE
-                SET data = excluded.data,
-                    updated_at = CURRENT_TIMESTAMP
-                """,
-                [phone, payload],
-                commit=True,
-            )
-        
-        logger.info(f"✅ DAILY: Guardado en BD para {phone}")
-        
-        # 4. Verificar que se guardó correctamente
-        row_check = fetchone(f"SELECT data FROM {table} WHERE phone = ?", [phone])
-        if row_check:
-            data_check = row_check.get("data")
-            if isinstance(data_check, str):
-                state_check = json.loads(data_check)
-            elif isinstance(data_check, dict):
-                state_check = data_check
-            else:
-                state_check = {}
-            
-            if state_check.get("recordatorio_matutino_fecha") == hoy:
-                logger.info(f"✅ DAILY: Verificación OK - recordatorio guardado para {phone}")
-                return True
-            else:
-                logger.error(f"❌ DAILY: Verificación FALLÓ - no se encontró recordatorio")
-                return False
-        
+        save_runtime_session(phone, state)
+        logger.info("DAILY: recordatorio guardado para %s", phone)
         return True
-        
-    except Exception as e:
-        logger.exception(f"❌ DAILY: Error guardando recordatorio para {phone}: {e}")
+    except Exception:
+        logger.exception("DAILY: Error guardando recordatorio para %s", phone)
         return False
 
 

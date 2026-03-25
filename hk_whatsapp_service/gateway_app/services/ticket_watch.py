@@ -299,6 +299,14 @@ def _watch_loop(org_id: int, hotel_id: int, poll_seconds: int, lookback_minutes:
         time.sleep(max(2, int(poll_seconds)))
 
 
+def _safe_int(value: str, default: int) -> int:
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        logger.warning("TICKET_WATCH: invalid int value %r, using default %s", value, default)
+        return default
+
+
 def start_ticket_watch() -> None:
     """
     Start background watcher thread.
@@ -312,10 +320,10 @@ def start_ticket_watch() -> None:
         logger.info("TICKET_WATCH not started (TICKET_WATCH_ENABLED=false)")
         return
 
-    org_id = int(os.getenv("ORG_ID_DEFAULT", "5"))
-    hotel_id = int(os.getenv("HOTEL_ID_DEFAULT", "6"))
-    poll_seconds = int(os.getenv("TICKET_WATCH_POLL_SECONDS", "5"))
-    lookback_minutes = int(os.getenv("TICKET_WATCH_LOOKBACK_MINUTES", "1440"))
+    org_id = _safe_int(os.getenv("ORG_ID_DEFAULT", "5"), 5)
+    hotel_id = _safe_int(os.getenv("HOTEL_ID_DEFAULT", "6"), 6)
+    poll_seconds = _safe_int(os.getenv("TICKET_WATCH_POLL_SECONDS", "5"), 5)
+    lookback_minutes = _safe_int(os.getenv("TICKET_WATCH_LOOKBACK_MINUTES", "1440"), 1440)
 
     th = threading.Thread(
         target=_watch_loop,
