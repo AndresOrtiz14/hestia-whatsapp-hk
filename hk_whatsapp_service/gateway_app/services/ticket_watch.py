@@ -15,6 +15,14 @@ from gateway_app.core.utils.location_format import formatear_ubicacion_para_mens
 
 logger = logging.getLogger(__name__)
 
+# ============================================================
+# SERVICIO DESACTIVADO — 2025
+# Las notificaciones a supervisores sobre tickets de huéspedes
+# se migraron a un servicio de notificaciones independiente.
+# Este archivo se mantiene como referencia histórica.
+# Para reactivar: TICKET_WATCH_ENABLED=true en Render.
+# ============================================================
+
 
 def _normalize_phone(phone: str) -> str:
     return re.sub(r"\D", "", (phone or "").strip())
