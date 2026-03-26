@@ -182,34 +182,25 @@ def buscar_worker_por_telefono(
     *,
     property_id: str,
 ) -> Optional[Dict[str, Any]]:
-    """Busca un worker por número de teléfono."""
+    """Busca un worker por número de teléfono filtrando la lista completa de workers."""
     phone_clean = _normalize_phone(telefono)
     if not phone_clean:
         return None
 
-    # Intentar primero sin prefijo, luego con '+' (el backend puede almacenar +56 9 XXXX XXXX)
-    data = None
-    for phone_variant in (phone_clean, "+" + phone_clean):
-        data = api_get("/api/v1/users/by-phone", params={
-            "phoneNumber": phone_variant,
-            "propertyId":  property_id,
-        })
-        if data:
-            break
+    workers = obtener_todos_workers(property_id=property_id)
+    for w in workers:
+        if _normalize_phone(w.get("telefono", "")) == phone_clean:
+            logger.info(
+                "buscar_worker_por_telefono: encontrado '%s' phone=%s",
+                w.get("nombre_completo"), phone_clean,
+            )
+            return w
 
-    if not data:
-        logger.info(
-            "buscar_worker_por_telefono: no encontrado phone=%s property=%s",
-            phone_clean, property_id,
-        )
-        return None
-
-    worker = worker_from_nestjs(data)
     logger.info(
-        "buscar_worker_por_telefono: encontrado '%s' phone=%s",
-        worker.get("nombre_completo"), phone_clean,
+        "buscar_worker_por_telefono: no encontrado phone=%s property=%s",
+        phone_clean, property_id,
     )
-    return worker
+    return None
 
 
 # ============================================================
