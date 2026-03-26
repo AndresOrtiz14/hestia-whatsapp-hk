@@ -78,6 +78,11 @@ def verificar_y_activar_turno_auto(from_phone: str, state: dict, tenant=None) ->
     state.pop("recordatorio_matutino_fecha", None)
     state.pop("respondio_recordatorio_hoy", None)
 
+    # Persistir a BD para que handle_menu() y otras funciones que recargan
+    # el estado vean turno_activo=True en la misma request
+    from gateway_app.flows.housekeeping.state_simple import persist_user_state
+    persist_user_state(from_phone, state)
+
     logger.info(f"✅ TURNO_AUTO: Turno activado exitosamente para {from_phone}")
 
     # Construir mensaje
