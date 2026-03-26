@@ -10,17 +10,26 @@ Flujo:
        ↓
   resolve_tenant(phone_number_id)
        ↓
-  GET /api/v1/properties/workers-phone/{phone_number_id}  (NestJS)
+  1. Cache en memoria  (inmediato)
+  2. Cache en disco    (sobrevive reinicios de gunicorn)
+  3. GET /api/v1/properties/workers-phone/{phone_number_id}  (NestJS)
        ↓
   TenantContext  →  se pasa a todos los handlers y flows
 """
 from __future__ import annotations
 
+import json
 import logging
-from dataclasses import dataclass, field
+import os
+from dataclasses import asdict, dataclass
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+# Directorio donde se persiste el cache a disco.
+# En Render se usa /tmp que sobrevive entre reinicios de gunicorn
+# (pero no entre deploys — aceptable: el primer mensaje post-deploy lo refresca).
+_CACHE_DIR = os.getenv("TENANT_CACHE_DIR", "/tmp/hestia_tenant_cache")
 
 
 @dataclass
@@ -41,10 +50,36 @@ class TenantContext:
 
 
 # Cache en memoria por phone_number_id.
-# Se invalida reiniciando el servicio si cambia la configuración de la property.
-# Con Gunicorn multi-worker cada proceso tiene su propia copia — es aceptable
+# Con Gunicorn multi-worker cada proceso tiene su propia copia — aceptable
 # porque son datos de configuración que no cambian frecuentemente.
 _cache: dict[str, TenantContext] = {}
+
+
+def _disk_path(phone_number_id: str) -> str:
+    safe = phone_number_id.replace("/", "_")
+    return os.path.join(_CACHE_DIR, f"{safe}.json")
+
+
+def _load_from_disk(phone_number_id: str) -> Optional[TenantContext]:
+    path = _disk_path(phone_number_id)
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        return TenantContext(**data)
+    except FileNotFoundError:
+        return None
+    except Exception:
+        logger.warning("resolve_tenant: error leyendo cache disco %s", path)
+        return None
+
+
+def _save_to_disk(ctx: TenantContext) -> None:
+    try:
+        os.makedirs(_CACHE_DIR, exist_ok=True)
+        with open(_disk_path(ctx.phone_number_id), "w") as f:
+            json.dump(asdict(ctx), f)
+    except Exception:
+        logger.warning("resolve_tenant: no se pudo guardar cache disco para %s", ctx.phone_number_id)
 
 
 def resolve_tenant(phone_number_id: str) -> Optional[TenantContext]:
@@ -60,12 +95,23 @@ def resolve_tenant(phone_number_id: str) -> Optional[TenantContext]:
         logger.warning("resolve_tenant: phone_number_id vacío")
         return None
 
+    # 1. Cache en memoria
     if phone_number_id in _cache:
         return _cache[phone_number_id]
 
+    # 2. Cache en disco (sobrevive reinicios de gunicorn)
+    ctx = _load_from_disk(phone_number_id)
+    if ctx:
+        logger.info(
+            "resolve_tenant: cargado desde disco phone_number_id=%s → property=%s (%s)",
+            phone_number_id, ctx.property_id, ctx.hotel_name,
+        )
+        _cache[phone_number_id] = ctx
+        return ctx
+
+    # 3. API NestJS
     from gateway_app.services.api_client import api_get
 
-    # api_client ya desenvuelve {success, data, ...} → devuelve el campo data directamente
     data = api_get(f"/api/v1/properties/workers-phone/{phone_number_id}")
 
     if not data:
@@ -92,6 +138,7 @@ def resolve_tenant(phone_number_id: str) -> Optional[TenantContext]:
     )
 
     _cache[phone_number_id] = ctx
+    _save_to_disk(ctx)
     logger.info(
         "resolve_tenant: phone_number_id=%s → property=%s (%s)",
         phone_number_id, ctx.property_id, ctx.hotel_name,
@@ -101,14 +148,23 @@ def resolve_tenant(phone_number_id: str) -> Optional[TenantContext]:
 
 def invalidate_cache(phone_number_id: str = None) -> None:
     """
-    Invalida el cache de tenant.
+    Invalida el cache de tenant (memoria y disco).
     - Sin argumento: limpia todo el cache.
     - Con phone_number_id: limpia solo ese entry.
     Útil para tests y para forzar re-fetch tras cambios de configuración.
     """
     if phone_number_id:
         _cache.pop(phone_number_id, None)
+        try:
+            os.remove(_disk_path(phone_number_id))
+        except FileNotFoundError:
+            pass
         logger.info("resolve_tenant: cache invalidado para phone_number_id=%s", phone_number_id)
     else:
         _cache.clear()
+        try:
+            import shutil
+            shutil.rmtree(_CACHE_DIR, ignore_errors=True)
+        except Exception:
+            pass
         logger.info("resolve_tenant: cache completo invalidado")
