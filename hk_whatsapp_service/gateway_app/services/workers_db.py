@@ -187,10 +187,16 @@ def buscar_worker_por_telefono(
     if not phone_clean:
         return None
 
-    data = api_get("/api/v1/users/by-phone", params={
-        "phoneNumber": phone_clean,
-        "propertyId":  property_id,
-    })
+    # Intentar primero sin prefijo, luego con '+' (el backend puede almacenar +56 9 XXXX XXXX)
+    data = None
+    for phone_variant in (phone_clean, "+" + phone_clean):
+        data = api_get("/api/v1/users/by-phone", params={
+            "phoneNumber": phone_variant,
+            "propertyId":  property_id,
+        })
+        if data:
+            break
+
     if not data:
         logger.info(
             "buscar_worker_por_telefono: no encontrado phone=%s property=%s",

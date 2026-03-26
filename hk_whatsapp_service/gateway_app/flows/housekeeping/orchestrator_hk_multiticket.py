@@ -336,7 +336,7 @@ def handle_hk_message_simple(from_phone: str, text: str, tenant=None) -> None:
         # 2.8) Navegación directa de menú (desde cualquier estado)
         if raw in ['1', '2', '3', '4'] and state.get("state") not in [REPORTANDO_HAB, REPORTANDO_DETALLE, CONFIRMANDO_REPORTE]:
             turno_activo = state.get("turno_activo", False)
-            handle_menu(from_phone, raw)
+            handle_menu(from_phone, raw, tenant=tenant)
             return
         
         # 3) Detectar reporte directo adaptado al área del worker
@@ -392,7 +392,7 @@ def handle_hk_message_simple(from_phone: str, text: str, tenant=None) -> None:
         current_state = state.get("state")
         
         if current_state == MENU:
-            handle_menu(from_phone, raw)
+            handle_menu(from_phone, raw, tenant=tenant)
             return
         
         if current_state == VIENDO_TICKETS:
@@ -442,7 +442,7 @@ def handle_hk_message_simple(from_phone: str, text: str, tenant=None) -> None:
         persist_user_state(from_phone, state)
 
 
-def handle_menu(from_phone: str, raw: str) -> None:
+def handle_menu(from_phone: str, raw: str, tenant=None) -> None:
     state = get_user_state(from_phone)
     turno_activo = state.get("turno_activo", False)
     
