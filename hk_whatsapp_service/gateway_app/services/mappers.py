@@ -3,7 +3,20 @@
 Traduce entre los valores que usa el bot Flask y los que espera/devuelve el NestJS.
 Fuente única de verdad para todos los mapeos de dominio.
 """
+import re
 from typing import Optional
+
+
+def _build_phone(prefix: str, number: str) -> str:
+    """Construye número completo normalizado desde prefix y number."""
+    prefix_clean = re.sub(r"\D", "", prefix or "")
+    number_clean = re.sub(r"\D", "", number or "")
+    if not number_clean:
+        return ""
+    # Evitar duplicar el prefijo si number ya lo incluye
+    if number_clean.startswith(prefix_clean) and len(number_clean) > 9:
+        return number_clean
+    return prefix_clean + number_clean
 
 
 # ── Estados ───────────────────────────────────────────────────────────────────
@@ -142,7 +155,7 @@ def worker_from_nestjs(u: dict) -> dict:
     return {
         "id":             u.get("id"),
         "nombre_completo": f"{first} {last}".strip(),
-        "telefono":        u.get("phoneNumber", ""),
+        "telefono":        _build_phone(u.get("phonePrefix", ""), u.get("phoneNumber", "")),
         "area":            AREA_FROM_NESTJS.get(area_code, area_code),
         "activo":          u.get("enabled", True),
         "turno_activo":    u.get("turnoActivo", False),
