@@ -300,7 +300,7 @@ def handle_supervisor_message_simple(from_phone: str, text: str, tenant=None) ->
 
         # 4.1) Pendientes
         if raw_cmd in ["pendientes", "pendiente", "ver", "lista"]:
-            mostrar_pendientes_simple(from_phone)
+            mostrar_pendientes_simple(from_phone, tenant=tenant)
             return
         
         # 4.2) Asignados ← ✅ AQUÍ
@@ -694,14 +694,15 @@ def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
         return True
 
 
-def mostrar_pendientes_simple(from_phone: str) -> None:
+def mostrar_pendientes_simple(from_phone: str, tenant=None) -> None:
     """Muestra tareas pendientes ordenadas por prioridad con tiempo."""
     from gateway_app.services.tickets_db import obtener_pendientes
     from gateway_app.core.utils.message_constants import (
         formatear_lista_tickets, PRIORIDAD_ORDER,
     )
 
-    tickets = obtener_pendientes()
+    property_id = tenant.property_id if tenant else None
+    tickets = obtener_pendientes(property_id=property_id)
 
     if not tickets:
         send_whatsapp(from_phone, "✅ No hay tareas pendientes")
@@ -1660,7 +1661,8 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
                     "detalle": detalle,
                     "prioridad": prioridad
                 }
-                
+                persist_supervisor_state(from_phone, state)
+
                 send_whatsapp(
                     from_phone,
                     msg_sup_dialogo(
