@@ -26,7 +26,6 @@ _WORKERS_CACHE_TTL = 300
 _workers_cache: Dict[str, Dict[str, Any]] = {}      # property_id → {workers, expiry}
 _supervisors_cache: Dict[str, Dict[str, Any]] = {}  # key → {supervisores, expiry}
 
-
 # ============================================================
 # HELPERS
 # ============================================================
@@ -87,9 +86,7 @@ def _enriquecer_con_runtime(workers: List[Dict]) -> List[Dict]:
 # ============================================================
 
 def obtener_todos_workers(*, property_id: str) -> List[Dict[str, Any]]:
-    """Retorna todos los workers activos de la property (con cache TTL de 5 min).
-    Si la llamada API falla (429 u otro error), devuelve datos stale del caché si existen.
-    """
+    """Retorna todos los workers activos de la property (con caché memoria TTL de 5 min)."""
     now = time.time()
     cached = _workers_cache.get(property_id)
     if cached and cached["expiry"] > now:
@@ -103,6 +100,7 @@ def obtener_todos_workers(*, property_id: str) -> List[Dict[str, Any]]:
             )
             return cached["workers"]
         return []
+
     workers = [worker_from_nestjs(u) for u in (data if isinstance(data, list) else [])]
     workers = _enriquecer_con_runtime(workers)
     _workers_cache[property_id] = {"workers": workers, "expiry": now + _WORKERS_CACHE_TTL}
