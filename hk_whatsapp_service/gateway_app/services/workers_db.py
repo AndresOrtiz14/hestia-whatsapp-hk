@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 import unicodedata
 from typing import Dict, Any, List, Optional
 
@@ -19,6 +20,11 @@ from gateway_app.services.api_client import api_get, api_patch
 from gateway_app.services.mappers import worker_from_nestjs, supervisor_from_nestjs
 
 logger = logging.getLogger(__name__)
+
+# Cache en memoria para workers/supervisores por property_id — TTL de 5 minutos
+_WORKERS_CACHE_TTL = 300
+_workers_cache: Dict[str, Dict[str, Any]] = {}      # property_id → {workers, expiry}
+_supervisors_cache: Dict[str, Dict[str, Any]] = {}  # key → {supervisores, expiry}
 
 
 # ============================================================
@@ -81,15 +87,30 @@ def _enriquecer_con_runtime(workers: List[Dict]) -> List[Dict]:
 # ============================================================
 
 def obtener_todos_workers(*, property_id: str) -> List[Dict[str, Any]]:
-    """Retorna todos los workers activos de la property."""
+    """Retorna todos los workers activos de la property (con cache TTL de 5 min).
+    Si la llamada API falla (429 u otro error), devuelve datos stale del caché si existen.
+    """
+    now = time.time()
+    cached = _workers_cache.get(property_id)
+    if cached and cached["expiry"] > now:
+        return cached["workers"]
+
     data = api_get("/api/v1/users/workers", params={"propertyId": property_id})
     if not data:
+        if cached:
+            logger.warning(
+                "obtener_todos_workers: API falló, usando caché stale property=%s", property_id
+            )
+            return cached["workers"]
         return []
     workers = [worker_from_nestjs(u) for u in (data if isinstance(data, list) else [])]
+    workers = _enriquecer_con_runtime(workers)
+    _workers_cache[property_id] = {"workers": workers, "expiry": now + _WORKERS_CACHE_TTL}
     logger.info(
-        "obtener_todos_workers: %s workers property=%s", len(workers), property_id
+        "obtener_todos_workers: %s workers property=%s (cacheado %ss)",
+        len(workers), property_id, _WORKERS_CACHE_TTL,
     )
-    return _enriquecer_con_runtime(workers)
+    return workers
 
 
 def obtener_supervisores_por_area(
@@ -98,10 +119,16 @@ def obtener_supervisores_por_area(
     property_id: str,
 ) -> List[Dict[str, Any]]:
     """
-    Retorna supervisores del área indicada.
+    Retorna supervisores del área indicada (con cache TTL de 5 min).
     Reemplaza os.getenv('SUPERVISOR_PHONES_*').
     Si area está vacío retorna todos los supervisores de la property.
     """
+    cache_key = f"{property_id}:{area}"
+    now = time.time()
+    cached = _supervisors_cache.get(cache_key)
+    if cached and cached["expiry"] > now:
+        return cached["supervisores"]
+
     params: Dict[str, str] = {"propertyId": property_id}
     if area:
         from gateway_app.services.mappers import AREA_TO_NESTJS
@@ -109,11 +136,18 @@ def obtener_supervisores_por_area(
 
     data = api_get("/api/v1/users/supervisors", params=params)
     if not data:
+        if cached:
+            logger.warning(
+                "obtener_supervisores_por_area: API falló, usando caché stale area=%s property=%s",
+                area, property_id,
+            )
+            return cached["supervisores"]
         return []
     supervisores = [
         supervisor_from_nestjs(u)
         for u in (data if isinstance(data, list) else [])
     ]
+    _supervisors_cache[cache_key] = {"supervisores": supervisores, "expiry": now + _WORKERS_CACHE_TTL}
     logger.info(
         "obtener_supervisores_por_area: %s supervisores area=%s property=%s",
         len(supervisores), area, property_id,
