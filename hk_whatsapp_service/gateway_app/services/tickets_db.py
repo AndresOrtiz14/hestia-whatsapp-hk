@@ -15,7 +15,7 @@ import os
 import re
 from typing import Any, Dict, List, Optional
 
-from gateway_app.services.api_client import api_get, api_post, api_put
+from gateway_app.services.api_client import api_get, api_post, api_put, api_patch
 from gateway_app.services.mappers import (
     AREA_TO_NESTJS,
     STATUS_TO_NESTJS,
@@ -218,7 +218,7 @@ def asignar_ticket(
             return False
         worker_id = worker["id"]
 
-    result = api_put(f"/api/v1/tickets/{ticket_id}", {
+    result = api_patch(f"/api/v1/tickets/{ticket_id}", {
         "assignedToUserId": worker_id,
         "status":           STATUS_TO_NESTJS["ASIGNADO"],
     })
@@ -232,7 +232,7 @@ def asignar_ticket(
 
 def iniciar_ticket(ticket_id) -> bool:
     """Mueve el ticket a EN_CURSO."""
-    result = api_put(f"/api/v1/tickets/{ticket_id}", {
+    result = api_patch(f"/api/v1/tickets/{ticket_id}", {
         "status": STATUS_TO_NESTJS["EN_CURSO"],
     })
     return result is not None
@@ -243,7 +243,7 @@ def pausar_ticket(ticket_id, *, motivo: str = "") -> bool:
     body = {"status": STATUS_TO_NESTJS["PAUSADO"]}
     if motivo:
         body["notes"] = motivo
-    result = api_put(f"/api/v1/tickets/{ticket_id}", body)
+    result = api_patch(f"/api/v1/tickets/{ticket_id}", body)
     return result is not None
 
 
@@ -252,7 +252,7 @@ def finalizar_ticket(ticket_id, *, motivo: str = "") -> bool:
     body = {"status": STATUS_TO_NESTJS["RESUELTO"]}
     if motivo:
         body["notes"] = motivo
-    result = api_put(f"/api/v1/tickets/{ticket_id}", body)
+    result = api_patch(f"/api/v1/tickets/{ticket_id}", body)
     ok = result is not None
     if ok:
         logger.info("finalizar_ticket: ticket=%s", ticket_id)
@@ -439,7 +439,7 @@ def actualizar_estado_ticket(ticket_id, nuevo_estado: str) -> bool:
     if estado in ("RESUELTO", "COMPLETADO"):
         return finalizar_ticket(ticket_id)
     # Fallback genérico
-    result = api_put(
+    result = api_patch(
         f"/api/v1/tickets/{ticket_id}",
         {"status": STATUS_TO_NESTJS.get(estado, estado.lower())},
     )
@@ -460,7 +460,7 @@ def actualizar_area_ticket(ticket_id, nueva_area: str) -> bool:
     Stub compat → PUT /api/v1/tickets/:id con areaCode.
     """
     area_code = AREA_TO_NESTJS.get(nueva_area.upper(), nueva_area.upper())
-    result = api_put(f"/api/v1/tickets/{ticket_id}", {"areaCode": area_code})
+    result = api_patch(f"/api/v1/tickets/{ticket_id}", {"areaCode": area_code})
     ok = result is not None
     if ok:
         logger.info("actualizar_area_ticket: ticket=%s → %s", ticket_id, area_code)
