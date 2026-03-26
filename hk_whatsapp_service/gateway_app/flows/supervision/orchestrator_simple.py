@@ -219,7 +219,8 @@ def handle_supervisor_message_simple(from_phone: str, text: str, tenant=None) ->
                 # ✅ IMPORTS EXPLÍCITOS (evita UnboundLocalError/NameError)
                 from gateway_app.services.tickets_db import asignar_ticket
 
-                if asignar_ticket(ticket_id, worker_phone, worker_nombre):
+                worker_id = worker.get("id") or worker_phone
+                if asignar_ticket(ticket_id, worker_id, worker_nombre):
                     ticket = (obtener_ticket_por_id(ticket_id) or {})
 
                     # Tomar datos reales del ticket (con fallback al conf)
