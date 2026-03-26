@@ -27,6 +27,11 @@ MINUTO_RECORDATORIO = 30
 # Intervalo de polling del loop (cada 60 segundos)
 _POLL_SECONDS = 60
 
+# TTL del cache de properties (1 hora) — reduce llamadas al NestJS de 1440/día a ~24/día
+_PROPERTIES_TTL = 3600
+_properties_cache: List[Dict[str, Any]] = []
+_properties_cache_expiry: float = 0.0
+
 
 # ============================================================
 # DISCOVERY DE PROPERTIES
@@ -35,16 +40,24 @@ _POLL_SECONDS = 60
 def _get_properties_configuradas() -> List[Dict[str, Any]]:
     """
     Retorna todas las properties que tienen el bot de workers configurado.
-    Se llama en cada iteración del loop para detectar nuevas properties
-    sin necesidad de reiniciar el servicio.
+    Cachea el resultado 1 hora para evitar llamadas excesivas al NestJS
+    (especialmente durante rolling deploys donde dos instancias corren en paralelo).
     """
+    global _properties_cache, _properties_cache_expiry
+
+    now = time.time()
+    if _properties_cache and now < _properties_cache_expiry:
+        return _properties_cache
+
     from gateway_app.services.api_client import api_get
     data = api_get("/api/v1/properties/workers-configured")
     if not data or not isinstance(data, list):
         logger.warning("daily_scheduler: no se pudieron obtener properties configuradas")
-        return []
+        return _properties_cache  # devuelve el cache anterior si existe
     logger.info("daily_scheduler: %s properties configuradas", len(data))
-    return data
+    _properties_cache = data
+    _properties_cache_expiry = now + _PROPERTIES_TTL
+    return _properties_cache
 
 
 # ============================================================

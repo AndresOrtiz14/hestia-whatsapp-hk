@@ -5,7 +5,6 @@ Todos los módulos del bot usan este cliente — nunca requests directo al backe
 """
 import os
 import logging
-import time
 import requests
 from typing import Any, Dict, Optional
 
@@ -14,7 +13,6 @@ logger = logging.getLogger(__name__)
 _BASE    = os.getenv("BACKEND_API_URL", "https://hestia-saas-backend.onrender.com")
 _APIKEY  = os.getenv("NESTJS_API_KEY", "")
 _TIMEOUT = 10  # segundos — WhatsApp cierra el webhook a ~20s
-_429_RETRY_DELAYS = [2, 5]  # segundos entre reintentos cuando NestJS devuelve 429
 
 
 def _headers() -> Dict[str, str]:
@@ -35,35 +33,23 @@ def _unwrap(resp: Any) -> Optional[Any]:
 
 
 def api_get(path: str, params: Dict = None) -> Optional[Any]:
-    for attempt, delay in enumerate([0] + _429_RETRY_DELAYS):
-        if delay:
-            time.sleep(delay)
-        try:
-            r = requests.get(
-                f"{_BASE}{path}",
-                headers=_headers(),
-                params=params,
-                timeout=_TIMEOUT,
-            )
-            r.raise_for_status()
-            return _unwrap(r.json())
-        except requests.HTTPError as e:
-            status = e.response.status_code
-            if status == 429 and attempt < len(_429_RETRY_DELAYS):
-                logger.warning(
-                    "api_get 429 %s, reintento %s/%s en %ss",
-                    path, attempt + 1, len(_429_RETRY_DELAYS), _429_RETRY_DELAYS[attempt],
-                )
-                continue
-            logger.error(
-                "api_get HTTPError %s %s: %s",
-                status, path, e.response.text[:200],
-            )
-            return None
-        except Exception:
-            logger.exception("api_get failed: %s", path)
-            return None
-    return None
+    try:
+        r = requests.get(
+            f"{_BASE}{path}",
+            headers=_headers(),
+            params=params,
+            timeout=_TIMEOUT,
+        )
+        r.raise_for_status()
+        return _unwrap(r.json())
+    except requests.HTTPError as e:
+        status = e.response.status_code
+        log = logger.warning if status == 429 else logger.error
+        log("api_get HTTPError %s %s: %s", status, path, e.response.text[:200])
+        return None
+    except Exception:
+        logger.exception("api_get failed: %s", path)
+        return None
 
 
 def api_post(path: str, body: Dict) -> Optional[Any]:
