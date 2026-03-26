@@ -422,7 +422,7 @@ def handle_supervisor_message_simple(from_phone: str, text: str, tenant=None) ->
         # 5) COMANDOS DE AUDIO
         # ⚠️ ESTO VA **DESPUÉS** DE LOS COMANDOS DE TEXTO
         # ==================================================
-        if maybe_handle_audio_command_simple(from_phone, text):
+        if maybe_handle_audio_command_simple(from_phone, text, tenant):
             return
         
         # ==================================================
@@ -1113,7 +1113,7 @@ def finalizar_ticket_supervisor(from_phone: str, ticket_id: int) -> None:
             logger.error(f"Error notificando huésped o marcando CSAT: {e}")
     # ─────────────────────────────────────────────────────────────────────
 
-def maybe_handle_audio_command_simple(from_phone: str, text: str) -> bool:
+def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -> bool:
     """
     Detecta y maneja comandos de audio de forma simple.
     
