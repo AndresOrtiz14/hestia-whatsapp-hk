@@ -267,8 +267,15 @@ def construir_mensaje_equipo(property_id: str = "") -> str:
     Construye mensaje con el estado del equipo completo.
     Comando: 'equipo' o 'trabajadores' o 'mucamas'
     """
+    from gateway_app.services.workers_db import obtener_supervisores_por_area
+
     workers = obtener_workers_con_estado(property_id=property_id)
-    
+
+    # Excluir supervisores de la lista de equipo
+    supervisores = obtener_supervisores_por_area("", property_id=property_id)
+    supervisor_phones = {s.get("telefono") for s in supervisores if s.get("telefono")}
+    workers = [w for w in workers if w.get("telefono") not in supervisor_phones]
+
     if not workers:
         return "📭 No hay trabajadores registrados"
     
