@@ -127,6 +127,7 @@ def ticket_from_nestjs(t: dict) -> dict:
     ubicacion = t.get("roomNumber") or t.get("locationDescription") or "?"
     return {
         "id":          t.get("id"),
+        "id_code":     t.get("idCode"),
         "ubicacion":   ubicacion,
         "habitacion":  ubicacion,   # alias que usan algunos flows
         "detalle":     t.get("description", ""),

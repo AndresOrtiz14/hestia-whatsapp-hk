@@ -49,6 +49,17 @@ def _is_uuid(s: str) -> bool:
     ))
 
 
+def _resolve_ticket_uuid(ticket_id, property_id: str = None) -> Optional[str]:
+    """
+    Convierte un idCode numérico al UUID del ticket.
+    Si ticket_id ya es un UUID, lo retorna tal cual.
+    """
+    if _is_uuid(str(ticket_id)):
+        return str(ticket_id)
+    ticket = obtener_ticket_por_id(int(ticket_id), property_id=property_id)
+    return ticket.get("id") if ticket else None
+
+
 def _items(data) -> list:
     """Extrae la lista de items de una respuesta NestJS (lista directa o {items: [...]})."""
     if isinstance(data, list):
@@ -115,11 +126,13 @@ def crear_ticket(
 # LEER
 # ============================================================
 
-def obtener_ticket_por_id(ticket_id) -> Optional[Dict[str, Any]]:
+def obtener_ticket_por_id(ticket_id, *, property_id: str = None) -> Optional[Dict[str, Any]]:
     """Retorna el ticket normalizado al formato Flask, o None."""
     if not ticket_id:
         return None
-    data = api_get(f"/api/v1/tickets/{ticket_id}")
+    if not property_id:
+        property_id = _default_property_id()
+    data = api_get(f"/api/v1/tickets/property/{property_id}/code/{int(ticket_id)}")
     if not data:
         return None
     return ticket_from_nestjs(data)
@@ -210,6 +223,11 @@ def asignar_ticket(
     Si worker_id no parece un UUID se asume que es un teléfono y se busca
     el UUID correspondiente via workers_db.
     """
+    ticket_uuid = _resolve_ticket_uuid(ticket_id)
+    if not ticket_uuid:
+        logger.error("asignar_ticket: no se pudo resolver UUID para idCode=%s", ticket_id)
+        return False
+
     if not _is_uuid(str(worker_id)):
         from gateway_app.services.workers_db import buscar_worker_por_telefono
         worker = buscar_worker_por_telefono(worker_id)
@@ -218,7 +236,7 @@ def asignar_ticket(
             return False
         worker_id = worker["id"]
 
-    result = api_put(f"/api/v1/tickets/{ticket_id}", {
+    result = api_put(f"/api/v1/tickets/{ticket_uuid}", {
         "assignedToUserId": worker_id,
         "status":           STATUS_TO_NESTJS["ASIGNADO"],
     })
@@ -232,7 +250,11 @@ def asignar_ticket(
 
 def iniciar_ticket(ticket_id) -> bool:
     """Mueve el ticket a EN_CURSO."""
-    result = api_put(f"/api/v1/tickets/{ticket_id}", {
+    ticket_uuid = _resolve_ticket_uuid(ticket_id)
+    if not ticket_uuid:
+        logger.error("iniciar_ticket: no se pudo resolver UUID para idCode=%s", ticket_id)
+        return False
+    result = api_put(f"/api/v1/tickets/{ticket_uuid}", {
         "status": STATUS_TO_NESTJS["EN_CURSO"],
     })
     return result is not None
@@ -240,19 +262,27 @@ def iniciar_ticket(ticket_id) -> bool:
 
 def pausar_ticket(ticket_id, *, motivo: str = "") -> bool:
     """Mueve el ticket a PAUSADO."""
+    ticket_uuid = _resolve_ticket_uuid(ticket_id)
+    if not ticket_uuid:
+        logger.error("pausar_ticket: no se pudo resolver UUID para idCode=%s", ticket_id)
+        return False
     body = {"status": STATUS_TO_NESTJS["PAUSADO"]}
     if motivo:
         body["notes"] = motivo
-    result = api_put(f"/api/v1/tickets/{ticket_id}", body)
+    result = api_put(f"/api/v1/tickets/{ticket_uuid}", body)
     return result is not None
 
 
 def finalizar_ticket(ticket_id, *, motivo: str = "") -> bool:
     """Mueve el ticket a RESUELTO (finished en NestJS)."""
+    ticket_uuid = _resolve_ticket_uuid(ticket_id)
+    if not ticket_uuid:
+        logger.error("finalizar_ticket: no se pudo resolver UUID para idCode=%s", ticket_id)
+        return False
     body = {"status": STATUS_TO_NESTJS["RESUELTO"]}
     if motivo:
         body["notes"] = motivo
-    result = api_put(f"/api/v1/tickets/{ticket_id}", body)
+    result = api_put(f"/api/v1/tickets/{ticket_uuid}", body)
     ok = result is not None
     if ok:
         logger.info("finalizar_ticket: ticket=%s", ticket_id)
@@ -439,8 +469,12 @@ def actualizar_estado_ticket(ticket_id, nuevo_estado: str) -> bool:
     if estado in ("RESUELTO", "COMPLETADO"):
         return finalizar_ticket(ticket_id)
     # Fallback genérico
+    ticket_uuid = _resolve_ticket_uuid(ticket_id)
+    if not ticket_uuid:
+        logger.error("actualizar_estado_ticket: no se pudo resolver UUID para idCode=%s", ticket_id)
+        return False
     result = api_put(
-        f"/api/v1/tickets/{ticket_id}",
+        f"/api/v1/tickets/{ticket_uuid}",
         {"status": STATUS_TO_NESTJS.get(estado, estado.lower())},
     )
     ok = result is not None
@@ -459,8 +493,12 @@ def actualizar_area_ticket(ticket_id, nueva_area: str) -> bool:
     Actualiza el área de un ticket.
     Stub compat → PUT /api/v1/tickets/:id con areaCode.
     """
+    ticket_uuid = _resolve_ticket_uuid(ticket_id)
+    if not ticket_uuid:
+        logger.error("actualizar_area_ticket: no se pudo resolver UUID para idCode=%s", ticket_id)
+        return False
     area_code = AREA_TO_NESTJS.get(nueva_area.upper(), nueva_area.upper())
-    result = api_put(f"/api/v1/tickets/{ticket_id}", {"areaCode": area_code})
+    result = api_put(f"/api/v1/tickets/{ticket_uuid}", {"areaCode": area_code})
     ok = result is not None
     if ok:
         logger.info("actualizar_area_ticket: ticket=%s → %s", ticket_id, area_code)
