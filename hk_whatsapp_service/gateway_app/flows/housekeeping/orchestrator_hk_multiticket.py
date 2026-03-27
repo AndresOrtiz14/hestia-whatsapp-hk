@@ -378,6 +378,7 @@ def handle_hk_message_simple(from_phone: str, text: str, tenant=None) -> None:
         # 4) Comandos globales
         if es_comando_reportar(raw):
             iniciar_reporte(from_phone, tenant=tenant)
+            state["state"] = REPORTANDO_HAB
             return
 
         if raw in ['tickets', 'ver tickets', 'mis tickets', 'mis tareas']:
@@ -409,7 +410,7 @@ def handle_hk_message_simple(from_phone: str, text: str, tenant=None) -> None:
             return
         
         if current_state == CONFIRMANDO_REPORTE:
-            handle_confirmando_reporte(from_phone, raw)
+            handle_confirmando_reporte(from_phone, raw, tenant=tenant)
             return
         
         if state["state"] == TRABAJANDO:
@@ -455,8 +456,9 @@ def handle_menu(from_phone: str, raw: str, tenant=None) -> None:
 
         if raw in ['2', 'reportar', 'reportar problema']:
             iniciar_reporte(from_phone, tenant=tenant)
+            state["state"] = REPORTANDO_HAB
             return
-        
+
         if raw in ['3', 'terminar turno', 'fin turno']:
             terminar_turno(from_phone, tenant=tenant)
             return
@@ -678,8 +680,10 @@ def finalizar_ticket_especifico(from_phone: str, ticket_id: int, tenant=None) ->
         return
     
     # Verificar que pertenece al worker
-    huesped_whatsapp = ticket_data.get("huesped_whatsapp", "")
-    if from_phone not in huesped_whatsapp:
+    from gateway_app.services.workers_db import buscar_worker_por_telefono
+    worker = buscar_worker_por_telefono(from_phone, property_id=_property_id)
+    worker_id = worker["id"] if worker else None
+    if not worker_id or ticket_data.get("assigned_to") != worker_id:
         send_whatsapp(from_phone, f"❌ La tarea #{ticket_id} no está asignada a ti\n\n💡 Di 'M' para volver al menú")
         return
     
@@ -895,6 +899,7 @@ def iniciar_reporte(from_phone: str, tenant=None) -> None:
     
     state["state"] = REPORTANDO_HAB
     send_whatsapp(from_phone, mensaje)
+    persist_user_state(from_phone, state)
 
 
 def handle_reportando_habitacion(from_phone: str, text: str) -> None:
@@ -976,7 +981,7 @@ def handle_reportando_detalle(from_phone: str, text: str) -> None:
     send_whatsapp(from_phone, mensaje)
 
 
-def handle_confirmando_reporte(from_phone: str, raw: str) -> None:
+def handle_confirmando_reporte(from_phone: str, raw: str, tenant=None) -> None:
     """
     Maneja la confirmación del reporte.
     """
@@ -1007,10 +1012,9 @@ def handle_confirmando_reporte(from_phone: str, raw: str) -> None:
             send_whatsapp(from_phone, "❌ Me falta la ubicación.\n\n" + mensaje)
             return
 
-        crear_ticket_desde_draft(from_phone)
+        crear_ticket_desde_draft(from_phone, tenant=tenant)
         return
 
-    
     if raw in ['editar', 'cambiar', 'modificar', 'editar ubicacion', 'editar ubicación', 'editar habitacion', 'editar habitación']:
         # ✅ MODIFICADO: Mensaje adaptado
         area_worker = state.get("area_worker", "HOUSEKEEPING")
@@ -1100,7 +1104,7 @@ def crear_ticket_directo_DESPUES(from_phone: str, reporte: dict, area_worker: st
         send_whatsapp(from_phone, "❌ Error creando el ticket. Intenta de nuevo.\n\n💡 Di 'M' para volver al menú")
 
 
-def crear_ticket_desde_draft(from_phone: str) -> None:
+def crear_ticket_desde_draft(from_phone: str, tenant=None) -> None:
     """
     Crea ticket desde el borrador y notifica al supervisor.
     ✅ MODIFICADO: Solo notifica a supervisores en horario laboral (7:30 AM - 11:30 PM)
