@@ -214,12 +214,12 @@ def maybe_handle_tomar_anywhere(from_phone: str, text: str, state: dict) -> bool
         return maybe_handle_tomar_anywhere(from_phone, f"tomar {unico_id}", state)
 
     # Hay varios asignados: pedir ID explícito
-    ids = ", ".join([str(t.get("id")) for t in asignados[:8]])
+    ids = ", ".join([str(t.get("id_code") or t.get("id")) for t in asignados[:8]])
     send_whatsapp(
         from_phone,
         "📋 Tienes varias tareas asignadas.\n"
         "Indica cuál quieres tomar:\n\n"
-        f"Ejemplo: 'tomar {asignados[0]['id']}'\n"
+        f"Ejemplo: 'tomar {asignados[0].get('id_code') or asignados[0]['id']}'\n"
         f"Asignadas: {ids}"
     )
     return True
@@ -552,7 +552,7 @@ def mostrar_tickets_activos(from_phone: str) -> None:
             tiempo_mins = 0
         
         lineas.append(
-            f"{prioridad_emoji} #{ticket['id']} · Hab. {ubicacion} · {tiempo_mins} min\n"
+            f"{prioridad_emoji} #{ticket.get('id_code') or ticket['id']} · Hab. {ubicacion} · {tiempo_mins} min\n"
             f"   {detalle}"
         )
     
@@ -651,8 +651,8 @@ def finalizar_ticket_interactivo(from_phone: str) -> None:
         
         for ticket in tickets_en_curso:
             ubicacion = ticket.get("ubicacion") or ticket.get("habitacion", "?")
-            lineas.append(f"• #{ticket['id']} - Hab. {ubicacion}")
-        
+            lineas.append(f"• #{ticket.get('id_code') or ticket['id']} - Hab. {ubicacion}")
+
         lineas.append("\n💡 Indica cuál: 'fin [#]'")
         send_whatsapp(from_phone, "\n".join(lineas))
 
@@ -807,8 +807,8 @@ def pausar_ticket_interactivo(from_phone: str) -> None:
         
         for ticket in tickets_en_curso:
             ubicacion = ticket.get("ubicacion") or ticket.get("habitacion", "?")
-            lineas.append(f"• #{ticket['id']} - Hab. {ubicacion}")
-        
+            lineas.append(f"• #{ticket.get('id_code') or ticket['id']} - Hab. {ubicacion}")
+
         lineas.append("\n💡 Indica cuál: 'pausar [#]'")
         send_whatsapp(from_phone, "\n".join(lineas))
 

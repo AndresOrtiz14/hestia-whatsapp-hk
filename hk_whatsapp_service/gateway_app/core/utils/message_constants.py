@@ -233,7 +233,7 @@ def formatear_linea_ticket(
         🟡 #123 · Hab. 305
            Fuga de agua en baño
     """
-    tid = t.get("id", "?")
+    tid = t.get("id_code") or t.get("id", "?")
     pri = emoji_prioridad(t.get("prioridad", "MEDIA"))
     ubi = ubicacion_corta(t)
     det = detalle_de_ticket(t)
