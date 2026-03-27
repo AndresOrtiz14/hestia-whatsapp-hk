@@ -212,6 +212,7 @@ def asignar_ticket(
     asignado_a_nombre: str = "",   # absorbe el 3er arg de la firma vieja
     *,
     asignado_por: str = "",
+    property_id: str = None,
 ) -> bool:
     """
     Asigna el ticket a un worker y lo mueve a estado assigned.
@@ -223,7 +224,7 @@ def asignar_ticket(
     Si worker_id no parece un UUID se asume que es un teléfono y se busca
     el UUID correspondiente via workers_db.
     """
-    ticket_uuid = _resolve_ticket_uuid(ticket_id)
+    ticket_uuid = _resolve_ticket_uuid(ticket_id, property_id=property_id)
     if not ticket_uuid:
         logger.error("asignar_ticket: no se pudo resolver UUID para idCode=%s", ticket_id)
         return False

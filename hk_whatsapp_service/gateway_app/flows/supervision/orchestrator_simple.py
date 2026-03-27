@@ -228,9 +228,10 @@ def handle_supervisor_message_simple(from_phone: str, text: str, tenant=None) ->
                 # ✅ IMPORTS EXPLÍCITOS (evita UnboundLocalError/NameError)
                 from gateway_app.services.tickets_db import asignar_ticket
 
+                property_id = conf.get("property_id") or (tenant.property_id if tenant else None)
                 worker_id = worker.get("id") or worker_phone
-                if asignar_ticket(ticket_id, worker_id, worker_nombre):
-                    ticket = (obtener_ticket_por_id(ticket_id) or {})
+                if asignar_ticket(ticket_id, worker_id, worker_nombre, property_id=property_id):
+                    ticket = (obtener_ticket_por_id(ticket_id, property_id=property_id) or {})
 
                     # Tomar datos reales del ticket (con fallback al conf)
                     detalle = (
@@ -666,7 +667,7 @@ def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
         worker_phone = worker.get("telefono")
         worker_nombre = worker.get("nombre_completo", worker.get("nombre"))
         
-        if asignar_ticket(ticket_id, worker_phone, worker_nombre):
+        if asignar_ticket(ticket_id, worker_phone, worker_nombre, property_id=tenant.property_id if tenant else None):
             # Notificar al supervisor
             confirmar_asignacion(from_phone, ticket_id, worker)
             
@@ -1185,9 +1186,10 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
             worker_nombre = mucama_seleccionada.get("nombre_completo") or mucama_seleccionada.get("username")
             
             from gateway_app.services.tickets_db import asignar_ticket
-            if asignar_ticket(ticket_id, worker_phone, worker_nombre):
+            _prop_id = seleccion_info.get("property_id") or (tenant.property_id if tenant else None)
+            if asignar_ticket(ticket_id, worker_phone, worker_nombre, property_id=_prop_id):
                 ubicacion = seleccion_info.get("ubicacion") or seleccion_info.get("habitacion") or "?"
-                ticket = obtener_ticket_por_id(ticket_id)
+                ticket = obtener_ticket_por_id(ticket_id, property_id=_prop_id)
                 detalle = (ticket.get("detalle") or "—").strip()
 
                 send_whatsapp(
@@ -1224,7 +1226,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
             
             # Obtener ticket para guardar worker original
             from gateway_app.services.tickets_db import asignar_ticket
-            ticket = obtener_ticket_por_id(ticket_id)
+            ticket = obtener_ticket_por_id(ticket_id, property_id=tenant.property_id if tenant else None)
             
             if not ticket:
                 send_whatsapp(from_phone, f"❌ No encontré la tarea #{ticket_id}")
@@ -1256,7 +1258,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
                 worker_phone = worker.get("telefono")
                 worker_nombre_completo = worker.get("nombre_completo", worker.get("nombre"))
                 
-                if asignar_ticket(ticket_id, worker_phone, worker_nombre_completo):
+                if asignar_ticket(ticket_id, worker_phone, worker_nombre_completo, property_id=tenant.property_id if tenant else None):
                     ubicacion = ticket.get("ubicacion") or ticket.get("habitacion", "?")
                     detalle = ticket.get("detalle", "Sin detalle")
                     prioridad = ticket.get("prioridad", "MEDIA")
@@ -1469,7 +1471,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
             return True
 
         # Traer ticket para armar confirmaciones con datos reales
-        ticket = obtener_ticket_por_id(ticket_id) or {}
+        ticket = obtener_ticket_por_id(ticket_id, property_id=tenant.property_id if tenant else None) or {}
         detalle = ticket.get("detalle") or ticket.get("descripcion") or "Tarea asignada"
         prioridad = str(ticket.get("prioridad") or "MEDIA").upper()
         ubicacion = ticket.get("ubicacion") or ticket.get("habitacion") or "?"
@@ -1485,6 +1487,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
                 "detalle": detalle,
                 "prioridad": prioridad,
                 "ubicacion": ubicacion,
+                "property_id": tenant.property_id if tenant else None,
             }
             persist_supervisor_state(from_phone, state)
 
@@ -1567,7 +1570,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
             worker_phone = worker.get("telefono")
             worker_nombre_completo = worker.get("nombre_completo", worker.get("nombre"))
             
-            if asignar_ticket(ticket_id, worker_phone, worker_nombre_completo):
+            if asignar_ticket(ticket_id, worker_phone, worker_nombre_completo, property_id=tenant.property_id if tenant else None):
                 ubicacion = ticket.get("ubicacion") or ticket.get("habitacion", "?")
                 detalle = ticket.get("detalle", "Sin detalle")
                 prioridad = ticket.get("prioridad", "MEDIA")
@@ -1865,9 +1868,9 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
                 worker_nombre_completo = worker.get("nombre_completo") or worker.get("username")
                 
                 # ✅ Asignar en BD
-                if asignar_ticket(ticket_id, worker_phone, worker_nombre_completo):
+                if asignar_ticket(ticket_id, worker_phone, worker_nombre_completo, property_id=tenant.property_id if tenant else None):
                     # Obtener datos completos del ticket
-                    ticket_data = obtener_ticket_por_id(ticket_id)
+                    ticket_data = obtener_ticket_por_id(ticket_id, property_id=tenant.property_id if tenant else None)
                     habitacion = ticket_data.get("ubicacion") or ticket_data.get("habitacion", "?")
                     detalle = ticket_data.get("detalle", "Tarea asignada")
                     prioridad = ticket_data.get("prioridad", "MEDIA")
