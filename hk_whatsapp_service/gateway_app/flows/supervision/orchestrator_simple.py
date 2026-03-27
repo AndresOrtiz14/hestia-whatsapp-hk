@@ -80,8 +80,11 @@ def calcular_tiempo_desde(fecha_str: str) -> str:
         logger.warning(f"Error calculando tiempo desde {fecha_str}")
         return "?"
 
-def notificar_worker_nueva_tarea(worker_phone: str, ticket_id: int, 
-                                  ubicacion: str, detalle: str, prioridad: str) -> None:
+def notificar_worker_nueva_tarea(
+    worker_phone: str, ticket_id: int,
+    ubicacion: str, detalle: str, prioridad: str,
+    token: str = None, phone_number_id: str = None,
+) -> None:
     """
     Envía notificación de nueva tarea al worker + reenvía media asociada si existe.
     """
@@ -94,6 +97,8 @@ def notificar_worker_nueva_tarea(worker_phone: str, ticket_id: int,
     send_whatsapp_text(
         to=worker_phone,
         body=msg_worker_nueva_tarea(ticket_id, ubicacion, detalle, prioridad),
+        token=token,
+        phone_number_id=phone_number_id,
     )
 
     # 2) Reenviar media asociada (si existe)
@@ -102,23 +107,27 @@ def notificar_worker_nueva_tarea(worker_phone: str, ticket_id: int,
         for media in medias:
             storage_url = media.get("storage_url")
             media_type = media.get("media_type", "image")
-            
+
             if not storage_url:
                 continue
-            
+
             caption = f"📎 Foto de tarea #{ticket_id}"
-            
+
             if media_type == "video":
                 send_whatsapp_video(
                     to=worker_phone,
                     video_url=storage_url,
                     caption=caption,
+                    token=token,
+                    phone_number_id=phone_number_id,
                 )
             else:
                 send_whatsapp_image(
                     to=worker_phone,
                     image_url=storage_url,
                     caption=caption,
+                    token=token,
+                    phone_number_id=phone_number_id,
                 )
             logger.info(f"📤 Media reenviada a worker {worker_phone} | Ticket #{ticket_id} | {media_type}")
     except Exception as e:
@@ -249,7 +258,11 @@ def handle_supervisor_message_simple(from_phone: str, text: str, tenant=None) ->
                     )
 
                     # 2) Notificación al worker
-                    notificar_worker_nueva_tarea(worker_phone, ticket_id, ubicacion, detalle, prioridad)
+                    notificar_worker_nueva_tarea(
+                        worker_phone, ticket_id, ubicacion, detalle, prioridad,
+                        token=tenant.wa_token if tenant else None,
+                        phone_number_id=tenant.phone_number_id if tenant else None,
+                    )
 
                     # Limpiar estado de confirmación
                     state.pop("confirmacion_pendiente", None)
