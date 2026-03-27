@@ -190,7 +190,7 @@ def obtener_tickets_worker(
         property_id = _default_property_id()
 
     from gateway_app.services.workers_db import buscar_worker_por_telefono
-    worker = buscar_worker_por_telefono(worker_phone)
+    worker = buscar_worker_por_telefono(worker_phone, property_id=property_id)
     if not worker:
         logger.info("obtener_tickets_worker: no worker para phone=%s", worker_phone)
         return []

@@ -108,7 +108,7 @@ def _extract_ticket_id_any(s: str):
     m = re.search(r"\b(\d+)\b", s or "")
     return int(m.group(1)) if m else None
 
-def maybe_handle_tomar_anywhere(from_phone: str, text: str, state: dict) -> bool:
+def maybe_handle_tomar_anywhere(from_phone: str, text: str, state: dict, tenant=None) -> bool:
     """
     Maneja 'tomar' desde cualquier estado.
     Regla: si el mensaje incluye un número -> tomar ese ticket_id (no "el siguiente").
@@ -140,7 +140,8 @@ def maybe_handle_tomar_anywhere(from_phone: str, text: str, state: dict) -> bool
         ticket_id = int(m.group(1))
 
         # ✅ VALIDAR ASIGNACIÓN contra "mis tickets" (fuente consistente)
-        tickets_mios = obtener_tickets_por_worker(from_phone) or []
+        _property_id = tenant.property_id if tenant else None
+        tickets_mios = obtener_tickets_por_worker(from_phone, property_id=_property_id) or []
         ticket = next(
             (t for t in tickets_mios if str(t.get("id")) == str(ticket_id)),
             None
@@ -184,7 +185,7 @@ def maybe_handle_tomar_anywhere(from_phone: str, text: str, state: dict) -> bool
         p_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
 
         # Conteo activos
-        tickets = obtener_tickets_por_worker(from_phone) or []
+        tickets = obtener_tickets_por_worker(from_phone, property_id=_property_id) or []
         activos = [t for t in tickets if str(t.get("estado", "")).upper() == "EN_CURSO"]
 
         send_whatsapp(
@@ -201,7 +202,7 @@ def maybe_handle_tomar_anywhere(from_phone: str, text: str, state: dict) -> bool
     # 2) Caso: "tomar" sin número -> tomar SOLO si hay 1 ASIGNADO; si hay varios, pedir cuál
     from gateway_app.services.tickets_db import obtener_tickets_por_worker
 
-    tickets = obtener_tickets_por_worker(from_phone) or []
+    tickets = obtener_tickets_por_worker(from_phone, property_id=tenant.property_id if tenant else None) or []
     asignados = [t for t in tickets if str(t.get("estado", "")).upper() == "ASIGNADO"]
 
     if not asignados:
@@ -211,7 +212,7 @@ def maybe_handle_tomar_anywhere(from_phone: str, text: str, state: dict) -> bool
     if len(asignados) == 1:
         # Re-entrar usando el ID del único asignado (misma ruta que arriba)
         unico_id = int(asignados[0]["id"])
-        return maybe_handle_tomar_anywhere(from_phone, f"tomar {unico_id}", state)
+        return maybe_handle_tomar_anywhere(from_phone, f"tomar {unico_id}", state, tenant=tenant)
 
     # Hay varios asignados: pedir ID explícito
     ids = ", ".join([str(t.get("id_code") or t.get("id")) for t in asignados[:8]])
@@ -248,7 +249,7 @@ def handle_hk_message_simple(from_phone: str, text: str, tenant=None) -> None:
         logger.info(f"🏨 HK | {from_phone} | Comando: '{raw[:30]}...'")
 
         # ✅ PEGAR AQUÍ (antes de saludo/menú)
-        if maybe_handle_tomar_anywhere(from_phone, text, state):
+        if maybe_handle_tomar_anywhere(from_phone, text, state, tenant=tenant):
             return
         
         # ✅ NUEVO: Detectar y guardar área del worker

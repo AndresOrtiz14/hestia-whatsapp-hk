@@ -438,7 +438,7 @@ def msg_worker_nueva_tarea(
         f"🔔 Nueva tarea asignada\n\n"
         f"{pri} #{ticket_id} · {ubi_fmt}\n"
         f"📝 {detalle}\n\n"
-        f"💡 Di 'tomar' para comenzar"
+        f"💡 Di 'tomar {ticket_id}' para comenzar"
     )
 
 
