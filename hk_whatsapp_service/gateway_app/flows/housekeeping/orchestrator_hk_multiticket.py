@@ -143,13 +143,13 @@ def maybe_handle_tomar_anywhere(from_phone: str, text: str, state: dict, tenant=
         _property_id = tenant.property_id if tenant else None
         tickets_mios = obtener_tickets_por_worker(from_phone, property_id=_property_id) or []
         ticket = next(
-            (t for t in tickets_mios if str(t.get("id")) == str(ticket_id)),
+            (t for t in tickets_mios if str(t.get("id_code")) == str(ticket_id)),
             None
         )
 
         # Si no está en mis tickets, ahí sí reviso si existe para dar mejor mensaje
         if not ticket:
-            ticket_existe = obtener_ticket_por_id(ticket_id)
+            ticket_existe = obtener_ticket_por_id(ticket_id, property_id=_property_id)
             if not ticket_existe:
                 send_whatsapp(from_phone, f"❌ No encontré la tarea #{ticket_id}.")
             else:
@@ -170,7 +170,7 @@ def maybe_handle_tomar_anywhere(from_phone: str, text: str, state: dict, tenant=
             send_whatsapp(from_phone, f"⚠️ La tarea #{ticket_id} está en estado {estado} y no se puede 'tomar'.")
             return True
 
-        ok = actualizar_ticket_estado(ticket_id, "EN_CURSO")
+        ok = actualizar_ticket_estado(ticket.get("id"), "EN_CURSO")
         if not ok:
             send_whatsapp(from_phone, "❌ No pude tomar la tarea. Intenta de nuevo.")
             return True
