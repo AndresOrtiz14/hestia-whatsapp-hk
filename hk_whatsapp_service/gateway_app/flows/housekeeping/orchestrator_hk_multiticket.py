@@ -377,27 +377,27 @@ def handle_hk_message_simple(from_phone: str, text: str, tenant=None) -> None:
         
         # 4) Comandos globales
         if es_comando_reportar(raw):
-            iniciar_reporte(from_phone)
+            iniciar_reporte(from_phone, tenant=tenant)
             return
-        
+
         if raw in ['tickets', 'ver tickets', 'mis tickets', 'mis tareas']:
-            mostrar_tickets(from_phone)
+            mostrar_tickets(from_phone, tenant=tenant)
             return
-        
+
         # ✅ NUEVO: Ver tickets activos (en progreso)
         if raw in ['activos', 'en curso', 'trabajando', 'progreso']:
-            mostrar_tickets_activos(from_phone)
+            mostrar_tickets_activos(from_phone, tenant=tenant)
             return
-        
+
         # 5) Routing por estado
         current_state = state.get("state")
-        
+
         if current_state == MENU:
             handle_menu(from_phone, raw, tenant=tenant)
             return
-        
+
         if current_state == VIENDO_TICKETS:
-            handle_viendo_tickets(from_phone, raw)
+            handle_viendo_tickets(from_phone, raw, tenant=tenant)
             return
 
         if current_state == REPORTANDO_HAB:
@@ -450,11 +450,11 @@ def handle_menu(from_phone: str, raw: str, tenant=None) -> None:
     if turno_activo:
         # Menú con turno activo
         if raw in ['1', 'ver tickets', 'tickets']:
-            mostrar_tickets(from_phone)
+            mostrar_tickets(from_phone, tenant=tenant)
             return
-        
+
         if raw in ['2', 'reportar', 'reportar problema']:
-            iniciar_reporte(from_phone)
+            iniciar_reporte(from_phone, tenant=tenant)
             return
         
         if raw in ['3', 'terminar turno', 'fin turno']:
@@ -481,7 +481,7 @@ def handle_menu(from_phone: str, raw: str, tenant=None) -> None:
         "❌ Opción no válida\n\n" + texto_menu_simple(turno_activo)
     )
 
-def handle_viendo_tickets(from_phone: str, raw: str) -> None:
+def handle_viendo_tickets(from_phone: str, raw: str, tenant=None) -> None:
     """
     Maneja acciones cuando está viendo tickets.
     
@@ -496,21 +496,21 @@ def handle_viendo_tickets(from_phone: str, raw: str) -> None:
 
     # Comando: tomar
     if es_comando_tomar(raw):
-        tomar_ticket(from_phone)
+        tomar_ticket(from_phone, tenant=tenant)
         return
-    
+
     # Volver
     send_whatsapp(from_phone, "💡 Di 'tomar' o 'M'")
 
 
-def mostrar_tickets(from_phone: str) -> None:
+def mostrar_tickets(from_phone: str, tenant=None) -> None:
     """
     Muestra tickets (tareas) asignados al worker desde la BD real: public.tickets
     """
     verificar_turno_activo(from_phone, tenant=tenant)
     state = get_user_state(from_phone)
-
-    mis_tickets = obtener_tickets_asignados_a(from_phone)
+    _pid = tenant.property_id if tenant else None
+    mis_tickets = obtener_tickets_asignados_a(from_phone, property_id=_pid)
 
     mensaje = texto_lista_tickets(mis_tickets)
     send_whatsapp(from_phone, mensaje)
@@ -518,11 +518,12 @@ def mostrar_tickets(from_phone: str) -> None:
     state["state"] = VIENDO_TICKETS
 
 
-def mostrar_tickets_activos(from_phone: str) -> None:
+def mostrar_tickets_activos(from_phone: str, tenant=None) -> None:
     """
     ✅ NUEVO: Muestra solo los tickets EN_CURSO del worker.
     """
-    tickets = obtener_tickets_asignados_a(from_phone)
+    _pid = tenant.property_id if tenant else None
+    tickets = obtener_tickets_asignados_a(from_phone, property_id=_pid)
     tickets_activos = [t for t in tickets if t.get('estado') == 'EN_CURSO']
     
     if not tickets_activos:
@@ -562,19 +563,19 @@ def mostrar_tickets_activos(from_phone: str) -> None:
     send_whatsapp(from_phone, "\n".join(lineas))
 
 
-def tomar_ticket(from_phone: str) -> None:
+def tomar_ticket(from_phone: str, tenant=None) -> None:
     """
     ✅ MODIFICADO: Permite tomar múltiples tickets.
     Ya no verifica si hay ticket activo, solo toma el siguiente disponible.
     """
     verificar_turno_activo(from_phone, tenant=tenant)
     state = get_user_state(from_phone)
-    
+
     # ✅ Buscar tickets ASIGNADOS desde BD
     from gateway_app.services.tickets_db import obtener_tickets_asignados_a, actualizar_estado_ticket
     from gateway_app.services.db import execute
-    
-    tickets = obtener_tickets_asignados_a(from_phone)
+    _pid = tenant.property_id if tenant else None
+    tickets = obtener_tickets_asignados_a(from_phone, property_id=_pid)
     tickets_asignados = [t for t in tickets if t.get('estado') == 'ASIGNADO']
     
     if not tickets_asignados:
@@ -877,10 +878,10 @@ def reanudar_ticket_especifico(from_phone: str, ticket_id: int) -> None:
         send_whatsapp(from_phone, "❌ Error reanudando tarea\n\n💡 Di 'M' para volver al menú")
 
 
-def iniciar_reporte(from_phone: str) -> None:
+def iniciar_reporte(from_phone: str, tenant=None) -> None:
     """
     Inicia el flujo de reportar problema.
-    
+
     Args:
         from_phone: Número de teléfono
     """
