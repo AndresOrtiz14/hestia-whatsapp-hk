@@ -295,10 +295,10 @@ def handle_hk_message_simple(from_phone: str, text: str, tenant=None) -> None:
             if match:
                 # Tiene número específico
                 ticket_id = int(match.group(1))
-                finalizar_ticket_especifico(from_phone, ticket_id)
+                finalizar_ticket_especifico(from_phone, ticket_id, tenant=tenant)
             else:
                 # Sin número: finalizar el único activo o preguntar cuál
-                finalizar_ticket_interactivo(from_phone)
+                finalizar_ticket_interactivo(from_phone, tenant=tenant)
             return
         
         # ✅ 2.4) COMANDO GLOBAL: Pausar ticket (con o sin número)
@@ -631,21 +631,22 @@ def tomar_ticket(from_phone: str) -> None:
         send_whatsapp(from_phone, "❌ Error tomando tarea. Intenta de nuevo.\n\n💡 Di 'M' para volver al menú")
 
 
-def finalizar_ticket_interactivo(from_phone: str) -> None:
+def finalizar_ticket_interactivo(from_phone: str, tenant=None) -> None:
     """
     ✅ NUEVO: Finaliza ticket de forma interactiva.
     Si tiene uno solo, lo finaliza. Si tiene varios, pide cuál.
     """
-    tickets = obtener_tickets_asignados_a(from_phone)
+    _property_id = tenant.property_id if tenant else None
+    tickets = obtener_tickets_asignados_a(from_phone, property_id=_property_id)
     tickets_en_curso = [t for t in tickets if t.get('estado') == 'EN_CURSO']
-    
+
     if not tickets_en_curso:
         send_whatsapp(from_phone, "⚠️ No tienes ninguna tarea activa\n\n💡 Di 'M' para volver al menú")
         return
-    
+
     if len(tickets_en_curso) == 1:
-        # Solo una: finalizar directamente
-        finalizar_ticket_especifico(from_phone, tickets_en_curso[0]['id'])
+        # Solo una: finalizar directamente (usar id_code para consistencia)
+        finalizar_ticket_especifico(from_phone, tickets_en_curso[0].get('id_code') or tickets_en_curso[0]['id'], tenant=tenant)
     else:
         # Varias: preguntar cuál
         lineas = [f"Tienes {len(tickets_en_curso)} tareas activas:\n"]
@@ -658,16 +659,18 @@ def finalizar_ticket_interactivo(from_phone: str) -> None:
         send_whatsapp(from_phone, "\n".join(lineas))
 
 
-def finalizar_ticket_especifico(from_phone: str, ticket_id: int) -> None:
+def finalizar_ticket_especifico(from_phone: str, ticket_id: int, tenant=None) -> None:
     """
     ✅ NUEVO: Finaliza un ticket específico por su ID.
     """
     from gateway_app.services.tickets_db import actualizar_estado_ticket, obtener_ticket_por_id
     from gateway_app.services.db import execute
     from datetime import datetime
-    
+
+    _property_id = tenant.property_id if tenant else None
+
     # Verificar que el ticket existe y está EN_CURSO
-    ticket_data = obtener_ticket_por_id(ticket_id)
+    ticket_data = obtener_ticket_por_id(ticket_id, property_id=_property_id)
     
     if not ticket_data:
         send_whatsapp(from_phone, f"❌ No encontré la tarea #{ticket_id}\n\n💡 Di 'M' para volver al menú")
@@ -685,7 +688,7 @@ def finalizar_ticket_especifico(from_phone: str, ticket_id: int) -> None:
         return
     
 # ✅ Actualizar estado en BD: EN_CURSO → RESUELTO
-    if actualizar_estado_ticket(ticket_id, "RESUELTO"):
+    if actualizar_estado_ticket(ticket_data.get("id"), "RESUELTO"):
         # ✅ FIX A7: Usar timezone-aware para compatibilidad con PostgreSQL TIMESTAMPTZ
         from datetime import timezone
         now = datetime.now(timezone.utc)
