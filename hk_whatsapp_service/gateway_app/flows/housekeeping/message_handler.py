@@ -65,7 +65,8 @@ def handle_hk_message_with_audio(
             return
         
         # Transcribir audio usando el servicio existente
-        result = transcribe_hk_audio(media_id)
+        wa_token = tenant.wa_token if tenant else None
+        result = transcribe_hk_audio(media_id, token=wa_token)
         
         if not result["success"]:
             # Error en transcripción

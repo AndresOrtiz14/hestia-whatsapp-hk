@@ -395,22 +395,27 @@ def handle_hk_message_simple(from_phone: str, text: str, tenant=None) -> None:
 
         if current_state == MENU:
             handle_menu(from_phone, raw, tenant=tenant)
+            state = get_user_state(from_phone)
             return
 
         if current_state == VIENDO_TICKETS:
             handle_viendo_tickets(from_phone, raw, tenant=tenant)
+            state = get_user_state(from_phone)
             return
 
         if current_state == REPORTANDO_HAB:
             handle_reportando_habitacion(from_phone, text)
+            state = get_user_state(from_phone)
             return
-        
+
         if current_state == REPORTANDO_DETALLE:
             handle_reportando_detalle(from_phone, text)
+            state = get_user_state(from_phone)
             return
-        
+
         if current_state == CONFIRMANDO_REPORTE:
             handle_confirmando_reporte(from_phone, raw, tenant=tenant)
+            state = get_user_state(from_phone)
             return
         
         if state["state"] == TRABAJANDO:
@@ -923,7 +928,7 @@ def handle_reportando_habitacion(from_phone: str, text: str) -> None:
         state["ticket_draft"]["detalle"] = reporte_completo["detalle"]
         state["ticket_draft"]["prioridad"] = reporte_completo["prioridad"]
         state["state"] = CONFIRMANDO_REPORTE
-        
+
         # ✅ MODIFICADO: Confirmación adaptada
         mensaje = texto_confirmar_reporte_adaptado(
             reporte_completo["ubicacion"],
@@ -932,6 +937,7 @@ def handle_reportando_habitacion(from_phone: str, text: str) -> None:
             area_worker
         )
         send_whatsapp(from_phone, mensaje)
+        persist_user_state(from_phone, state)
         return
     
     # ✅ MODIFICADO: Extracción adaptada
@@ -953,8 +959,9 @@ def handle_reportando_habitacion(from_phone: str, text: str) -> None:
     state["ticket_draft"]["habitacion"] = ubic
     state["draft_habitacion"] = ubic
     state["state"] = REPORTANDO_DETALLE
-    
+
     send_whatsapp(from_phone, texto_pedir_detalle())
+    persist_user_state(from_phone, state)
 
 
 def handle_reportando_detalle(from_phone: str, text: str) -> None:
@@ -970,7 +977,7 @@ def handle_reportando_detalle(from_phone: str, text: str) -> None:
     draft["detalle"] = text
     draft["prioridad"] = detectar_prioridad(text)
     state["state"] = CONFIRMANDO_REPORTE
-    
+
     # ✅ MODIFICADO: Usar campo genérico y función adaptada
     mensaje = texto_confirmar_reporte_adaptado(
         draft.get("ubicacion", draft.get("habitacion", "?")),  # Compatibilidad
@@ -979,6 +986,7 @@ def handle_reportando_detalle(from_phone: str, text: str) -> None:
         area_worker
     )
     send_whatsapp(from_phone, mensaje)
+    persist_user_state(from_phone, state)
 
 
 def handle_confirmando_reporte(from_phone: str, raw: str, tenant=None) -> None:
@@ -1021,25 +1029,29 @@ def handle_confirmando_reporte(from_phone: str, raw: str, tenant=None) -> None:
         mensaje = get_texto_por_area(area_worker, "ubicacion_pregunta")
         state["state"] = REPORTANDO_HAB
         send_whatsapp(from_phone, mensaje)
+        persist_user_state(from_phone, state)
         return
-    
+
     if raw in ['editar detalle', 'cambiar detalle']:
         state["state"] = REPORTANDO_DETALLE
         send_whatsapp(from_phone, texto_pedir_detalle())
+        persist_user_state(from_phone, state)
         return
-    
+
     if raw in ['cancelar', 'cancel', 'no']:
         reset_ticket_draft(from_phone)
         state["state"] = MENU
         send_whatsapp(from_phone, "❌ Reporte cancelado\n\n💡 Di 'M' para volver al menú")
+        persist_user_state(from_phone, state)
         return
-    
+
     if raw in ['m', 'menu', 'menú', 'volver']:
         reset_ticket_draft(from_phone)
         from .ui_simple import texto_menu_simple
         turno_activo = state.get("turno_activo", False)
         send_whatsapp(from_phone, texto_menu_simple(turno_activo))
         state["state"] = MENU
+        persist_user_state(from_phone, state)
         return
     
     habitacion = draft.get("habitacion") or draft.get("ubicacion") or "?"
@@ -1211,20 +1223,19 @@ def crear_ticket_desde_draft(from_phone: str, tenant=None) -> None:
                 # ✅ EN HORARIO: Notificar supervisores normalmente
                 logger.info(f"✅ Ticket #{ticket_id} creado EN horario laboral - Notificando {len(supervisor_phones)} supervisores")
 
-                from gateway_app.services.whatsapp_client import send_whatsapp_text
                 from gateway_app.services.workers_db import buscar_worker_por_telefono
 
                 worker = buscar_worker_por_telefono(from_phone, property_id=tenant.property_id if tenant else "")
                 worker_nombre = worker.get("nombre_completo") if worker else "Trabajador"
-                
+
                 for supervisor_phone in supervisor_phones:
-                    send_whatsapp_text(
-                        to=supervisor_phone,
-                        body=f"📋 Nuevo reporte de {worker_nombre}\n\n"
-                             f"#{ticket_id} · {ubicacion}\n"
-                             f"{draft['detalle']}\n"
-                             f"{prioridad_emoji} Prioridad: {draft['prioridad']}\n\n"
-                             f"💡 Di 'asignar {ticket_id} a [nombre]' para derivar"
+                    send_whatsapp(
+                        supervisor_phone,
+                        f"📋 Nuevo reporte de {worker_nombre}\n\n"
+                        f"#{ticket_id} · {ubicacion}\n"
+                        f"{draft['detalle']}\n"
+                        f"{prioridad_emoji} Prioridad: {draft['prioridad']}\n\n"
+                        f"💡 Di 'asignar {ticket_id} a [nombre]' para derivar"
                     )
                     logger.info(f"✅ Notificación enviada a supervisor {supervisor_phone}")
             else:

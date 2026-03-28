@@ -37,7 +37,7 @@ _TRANSCRIBE_PROVIDER = (cfg.TRANSCRIBE_PROVIDER or "openai").lower()
 # ---------------------------------------------------------------------------
 
 
-def _get_media_url(media_id: str) -> str:
+def _get_media_url(media_id: str, token: Optional[str] = None) -> str:
     """
     Given a WhatsApp media_id, ask the Graph API for the actual download URL.
 
@@ -45,7 +45,7 @@ def _get_media_url(media_id: str) -> str:
     Docs:
       https://developers.facebook.com/docs/whatsapp/cloud-api/reference/media
     """
-    token = (cfg.WHATSAPP_CLOUD_TOKEN or "").strip()
+    token = (token or cfg.WHATSAPP_CLOUD_TOKEN or "").strip()
     if not token:
         raise RuntimeError("WHATSAPP_CLOUD_TOKEN is not configured; cannot download audio.")
 
@@ -65,11 +65,11 @@ def _get_media_url(media_id: str) -> str:
     return media_url
 
 
-def _download_media_to_temp(media_url: str) -> str:
+def _download_media_to_temp(media_url: str, token: Optional[str] = None) -> str:
     """
     Download the media file to a temporary file and return its path.
     """
-    token = (cfg.WHATSAPP_CLOUD_TOKEN or "").strip()
+    token = (token or cfg.WHATSAPP_CLOUD_TOKEN or "").strip()
     if not token:
         raise RuntimeError("WHATSAPP_CLOUD_TOKEN is not configured; cannot download audio.")
 
@@ -140,7 +140,7 @@ def _transcribe_with_openai(file_path: str, language: Optional[str] = None) -> s
 # ---------------------------------------------------------------------------
 
 
-def transcribe_whatsapp_audio(media_id: str, language: str = "es") -> str:
+def transcribe_whatsapp_audio(media_id: str, language: str = "es", token: Optional[str] = None) -> str:
     """
     Main entrypoint used by the webhook:
 
@@ -160,8 +160,8 @@ def transcribe_whatsapp_audio(media_id: str, language: str = "es") -> str:
 
     tmp_path: Optional[str] = None
     try:
-        media_url = _get_media_url(media_id)
-        tmp_path = _download_media_to_temp(media_url)
+        media_url = _get_media_url(media_id, token=token)
+        tmp_path = _download_media_to_temp(media_url, token=token)
 
         if _TRANSCRIBE_PROVIDER in {"openai", "whisper", "whisper_openai", "gpt4o"}:
             return _transcribe_with_openai(tmp_path, language=language)

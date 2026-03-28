@@ -4,7 +4,7 @@ Wrapper sobre gateway_app.services.audio para el flujo de trabajadores.
 """
 
 import logging
-from typing import Optional, Dict, Any
+from typing import Dict, Any, Optional
 
 # Importar servicio de audio compartido
 from gateway_app.services.audio import transcribe_whatsapp_audio
@@ -12,7 +12,7 @@ from gateway_app.services.audio import transcribe_whatsapp_audio
 logger = logging.getLogger(__name__)
 
 
-def transcribe_hk_audio(media_id: str) -> Dict[str, Any]:
+def transcribe_hk_audio(media_id: str, token: Optional[str] = None) -> Dict[str, Any]:
     """
     Transcribe un audio de WhatsApp para el flujo de Housekeeping.
     
@@ -42,7 +42,7 @@ def transcribe_hk_audio(media_id: str) -> Dict[str, Any]:
     try:
         # Usar el servicio compartido de audio
         # (ya maneja descarga, transcripción y limpieza)
-        text = transcribe_whatsapp_audio(media_id, language="es")
+        text = transcribe_whatsapp_audio(media_id, language="es", token=token)
         
         if not text:
             return {

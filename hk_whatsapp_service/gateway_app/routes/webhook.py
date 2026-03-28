@@ -181,7 +181,7 @@ def inbound_updated():
                 logger.info(f"   🔄 Transcribiendo audio...")
                 from gateway_app.flows.housekeeping.audio_integration import transcribe_hk_audio
 
-                result = transcribe_hk_audio(message_data["media_id"])
+                result = transcribe_hk_audio(message_data["media_id"], token=_wa_token)
 
                 if result["success"]:
                     logger.info(f"   ✅ Transcripción: '{result['text'][:50]}...'")
