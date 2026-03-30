@@ -55,6 +55,15 @@ def verificar_y_activar_turno_auto(from_phone: str, state: dict, tenant=None) ->
         logger.warning("⚠️ TURNO_AUTO: Worker no encontrado → skip")
         return None
 
+    # 3. Si NestJS ya reporta turno activo (ej: tras restart del servidor),
+    #    sincronizar estado local y no re-activar
+    if worker.get("turno_activo", False):
+        logger.info("🔍 TURNO_AUTO: NestJS confirma turno activo → sync estado local y skip")
+        state["turno_activo"] = True
+        from gateway_app.flows.housekeeping.state_simple import persist_user_state
+        persist_user_state(from_phone, state)
+        return None
+
     # ✅ ACTIVAR TURNO AUTOMÁTICAMENTE
     logger.info(f"🟢 TURNO_AUTO: Activando turno para {from_phone}")
 

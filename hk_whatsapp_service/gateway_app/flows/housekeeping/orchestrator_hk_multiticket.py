@@ -703,7 +703,7 @@ def finalizar_ticket_especifico(from_phone: str, ticket_id: int, tenant=None) ->
         from datetime import timezone
         now = datetime.now(timezone.utc)
         execute(
-            "UPDATE public.tickets SET finished_at = ? WHERE id = ?",
+            "UPDATE public.tickets SET ended_at = ? WHERE id = ?",
             [now, ticket_data.get("id")],
             commit=True
         )
