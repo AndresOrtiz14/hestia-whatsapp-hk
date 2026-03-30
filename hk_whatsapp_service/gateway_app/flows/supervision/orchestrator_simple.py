@@ -320,27 +320,27 @@ def handle_supervisor_message_simple(from_phone: str, text: str, tenant=None) ->
         
         # 4.2) Asignados ← ✅ AQUÍ
         if raw_cmd in ["asignados", "asignadas", "en proceso", "activos", "activas", "trabajando"]:
-            mostrar_tickets_asignados_y_en_curso(from_phone)
+            mostrar_tickets_asignados_y_en_curso(from_phone, tenant=tenant)
             return
-        
+
         # 4.3) Más urgente / siguiente
         if raw_cmd in ["siguiente", "next", "proximo", "urgente", "asignar urgente", "mas urgente", "más urgente"]:
-            asignar_siguiente(from_phone)
+            asignar_siguiente(from_phone, tenant=tenant)
             return
-        
+
         # 4.4) Ver urgentes
         if raw_cmd in ["urgentes", "critico"]:
-            mostrar_urgentes(from_phone)
+            mostrar_urgentes(from_phone, tenant=tenant)
             return
-        
+
         # 4.5) Ver retrasados
         if raw_cmd in ["retrasados", "retrasado", "atrasados"]:
-            mostrar_retrasados(from_phone)
+            mostrar_retrasados(from_phone, tenant=tenant)
             return
-        
+
         # 4.6) Ver en curso
         if raw_cmd in ["en curso", "proceso"]:
-            mostrar_en_proceso(from_phone)
+            mostrar_en_proceso(from_phone, tenant=tenant)
             return
         
         # 4.7) BD commands
@@ -737,14 +737,15 @@ def mostrar_pendientes_simple(from_phone: str, tenant=None) -> None:
     send_whatsapp(from_phone, msg)
 
 
-def asignar_siguiente(from_phone: str) -> None:
+def asignar_siguiente(from_phone: str, tenant=None) -> None:
     """Asigna el ticket de mayor prioridad."""
     from gateway_app.services.tickets_db import obtener_tickets_por_estado
     from gateway_app.services.workers_db import obtener_todos_workers
     from .ticket_assignment import calcular_score_worker
     from .ui_simple import texto_recomendaciones_simple
-    
-    tickets = obtener_pendientes()
+
+    property_id = tenant.property_id if tenant else None
+    tickets = obtener_pendientes(property_id=property_id)
     
     if not tickets:
         send_whatsapp(from_phone, "✅ No hay tickets pendientes")
@@ -797,22 +798,23 @@ def asignar_siguiente(from_phone: str) -> None:
     )
     
     # Mostrar recomendaciones compactas (inline, no función externa)
-    workers = obtener_todos_workers(property_id=tenant.property_id if tenant else "")
-    mostrar_opciones_workers(from_phone, workers, ticket_id, property_id=tenant.property_id if tenant else None)
+    workers = obtener_todos_workers(property_id=property_id)
+    mostrar_opciones_workers(from_phone, workers, ticket_id, property_id=property_id)
     state["esperando_asignacion"] = True
 
-def mostrar_urgentes(from_phone: str) -> None:
+def mostrar_urgentes(from_phone: str, tenant=None) -> None:
     """Muestra tareas urgentes: pendientes >5 min y en curso >10 min."""
     from gateway_app.services.tickets_db import obtener_tickets_por_estado
     from gateway_app.core.utils.message_constants import calcular_minutos
 
-    pendientes = obtener_tickets_por_estado("PENDIENTE")
+    property_id = tenant.property_id if tenant else None
+    pendientes = obtener_tickets_por_estado("PENDIENTE", property_id=property_id)
     pendientes_urgentes = [
         t for t in pendientes
         if calcular_minutos(t.get("created_at")) > 5
     ]
 
-    en_curso = obtener_tickets_por_estado("EN_CURSO")
+    en_curso = obtener_tickets_por_estado("EN_CURSO", property_id=property_id)
     retrasados = [
         t for t in en_curso
         if calcular_minutos(t.get("started_at")) > 10
@@ -822,12 +824,13 @@ def mostrar_urgentes(from_phone: str) -> None:
     send_whatsapp(from_phone, mensaje)
 
 
-def mostrar_en_proceso(from_phone: str) -> None:
+def mostrar_en_proceso(from_phone: str, tenant=None) -> None:
     """Muestra tareas en proceso con tiempo y worker asignado."""
     from gateway_app.services.tickets_db import obtener_tickets_por_estado
     from gateway_app.core.utils.message_constants import formatear_lista_tickets
 
-    tickets = obtener_tickets_por_estado("EN_CURSO")
+    property_id = tenant.property_id if tenant else None
+    tickets = obtener_tickets_por_estado("EN_CURSO", property_id=property_id)
 
     if not tickets:
         send_whatsapp(from_phone, "✅ No hay tareas en proceso")
@@ -844,14 +847,15 @@ def mostrar_en_proceso(from_phone: str) -> None:
     send_whatsapp(from_phone, msg)
 
 
-def mostrar_retrasados(from_phone: str) -> None:
+def mostrar_retrasados(from_phone: str, tenant=None) -> None:
     """Muestra tareas en curso retrasadas (>10 min)."""
     from gateway_app.services.tickets_db import obtener_tickets_por_estado
     from gateway_app.core.utils.message_constants import (
         calcular_minutos, formatear_lista_tickets,
     )
 
-    tickets = obtener_tickets_por_estado("EN_CURSO")
+    property_id = tenant.property_id if tenant else None
+    tickets = obtener_tickets_por_estado("EN_CURSO", property_id=property_id)
     retrasados = [
         t for t in tickets
         if calcular_minutos(t.get("started_at")) > 10
@@ -941,12 +945,13 @@ def mostrar_tickets_db(from_phone: str, estado: str = "PENDIENTE") -> None:
     )
     send_whatsapp(from_phone, msg)
 
-def mostrar_tickets_asignados_y_en_curso(from_phone: str) -> None:
+def mostrar_tickets_asignados_y_en_curso(from_phone: str, tenant=None) -> None:
     """Muestra tareas activas: en curso + asignadas, formato unificado."""
     from gateway_app.services.tickets_db import obtener_tickets_asignados_y_en_curso
     from gateway_app.core.utils.message_constants import formatear_linea_ticket
 
-    tickets = obtener_tickets_asignados_y_en_curso()
+    property_id = tenant.property_id if tenant else None
+    tickets = obtener_tickets_asignados_y_en_curso(property_id=property_id)
 
     if not tickets:
         send_whatsapp(from_phone, "✅ No hay tareas asignadas ni en proceso")
