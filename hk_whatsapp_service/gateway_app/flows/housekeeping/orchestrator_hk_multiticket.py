@@ -266,32 +266,21 @@ def handle_hk_message_simple(from_phone: str, text: str, tenant=None) -> None:
             # Limpiar cualquier estado de error o flujo
             reset_ticket_draft(from_phone)
             state["state"] = MENU
-            
+
             # Enviar menú según estado del turno
             turno_activo = state.get("turno_activo", False)
             from .ui_simple import texto_menu_simple
             send_whatsapp(from_phone, texto_menu_simple(turno_activo))
-            
+
             logger.info(f"🔄 Worker {from_phone} reinició al menú (estado limpio)")
             return
 
-        # 1) Saludo inicial del día
-        today_str = date.today().isoformat()
-        if state.get("last_greet_date") != today_str:
-            state["last_greet_date"] = today_str
-            turno_activo = state.get("turno_activo", False)
-            
-            from .ui_simple import texto_saludo_con_turno
-            send_whatsapp(from_phone, texto_saludo_con_turno(turno_activo))
-            state["state"] = MENU
-            return
-        
         # ✅ 2.3) COMANDO GLOBAL: Finalizar ticket (con o sin número)
         if raw.startswith('fin') or raw in ['finalizar', 'terminar', 'listo', 'terminado', 'completar']:
             # Intentar extraer número de ticket: "fin 15", "finalizar 12"
             import re
             match = re.search(r'\b(\d{1,4})\b', raw)
-            
+
             if match:
                 # Tiene número específico
                 ticket_id = int(match.group(1))
@@ -300,31 +289,31 @@ def handle_hk_message_simple(from_phone: str, text: str, tenant=None) -> None:
                 # Sin número: finalizar el único activo o preguntar cuál
                 finalizar_ticket_interactivo(from_phone, tenant=tenant)
             return
-        
+
         # ✅ 2.4) COMANDO GLOBAL: Pausar ticket (con o sin número)
         if raw.startswith('pausar') or raw == 'pausa':
             import re
             match = re.search(r'\b(\d{1,4})\b', raw)
-            
+
             if match:
                 ticket_id = int(match.group(1))
                 pausar_ticket_especifico(from_phone, ticket_id)
             else:
                 pausar_ticket_interactivo(from_phone)
             return
-        
+
         # ✅ 2.5) COMANDO GLOBAL: Reanudar ticket (con número)
         if raw.startswith('reanudar') or raw.startswith('continuar'):
             import re
             match = re.search(r'\b(\d{1,4})\b', raw)
-            
+
             if match:
                 ticket_id = int(match.group(1))
                 reanudar_ticket_especifico(from_phone, ticket_id)
             else:
                 send_whatsapp(from_phone, "💡 Indica qué tarea: 'reanudar [#]'")
             return
-        
+
         # 2.7) Comandos de turno
         if raw in ['iniciar turno', 'iniciar', 'comenzar turno', 'empezar turno', 'start']:
             iniciar_turno(from_phone, tenant=tenant)
@@ -333,13 +322,24 @@ def handle_hk_message_simple(from_phone: str, text: str, tenant=None) -> None:
         if raw in ['terminar turno', 'terminar', 'finalizar turno', 'fin turno', 'stop']:
             terminar_turno(from_phone, tenant=tenant)
             return
-        
+
         # 2.8) Navegación directa de menú (desde cualquier estado)
         if raw in ['1', '2', '3', '4'] and state.get("state") not in [REPORTANDO_HAB, REPORTANDO_DETALLE, CONFIRMANDO_REPORTE]:
             turno_activo = state.get("turno_activo", False)
             handle_menu(from_phone, raw, tenant=tenant)
             return
-        
+
+        # 1) Saludo inicial del día (va después de comandos globales para no interceptarlos)
+        today_str = date.today().isoformat()
+        if state.get("last_greet_date") != today_str:
+            state["last_greet_date"] = today_str
+            turno_activo = state.get("turno_activo", False)
+
+            from .ui_simple import texto_saludo_con_turno
+            send_whatsapp(from_phone, texto_saludo_con_turno(turno_activo))
+            state["state"] = MENU
+            return
+
         # 3) Detectar reporte directo adaptado al área del worker
         current_state = state.get("state")
         if current_state not in [REPORTANDO_HAB, REPORTANDO_DETALLE, CONFIRMANDO_REPORTE]:
