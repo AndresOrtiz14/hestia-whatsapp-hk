@@ -471,12 +471,12 @@ def handle_supervisor_message_simple(from_phone: str, text: str, tenant=None) ->
         logger.exception(f"❌ Error en supervisor handler: {e}")
         send_whatsapp(from_phone, "❌ Error interno. Intenta de nuevo.")
 
-def mostrar_opciones_workers(from_phone: str, workers: list, ticket_id: int) -> None:
+def mostrar_opciones_workers(from_phone: str, workers: list, ticket_id: int, *, property_id: str = None) -> None:
     """
     ✅ MODIFICADO: Muestra workers con estado de turno.
     Prioriza los que tienen turno activo.
     """
-    ticket = obtener_ticket_por_id(ticket_id)
+    ticket = obtener_ticket_por_id(ticket_id, property_id=property_id)
     mensaje = formatear_workers_para_asignacion(workers, ticket)
     
     state = get_supervisor_state(from_phone)
@@ -798,7 +798,7 @@ def asignar_siguiente(from_phone: str) -> None:
     
     # Mostrar recomendaciones compactas (inline, no función externa)
     workers = obtener_todos_workers(property_id=tenant.property_id if tenant else "")
-    mostrar_opciones_workers(from_phone, workers, ticket_id)
+    mostrar_opciones_workers(from_phone, workers, ticket_id, property_id=tenant.property_id if tenant else None)
     state["esperando_asignacion"] = True
 
 def mostrar_urgentes(from_phone: str) -> None:
@@ -1444,7 +1444,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
         persist_supervisor_state(from_phone, state)
         
         # Mostrar lista de workers
-        mostrar_opciones_workers(from_phone, workers, ticket_id)
+        mostrar_opciones_workers(from_phone, workers, ticket_id, property_id=tenant.property_id if tenant else None)
         return True
 
 # Caso 1: Asignar ticket existente
@@ -1716,12 +1716,12 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
                 
                 workers_con_score.sort(key=lambda w: w["score"], reverse=True)
                 workers = obtener_todos_workers(property_id=tenant.property_id if tenant else "")
-                mostrar_opciones_workers(from_phone, workers, ticket_id)
+                mostrar_opciones_workers(from_phone, workers, ticket_id, property_id=tenant.property_id if tenant else None)
 
                 state["ticket_seleccionado"] = ticket_id
                 state["esperando_asignacion"] = True
                 return True
-            
+
             else:
                 # No encontrado: mostrar todos
                 state["ticket_seleccionado"] = ticket_id
@@ -1748,7 +1748,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
                 
                 workers_con_score.sort(key=lambda w: w["score"], reverse=True)
                 workers = obtener_todos_workers(property_id=tenant.property_id if tenant else "")
-                mostrar_opciones_workers(from_phone, workers, ticket_id)
+                mostrar_opciones_workers(from_phone, workers, ticket_id, property_id=tenant.property_id if tenant else None)
 
                 state["ticket_seleccionado"] = ticket_id
                 state["esperando_asignacion"] = True
@@ -1792,6 +1792,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
             
             if ticket:
                 ticket_id = ticket["id"]
+                ticket_id_display = ticket.get("id_code") or ticket["id"]
 
                 try:
                     notificar_supervisor_de_area(
@@ -1810,8 +1811,8 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
                 send_whatsapp(
                     from_phone,
                     msg_sup_confirmacion(
-                        ticket_id, "creada", ubicacion, detalle, prioridad,
-                        hint=f"💡 Di 'asignar {ticket_id} a [nombre]'",
+                        ticket_id_display, "creada", ubicacion, detalle, prioridad,
+                        hint=f"💡 Di 'asignar {ticket_id_display} a [nombre]'",
                         ticket_area=clasificacion["area"],
                     )
                 )
@@ -1824,7 +1825,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
                 try:
                     from gateway_app.services.workers_db import obtener_todos_workers
                     workers = obtener_todos_workers(property_id=tenant.property_id if tenant else "")
-                    mostrar_opciones_workers(from_phone, workers, ticket_id)
+                    mostrar_opciones_workers(from_phone, workers, ticket_id, property_id=tenant.property_id if tenant else None)
                     
                     return True
                 except Exception as e:
