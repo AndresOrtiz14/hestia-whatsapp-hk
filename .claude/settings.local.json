@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find '/c/Users/aleja/Documents/Git Projects/hestia-whatsapp-hk/hk_whatsapp_service' -maxdepth 3 -name *.py -type f)",
+      "Bash(grep -rn \"property_id\\\\|organization_id\" '/c/Users/aleja/Documents/Git Projects/hestia-whatsapp-hk/hk_whatsapp_service/gateway_app' --include=*.py)"
+    ]
+  }
+}

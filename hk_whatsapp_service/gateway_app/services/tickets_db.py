@@ -299,8 +299,8 @@ def guardar_photo_url_ticket(ticket_id, photo_url: str) -> bool:
     Guarda la URL de Supabase Storage en el campo photoUrl del ticket via NestJS API.
     El backend (Prisma) debe tener el campo photoUrl en el modelo Ticket.
     """
-    from gateway_app.services.api_client import api_patch
-    result = api_patch(f"/api/v1/tickets/{ticket_id}", {"photoUrl": photo_url})
+    from gateway_app.services.api_client import api_put
+    result = api_put(f"/api/v1/tickets/{ticket_id}", {"photoUrl": photo_url})
     ok = result is not None
     if ok:
         logger.info("guardar_photo_url_ticket: ticket=%s url=%s", ticket_id, photo_url)
