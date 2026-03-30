@@ -441,15 +441,25 @@ def _crear_ticket_con_media(
             send_whatsapp(from_phone, "❌ Error creando ticket. Intenta de nuevo.")
             return
         
-        ticket_id = ticket["id"]
-        
+        ticket_uuid = ticket["id"]                          # UUID para operaciones de DB/storage
+        ticket_id = ticket.get("id_code") or ticket_uuid   # id_code para mostrar al usuario
+
         # Procesar y guardar media
-        media_result = process_and_store_media(
-            media_id=media_id,
-            media_type=media_type,
-            ticket_id=ticket_id,
-            uploaded_by=from_phone
-        )
+        try:
+            media_result = process_and_store_media(
+                media_id=media_id,
+                media_type=media_type,
+                ticket_id=ticket_uuid,
+                uploaded_by=from_phone
+            )
+            if media_result and media_result.get("success"):
+                logger.info("📦 Media guardada en storage | ticket=%s | url=%s", ticket_id, media_result.get("storage_url"))
+            else:
+                logger.warning("⚠️ Media NO guardada en storage | ticket=%s | error=%s", ticket_id, media_result.get("error") if media_result else "sin resultado")
+                media_result = {}
+        except Exception as e:
+            logger.error("❌ Error guardando media en storage | ticket=%s | error=%s", ticket_id, e)
+            media_result = {}
         
         media_emoji = "📸" if media_type == "image" else "🎥"
         prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
