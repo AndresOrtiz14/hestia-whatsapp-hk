@@ -982,7 +982,7 @@ def mostrar_tickets_asignados_y_en_curso(from_phone: str) -> None:
     send_whatsapp(from_phone, "\n".join(lineas))
     logger.info(f"📋 Mostrados {len(tickets)} tareas activas a supervisor")
 
-def finalizar_ticket_supervisor(from_phone: str, ticket_id: int) -> None:
+def finalizar_ticket_supervisor(from_phone: str, ticket_id: int, tenant=None) -> None:
     """
     Finaliza un ticket desde supervisión.
     
@@ -1005,7 +1005,7 @@ def finalizar_ticket_supervisor(from_phone: str, ticket_id: int) -> None:
     logger.info(f"👔 SUP | Finalizando ticket #{ticket_id} desde supervisión")
     
     # 1. Obtener ticket
-    ticket = obtener_ticket_por_id(ticket_id)
+    ticket = obtener_ticket_por_id(ticket_id, property_id=tenant.property_id if tenant else None)
     
     if not ticket:
         send_whatsapp(
@@ -1057,7 +1057,8 @@ def finalizar_ticket_supervisor(from_phone: str, ticket_id: int) -> None:
     duracion_min = calcular_minutos(ticket.get("created_at"))
 
     # 5. Actualizar en BD
-    exito = completar_ticket(ticket_id)
+    ticket_uuid = ticket.get("id") or ticket_id  # use UUID ya resuelto; evita segunda búsqueda sin property_id
+    exito = completar_ticket(ticket_uuid)
 
     if not exito:
         send_whatsapp(
@@ -1424,7 +1425,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
     # ✅ NUEVO: Finalizar ticket
     if intent == "finalizar_ticket":
         ticket_id = intent_data["ticket_id"]
-        finalizar_ticket_supervisor(from_phone, ticket_id)
+        finalizar_ticket_supervisor(from_phone, ticket_id, tenant=tenant)
         return True
 
     # ✅ NUEVO: Asignar ticket sin especificar worker → mostrar lista
