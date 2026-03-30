@@ -309,10 +309,10 @@ def guardar_photo_url_ticket(ticket_id, photo_url: str) -> bool:
     return ok
 
 
-def obtener_media_de_ticket(ticket_id) -> List[Dict[str, Any]]:
+def obtener_media_de_ticket(ticket_id, *, property_id: str = None) -> List[Dict[str, Any]]:
     """Obtiene el media de un ticket a partir de su campo photo_url."""
     try:
-        ticket = obtener_ticket_por_id(ticket_id)
+        ticket = obtener_ticket_por_id(ticket_id, property_id=property_id)
         if ticket and ticket.get("photo_url"):
             return [{"storage_url": ticket["photo_url"], "media_type": "image"}]
         return []

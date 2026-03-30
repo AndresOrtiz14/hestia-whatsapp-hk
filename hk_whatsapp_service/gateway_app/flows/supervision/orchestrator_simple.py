@@ -84,6 +84,7 @@ def notificar_worker_nueva_tarea(
     worker_phone: str, ticket_id: int,
     ubicacion: str, detalle: str, prioridad: str,
     token: str = None, phone_number_id: str = None,
+    property_id: str = None,
 ) -> None:
     """
     Envía notificación de nueva tarea al worker + reenvía media asociada si existe.
@@ -103,7 +104,7 @@ def notificar_worker_nueva_tarea(
 
     # 2) Reenviar media asociada (si existe)
     try:
-        medias = obtener_media_de_ticket(ticket_id)
+        medias = obtener_media_de_ticket(ticket_id, property_id=property_id)
         for media in medias:
             storage_url = media.get("storage_url")
             media_type = media.get("media_type", "image")
@@ -263,6 +264,7 @@ def handle_supervisor_message_simple(from_phone: str, text: str, tenant=None) ->
                         worker_phone, ticket_id, ubicacion, detalle, prioridad,
                         token=tenant.wa_token if tenant else None,
                         phone_number_id=tenant.phone_number_id if tenant else None,
+                        property_id=tenant.property_id if tenant else None,
                     )
 
                     # Limpiar estado de confirmación
@@ -691,7 +693,8 @@ def handle_respuesta_asignacion(from_phone: str, text: str) -> bool:
             prioridad = str(ticket_data.get("prioridad") or "MEDIA").upper()
 
             # ✅ FIX A3: Usar template unificado en vez de formato inline
-            notificar_worker_nueva_tarea(worker_phone, ticket_id, ubicacion, detalle, prioridad)
+            notificar_worker_nueva_tarea(worker_phone, ticket_id, ubicacion, detalle, prioridad,
+                                         property_id=tenant.property_id if tenant else None)
             
             state["esperando_asignacion"] = False
             state["ticket_seleccionado"] = None
@@ -949,6 +952,7 @@ def mostrar_tickets_asignados_y_en_curso(from_phone: str, tenant=None) -> None:
     """Muestra tareas activas: en curso + asignadas, formato unificado."""
     from gateway_app.services.tickets_db import obtener_tickets_asignados_y_en_curso
     from gateway_app.core.utils.message_constants import formatear_linea_ticket
+    from gateway_app.services.workers_db import obtener_todos_workers
 
     property_id = tenant.property_id if tenant else None
     tickets = obtener_tickets_asignados_y_en_curso(property_id=property_id)
@@ -956,6 +960,17 @@ def mostrar_tickets_asignados_y_en_curso(from_phone: str, tenant=None) -> None:
     if not tickets:
         send_whatsapp(from_phone, "✅ No hay tareas asignadas ni en proceso")
         return
+
+    # Enriquecer tickets con nombre del worker (el endpoint de lista no incluye assignee completo)
+    if property_id:
+        try:
+            workers = obtener_todos_workers(property_id=property_id)
+            worker_by_id = {w["id"]: w["nombre_completo"] for w in workers if w.get("id")}
+            for t in tickets:
+                if not t.get("worker_name") and t.get("assigned_to"):
+                    t["worker_name"] = worker_by_id.get(t["assigned_to"])
+        except Exception:
+            logger.warning("mostrar_tickets_asignados_y_en_curso: no se pudo enriquecer worker names")
 
     en_curso = [t for t in tickets if t.get("estado") == "EN_CURSO"]
     asignados = [t for t in tickets if t.get("estado") == "ASIGNADO"]
@@ -1050,13 +1065,24 @@ def finalizar_ticket_supervisor(from_phone: str, ticket_id: int, tenant=None) ->
     detalle = ticket.get("detalle", "Sin detalle")
     prioridad = ticket.get("prioridad", "MEDIA")
 
-    # ✅ FIX C5: Extraer worker desde huesped_whatsapp (formato "phone|nombre")
-    huesped_wa = ticket.get("huesped_whatsapp") or ""
-    if "|" in huesped_wa:
-        worker_phone_dest, worker_nombre = huesped_wa.split("|", 1)
-    else:
-        worker_phone_dest = None
-        worker_nombre = ""
+    # Obtener teléfono y nombre del worker asignado via UUID
+    worker_phone_dest = None
+    worker_nombre = ticket.get("worker_name") or ""
+    assigned_to_uuid = ticket.get("assigned_to")
+    if assigned_to_uuid:
+        try:
+            from gateway_app.services.workers_db import obtener_todos_workers
+            _prop_id = tenant.property_id if tenant else None
+            if _prop_id:
+                workers = obtener_todos_workers(property_id=_prop_id)
+                for w in workers:
+                    if w.get("id") == assigned_to_uuid:
+                        worker_phone_dest = w.get("telefono")
+                        if not worker_nombre:
+                            worker_nombre = w.get("nombre_completo", "")
+                        break
+        except Exception:
+            logger.warning(f"finalizar_ticket_supervisor: no se pudo obtener worker para uuid={assigned_to_uuid}")
 
     # 4. Calcular duración
     duracion_min = calcular_minutos(ticket.get("created_at"))
@@ -1206,7 +1232,8 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
                     )
                 )
 
-                notificar_worker_nueva_tarea(worker_phone, ticket_id, ubicacion, detalle, prioridad)
+                notificar_worker_nueva_tarea(worker_phone, ticket_id, ubicacion, detalle, prioridad,
+                                             property_id=_prop_id)
 
                 # Notificar al worker original si es reasignación
                 if seleccion_info.get("tipo") == "reasignar":
@@ -1291,7 +1318,8 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
                     )
 
                     # 3. Notificar al NUEVO worker
-                    notificar_worker_nueva_tarea(worker_phone, ticket_id, ubicacion, detalle, prioridad)
+                    notificar_worker_nueva_tarea(worker_phone, ticket_id, ubicacion, detalle, prioridad,
+                                                 property_id=tenant.property_id if tenant else None)
 
                     return True
                 else:
@@ -1603,7 +1631,8 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
                 )
 
                 # 3. Notificar al NUEVO worker
-                notificar_worker_nueva_tarea(worker_phone, ticket_id, ubicacion, detalle, prioridad)
+                notificar_worker_nueva_tarea(worker_phone, ticket_id, ubicacion, detalle, prioridad,
+                                             property_id=tenant.property_id if tenant else None)
 
                 logger.info(f"✅ Tarea #{ticket_id} reasignada de {worker_original_name} a {worker_nombre_completo}")
                 return True
