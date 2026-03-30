@@ -131,7 +131,7 @@ def download_whatsapp_media(media_id: str) -> dict:
     
     try:
         # Paso 1: Obtener URL del media
-        url_info = f"https://graph.facebook.com/v18.0/{media_id}"
+        url_info = f"https://graph.facebook.com/v18.0/{media_id}?phone_number_id={Config.PHONE_NUMBER_ID}"
         headers = {"Authorization": f"Bearer {token}"}
         
         logger.info(f"📥 Obteniendo URL para media_id: {media_id}")
@@ -346,9 +346,9 @@ def get_media_url_for_whatsapp(media_id: str) -> Optional[str]:
     token = Config.WHATSAPP_TOKEN
     
     try:
-        url_info = f"https://graph.facebook.com/v18.0/{media_id}"
+        url_info = f"https://graph.facebook.com/v18.0/{media_id}?phone_number_id={Config.PHONE_NUMBER_ID}"
         headers = {"Authorization": f"Bearer {token}"}
-        
+
         resp = requests.get(url_info, headers=headers, timeout=10)
         
         if resp.status_code == 200:

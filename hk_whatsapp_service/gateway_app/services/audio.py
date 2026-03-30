@@ -116,7 +116,7 @@ def _transcribe_with_openai(file_path: str, language: Optional[str] = None) -> s
     """
     # Choose a default model suitable for speech recognition.
     # If you prefer classic Whisper, you can use "whisper-1".
-    model_name = os.getenv("TRANSCRIBE_MODEL", "gpt-4o-mini-transcribe")
+    model_name = os.getenv("TRANSCRIBE_MODEL", "whisper-1")
 
     logger.info(
         "Transcribing audio with OpenAI",
