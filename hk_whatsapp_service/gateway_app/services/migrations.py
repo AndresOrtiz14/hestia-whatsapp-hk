@@ -316,8 +316,7 @@ def run_migrations_updated():
     try:
         # Verificar si las tablas existen
         tickets_exists = table_exists("tickets")
-        ticket_media_exists = table_exists("ticket_media")
-        
+
         if tickets_exists:
             logger.info("✅ Tabla 'tickets' ya existe")
             
@@ -332,12 +331,6 @@ def run_migrations_updated():
             create_tickets_table()
             create_indices()
             create_trigger_updated_at()
-        
-        # ✅ NUEVO: Verificar/crear tabla ticket_media
-        if not ticket_media_exists:
-            create_ticket_media_table()
-        else:
-            logger.info("✅ Tabla 'ticket_media' ya existe")
         
         # Siempre verificar y crear datos base
         seed_base_data()

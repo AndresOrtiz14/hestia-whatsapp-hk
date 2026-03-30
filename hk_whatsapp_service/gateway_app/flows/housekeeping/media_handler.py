@@ -450,10 +450,15 @@ def _crear_ticket_con_media(
                 media_id=media_id,
                 media_type=media_type,
                 ticket_id=ticket_uuid,
-                uploaded_by=from_phone
+                uploaded_by=from_phone,
+                tenant=tenant,
             )
             if media_result and media_result.get("success"):
-                logger.info("📦 Media guardada en storage | ticket=%s | url=%s", ticket_id, media_result.get("storage_url"))
+                storage_url = media_result.get("storage_url")
+                logger.info("📦 Media guardada en storage | ticket=%s | url=%s", ticket_id, storage_url)
+                if storage_url:
+                    from gateway_app.services.tickets_db import guardar_photo_url_ticket
+                    guardar_photo_url_ticket(ticket_uuid, storage_url)
             else:
                 logger.warning("⚠️ Media NO guardada en storage | ticket=%s | error=%s", ticket_id, media_result.get("error") if media_result else "sin resultado")
                 media_result = {}
@@ -516,9 +521,14 @@ def _agregar_media_a_ticket(
         media_id=media_id,
         media_type=media_type,
         ticket_id=ticket_id,
-        uploaded_by=from_phone
+        uploaded_by=from_phone,
+        tenant=tenant,
     )
-    
+
+    if media_result.get("success") and media_result.get("storage_url"):
+        from gateway_app.services.tickets_db import guardar_photo_url_ticket
+        guardar_photo_url_ticket(ticket_id, media_result["storage_url"])
+
     if not media_result["success"]:
         send_whatsapp(from_phone, f"❌ Error guardando {'foto' if media_type == 'image' else 'video'}")
         return

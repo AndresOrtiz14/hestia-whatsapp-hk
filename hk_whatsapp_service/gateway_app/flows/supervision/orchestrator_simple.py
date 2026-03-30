@@ -1855,7 +1855,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
         worker = buscar_worker_por_nombre(worker_nombre, property_id=tenant.property_id if tenant else "")
         
         if worker:
-            tickets = obtener_pendientes()
+            tickets = obtener_pendientes(property_id=tenant.property_id if tenant else None)
             if tickets:
                 prioridad_order = {"ALTA": 0, "MEDIA": 1, "BAJA": 2}
                 tickets_sorted = sorted(

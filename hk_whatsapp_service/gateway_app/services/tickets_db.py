@@ -291,55 +291,33 @@ def finalizar_ticket(ticket_id, *, motivo: str = "") -> bool:
 
 
 # ============================================================
-# MEDIA — fallback psycopg directo hasta que NestJS tenga el endpoint
+# MEDIA — photo_url guardado directamente en el ticket via API
 # ============================================================
 
-def agregar_media_a_ticket(
-    ticket_id,
-    media_type: str,
-    storage_url: str,
-    whatsapp_media_id: str,
-    mime_type: str,
-    file_size_bytes: int,
-    uploaded_by: str,
-) -> Optional[str]:
+def guardar_photo_url_ticket(ticket_id, photo_url: str) -> bool:
     """
-    Guarda media en ticket_media via psycopg directo.
-    TODO: migrar a POST /api/v1/tickets/:id/media cuando el endpoint exista en NestJS.
+    Guarda la URL de Supabase Storage en el campo photoUrl del ticket via NestJS API.
+    El backend (Prisma) debe tener el campo photoUrl en el modelo Ticket.
     """
-    logger.info(
-        "agregar_media_a_ticket: usando psycopg fallback. ticket=%s", ticket_id
-    )
-    try:
-        from gateway_app.services.db import execute
-        execute(
-            """
-            INSERT INTO public.ticket_media
-              (ticket_id, media_type, storage_url, whatsapp_media_id,
-               mime_type, file_size_bytes, uploaded_by, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
-            """,
-            [
-                str(ticket_id), media_type, storage_url, whatsapp_media_id,
-                mime_type, file_size_bytes, uploaded_by,
-            ],
-        )
-        return str(ticket_id)
-    except Exception:
-        logger.exception("agregar_media_a_ticket: psycopg falló ticket=%s", ticket_id)
-        return None
+    from gateway_app.services.api_client import api_patch
+    result = api_patch(f"/api/v1/tickets/{ticket_id}", {"photoUrl": photo_url})
+    ok = result is not None
+    if ok:
+        logger.info("guardar_photo_url_ticket: ticket=%s url=%s", ticket_id, photo_url)
+    else:
+        logger.warning("guardar_photo_url_ticket: falló ticket=%s", ticket_id)
+    return ok
 
 
 def obtener_media_de_ticket(ticket_id) -> List[Dict[str, Any]]:
-    """Obtiene todos los medios de un ticket via psycopg directo."""
+    """Obtiene el media de un ticket a partir de su campo photo_url."""
     try:
-        from gateway_app.services.db import fetchall
-        return fetchall(
-            "SELECT * FROM public.ticket_media WHERE ticket_id = ? ORDER BY created_at ASC",
-            [str(ticket_id)],
-        ) or []
+        ticket = obtener_ticket_por_id(ticket_id)
+        if ticket and ticket.get("photo_url"):
+            return [{"storage_url": ticket["photo_url"], "media_type": "image"}]
+        return []
     except Exception:
-        logger.exception("obtener_media_de_ticket: psycopg falló ticket=%s", ticket_id)
+        logger.exception("obtener_media_de_ticket: error ticket=%s", ticket_id)
         return []
 
 

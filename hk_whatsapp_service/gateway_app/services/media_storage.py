@@ -113,25 +113,28 @@ def optimize_image(image_data: bytes, mime_type: str) -> Tuple[bytes, str, int]:
         return image_data, mime_type, len(image_data)
 
 
-def download_whatsapp_media(media_id: str) -> dict:
+def download_whatsapp_media(media_id: str, token: str = None, phone_number_id: str = None) -> dict:
     """
     Descarga un archivo de WhatsApp Cloud API.
-    
+
     Args:
         media_id: ID del media recibido en el webhook
-    
+        token: Token de WhatsApp (usa Config.WHATSAPP_TOKEN como fallback)
+        phone_number_id: Phone number ID (usa Config.PHONE_NUMBER_ID como fallback)
+
     Returns:
         {"success": True, "data": bytes, "mime_type": str, "size": int}
         {"success": False, "error": str}
     """
-    token = Config.WHATSAPP_TOKEN
-    
+    token = token or Config.WHATSAPP_TOKEN
+    phone_number_id = phone_number_id or Config.PHONE_NUMBER_ID
+
     if not token:
         return {"success": False, "error": "WHATSAPP_TOKEN no configurado"}
-    
+
     try:
         # Paso 1: Obtener URL del media
-        url_info = f"https://graph.facebook.com/v18.0/{media_id}?phone_number_id={Config.PHONE_NUMBER_ID}"
+        url_info = f"https://graph.facebook.com/v18.0/{media_id}?phone_number_id={phone_number_id}"
         headers = {"Authorization": f"Bearer {token}"}
         
         logger.info(f"📥 Obteniendo URL para media_id: {media_id}")
@@ -244,72 +247,51 @@ def process_and_store_media(
     media_id: str,
     media_type: str,
     ticket_id: Optional[int] = None,
-    uploaded_by: str = ""
+    uploaded_by: str = "",
+    tenant=None,
 ) -> dict:
     """
-    Proceso completo: descarga de WhatsApp + OPTIMIZACIÓN + upload a Supabase + registro en BD.
-    
+    Proceso completo: descarga de WhatsApp + OPTIMIZACIÓN + upload a Supabase.
+
     Args:
         media_id: ID del media de WhatsApp
         media_type: "image" o "video"
         ticket_id: ID del ticket asociado (puede ser None si aún no existe)
         uploaded_by: Teléfono del usuario que envió el media
-    
+        tenant: TenantContext con wa_token y phone_number_id (usa Config como fallback)
+
     Returns:
-        {
-            "success": True,
-            "storage_url": str,
-            "media_id": str,
-            "mime_type": str,
-            "size": int,
-            "original_size": int,
-            "db_id": int
-        }
+        {"success": True, "storage_url": str, "media_id": str, "mime_type": str, "size": int, "original_size": int}
         {"success": False, "error": str}
     """
-    # Paso 1: Descargar de WhatsApp
-    download_result = download_whatsapp_media(media_id)
-    
+    # Paso 1: Descargar de WhatsApp usando token del tenant
+    token = tenant.wa_token if tenant else None
+    phone_number_id = tenant.phone_number_id if tenant else None
+    download_result = download_whatsapp_media(media_id, token=token, phone_number_id=phone_number_id)
+
     if not download_result["success"]:
         return download_result
-    
+
     file_data = download_result["data"]
     mime_type = download_result["mime_type"]
     original_size = download_result["size"]
-    
+
     # Paso 2: OPTIMIZAR si es imagen
     if media_type == "image" and mime_type.startswith("image/"):
         file_data, mime_type, _ = optimize_image(file_data, mime_type)
-    
+
     file_size = len(file_data)
-    
+
     # Paso 3: Subir a Supabase
     folder = f"tickets/{ticket_id}" if ticket_id else "pending"
     upload_result = upload_to_supabase(file_data, mime_type, folder=folder)
-    
+
     storage_url = None
     if upload_result["success"]:
         storage_url = upload_result["url"]
     else:
-        logger.warning(f"⚠️ No se pudo subir a Supabase, guardando solo media_id")
-    
-    # Paso 4: Guardar en BD (si hay ticket_id)
-    db_id = None
-    if ticket_id:
-        try:
-            from gateway_app.services.tickets_db import agregar_media_a_ticket
-            db_id = agregar_media_a_ticket(
-                ticket_id=ticket_id,
-                media_type=media_type,
-                storage_url=storage_url or "",
-                whatsapp_media_id=media_id,
-                mime_type=mime_type,
-                file_size_bytes=file_size,
-                uploaded_by=uploaded_by
-            )
-        except Exception as e:
-            logger.exception(f"⚠️ Error guardando media en BD: {e}")
-    
+        logger.warning("⚠️ No se pudo subir a Supabase, guardando solo media_id")
+
     return {
         "success": True,
         "storage_url": storage_url,
@@ -317,7 +299,6 @@ def process_and_store_media(
         "mime_type": mime_type,
         "size": file_size,
         "original_size": original_size,
-        "db_id": db_id
     }
 
 
