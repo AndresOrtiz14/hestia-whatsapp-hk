@@ -1817,15 +1817,15 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
                     )
                 )
                 
-                # Guardar para asignación rápida
-                state["ticket_seleccionado"] = ticket_id
+                # Guardar para asignación rápida (usar id_code numérico, no UUID)
+                state["ticket_seleccionado"] = ticket_id_display
                 state["esperando_asignacion"] = True
-                
+
                 # ✅ Recomendaciones (no deben romper el flujo si falla algo)
                 try:
                     from gateway_app.services.workers_db import obtener_todos_workers
                     workers = obtener_todos_workers(property_id=tenant.property_id if tenant else "")
-                    mostrar_opciones_workers(from_phone, workers, ticket_id, property_id=tenant.property_id if tenant else None)
+                    mostrar_opciones_workers(from_phone, workers, ticket_id_display, property_id=tenant.property_id if tenant else None)
                     
                     return True
                 except Exception as e:
