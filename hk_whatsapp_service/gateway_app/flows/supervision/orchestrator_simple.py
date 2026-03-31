@@ -205,6 +205,7 @@ def handle_supervisor_message_simple(from_phone: str, text: str, tenant=None) ->
                     mensaje_aviso = conf.get("mensaje", "")
                     workers_en_turno = [w for w in obtener_todos_workers(property_id=tenant.property_id if tenant else "") if w.get("turno_activo")]
                     enviados = 0
+                    nombres_enviados = []
                     for w in workers_en_turno:
                         phone = w.get("telefono")
                         if phone:
@@ -215,9 +216,15 @@ def handle_supervisor_message_simple(from_phone: str, text: str, tenant=None) ->
                                 phone_number_id=tenant.phone_number_id if tenant else None,
                             )
                             enviados += 1
+                            nombre = w.get("nombre_completo") or w.get("username") or phone
+                            nombres_enviados.append(nombre)
                     state.pop("confirmacion_pendiente", None)
                     persist_supervisor_state(from_phone, state)
-                    send_whatsapp(from_phone, f"✅ Aviso enviado a {enviados} trabajador(es).")
+                    msg_confirmacion = f"✅ Aviso enviado a {enviados} trabajador(es)."
+                    if nombres_enviados:
+                        lista = "\n".join(f"• {n}" for n in nombres_enviados)
+                        msg_confirmacion += f"\n\n{lista}"
+                    send_whatsapp(from_phone, msg_confirmacion)
                 else:
                     state.pop("confirmacion_pendiente", None)
                     persist_supervisor_state(from_phone, state)
