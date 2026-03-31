@@ -1942,13 +1942,14 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
                     key=lambda t: prioridad_order.get(t.get("prioridad", "MEDIA"), 1)
                 )
                 ticket = tickets_sorted[0]
-                ticket_id = ticket["id"]
-                
+                ticket_uuid = ticket["id"]
+                ticket_id = ticket.get("id_code") or ticket["id"]
+
                 worker_phone = worker.get("telefono")
                 worker_nombre_completo = worker.get("nombre_completo") or worker.get("username")
-                
+
                 # ✅ Asignar en BD
-                if asignar_ticket(ticket_id, worker_phone, worker_nombre_completo, property_id=tenant.property_id if tenant else None):
+                if asignar_ticket(ticket_uuid, worker_phone, worker_nombre_completo, property_id=tenant.property_id if tenant else None):
                     # Obtener datos completos del ticket
                     ticket_data = obtener_ticket_por_id(ticket_id, property_id=tenant.property_id if tenant else None)
                     habitacion = ticket_data.get("ubicacion") or ticket_data.get("habitacion", "?")
@@ -1960,7 +1961,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
                     send_whatsapp(
                         from_phone,
                         f"✅ Tarea #{ticket_id} asignada\n\n"
-                        f"📍 Ubicación: {ticket.get('ubicacion') or ticket.get('habitacion') or '?'}",
+                        f"📍 Ubicación: {ticket.get('ubicacion') or ticket.get('habitacion') or '?'}\n"
                         f"📝 Problema: {detalle}\n"
                         f"{prioridad_emoji} Prioridad: {prioridad}\n"
                         f"👤 Asignado a: {worker_nombre_completo}"

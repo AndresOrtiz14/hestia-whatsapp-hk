@@ -10,6 +10,13 @@ from typing import Optional, Dict, Any, Callable
 
 logger = logging.getLogger(__name__)
 
+# Detecta directivas de asignación al final de un caption/texto:
+# "asígnalo a Pedro", "asignar a María", "asignarla a Carlos", etc.
+_ASSIGN_PATTERN = re.compile(
+    r'\s*\bas[ií]gn(?:a(?:lo|la|los|las)?|ar(?:lo|la|los|las)?)\s+a\s+(.+?)\.?\s*$',
+    re.IGNORECASE,
+)
+
 # ============================================================
 # HELPER: Detectar rol y obtener funciones de estado correctas
 # ============================================================
@@ -91,6 +98,7 @@ def handle_media_message(
                     # Caption completo: crear ticket directo y limpiar state
                     state.pop("media_pendiente", None)
                     persist_state(from_phone, state)
+                    worker_nombre_c1, detalle = _extract_assignment_from_caption(detalle)
                     _crear_ticket_con_media(
                         from_phone=from_phone,
                         media_id=media_id,
@@ -98,6 +106,7 @@ def handle_media_message(
                         ubicacion=ubicacion,
                         detalle=detalle,
                         tenant=tenant,
+                        worker_nombre=worker_nombre_c1,
                     )
                     return
                 else:
@@ -169,6 +178,7 @@ def handle_media_message(
                 return
             # ──────────────────────────────────────────────────────────
 
+            worker_nombre_c3, detalle = _extract_assignment_from_caption(detalle)
             _crear_ticket_con_media(
                 from_phone=from_phone,
                 media_id=media_id,
@@ -176,6 +186,7 @@ def handle_media_message(
                 ubicacion=ubicacion,
                 detalle=detalle,
                 tenant=tenant,
+                worker_nombre=worker_nombre_c3,
             )
             return
 
@@ -219,13 +230,16 @@ def handle_media_context_response(from_phone: str, text: str, tenant=None) -> bo
     ubicacion_guardada = media_info.get("ubicacion") if media_info else None
     if ubicacion_guardada:
     # Ya tenemos ubicación, el texto que llegó ES el detalle
+        detalle_ctx = text.strip()
+        worker_nombre_ctx, detalle_ctx = _extract_assignment_from_caption(detalle_ctx)
         _crear_ticket_con_media(
             from_phone=from_phone,
             media_id=media_info["media_id"],
             media_type=media_info["media_type"],
             ubicacion=ubicacion_guardada,
-            detalle=text.strip(),
+            detalle=detalle_ctx,
             tenant=tenant,
+            worker_nombre=worker_nombre_ctx,
         )
         state.pop("media_pendiente", None)
         persist_state(from_phone, state)
@@ -336,10 +350,11 @@ def handle_media_detail_response(from_phone: str, text: str, tenant=None) -> boo
     media_type = media_info["media_type"]
     ubicacion = media_info["ubicacion"]
     detalle = text.strip()
-    
+    worker_nombre_det, detalle = _extract_assignment_from_caption(detalle)
+
     state.pop("media_para_ticket", None)
     persist_state(from_phone, state)
-    
+
     _crear_ticket_con_media(
         from_phone=from_phone,
         media_id=media_id,
@@ -347,6 +362,7 @@ def handle_media_detail_response(from_phone: str, text: str, tenant=None) -> boo
         ubicacion=ubicacion,
         detalle=detalle,
         tenant=tenant,
+        worker_nombre=worker_nombre_det,
     )
     return True
 
@@ -354,6 +370,21 @@ def handle_media_detail_response(from_phone: str, text: str, tenant=None) -> boo
 # ============================================================
 # FUNCIONES AUXILIARES
 # ============================================================
+
+def _extract_assignment_from_caption(text: str):
+    """
+    Detecta directiva de asignación al final del texto.
+    Ejemplos: "No hay agua asígnalo a Pedro", "202 fuga asignar a María"
+
+    Returns (worker_name, cleaned_text) — worker_name es None si no hay directiva.
+    """
+    m = _ASSIGN_PATTERN.search(text)
+    if not m:
+        return None, text
+    worker_name = m.group(1).strip().rstrip(".,")
+    cleaned = text[:m.start()].strip().rstrip(".,:-")
+    return worker_name, cleaned
+
 
 def _extraer_ubicacion(text: str) -> Optional[str]:
     """Extrae ubicación (habitación o área común) del texto."""
@@ -408,6 +439,7 @@ def _crear_ticket_con_media(
     ubicacion: str,
     detalle: str,
     tenant=None,
+    worker_nombre: Optional[str] = None,
 ) -> None:
     """Crea un ticket nuevo con media adjunto y notifica al supervisor."""
     from gateway_app.flows.housekeeping.outgoing import send_whatsapp
@@ -476,7 +508,41 @@ def _crear_ticket_con_media(
             f"📝 {detalle}\n"
             f"{prioridad_emoji} Prioridad: {prioridad}"
         )
-        
+
+        # Auto-asignar si se detectó un nombre de trabajador en el caption
+        if worker_nombre:
+            try:
+                from gateway_app.services.workers_db import buscar_worker_por_nombre
+                from gateway_app.services.tickets_db import asignar_ticket as _asignar_ticket
+                from gateway_app.services.whatsapp_client import send_whatsapp_text
+                _property_id = tenant.property_id if tenant else None
+                worker = buscar_worker_por_nombre(worker_nombre, property_id=_property_id or "")
+                if worker:
+                    worker_phone = worker.get("telefono")
+                    worker_display = worker.get("nombre_completo") or worker.get("username")
+                    if _asignar_ticket(ticket_uuid, worker_phone, worker_display, property_id=_property_id):
+                        send_whatsapp(from_phone, f"👤 Asignado a {worker_display}")
+                        prioridad_emoji_w = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
+                        send_whatsapp_text(
+                            to=worker_phone,
+                            body=(
+                                f"📋 Nueva tarea asignada\n\n"
+                                f"#{ticket_id} · {ubicacion}\n"
+                                f"{detalle}\n"
+                                f"{prioridad_emoji_w} Prioridad: {prioridad}\n\n"
+                                f"💡 Responde 'tomar' para aceptar"
+                            ),
+                            token=tenant.wa_token if tenant else None,
+                            phone_number_id=tenant.phone_number_id if tenant else None,
+                        )
+                    else:
+                        send_whatsapp(from_phone, f"⚠️ No pude asignar a {worker_nombre}. Asigna manualmente.")
+                else:
+                    send_whatsapp(from_phone, f"⚠️ No encontré a '{worker_nombre}'. Asigna manualmente.")
+            except Exception as e:
+                logger.error("❌ Error en auto-asignación desde caption | ticket=%s | worker=%s | error=%s", ticket_id, worker_nombre, e)
+                send_whatsapp(from_phone, f"⚠️ Error al asignar a {worker_nombre}. Asigna manualmente.")
+
         # Notificar al supervisor (si quien envía no es supervisor)
         _, _, is_supervisor = _get_state_functions(from_phone, tenant=tenant)
         if not is_supervisor:
