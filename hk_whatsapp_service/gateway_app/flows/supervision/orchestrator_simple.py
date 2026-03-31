@@ -856,9 +856,21 @@ def mostrar_en_proceso(from_phone: str, tenant=None) -> None:
         send_whatsapp(from_phone, "✅ No hay tareas en proceso")
         return
 
+    # Enriquecer worker names desde la DB de workers
+    if property_id:
+        try:
+            from gateway_app.services.workers_db import obtener_todos_workers
+            workers = obtener_todos_workers(property_id=property_id)
+            worker_by_id = {w["id"]: w["nombre_completo"] for w in workers if w.get("id")}
+            for t in tickets:
+                if not t.get("worker_name") and t.get("assigned_to"):
+                    t["worker_name"] = worker_by_id.get(t["assigned_to"])
+        except Exception:
+            logger.warning("mostrar_en_proceso: no se pudo enriquecer worker names")
+
     for t in tickets:
         if not t.get("started_at"):
-            t["started_at"] = t.get("assigned_at")
+            t["started_at"] = t.get("assigned_at") or t.get("created_at")
 
     msg = formatear_lista_tickets(
         tickets,
@@ -1002,7 +1014,7 @@ def mostrar_tickets_asignados_y_en_curso(from_phone: str, tenant=None) -> None:
         lineas.append(f"🔄 EN CURSO ({len(en_curso)}):")
         for t in en_curso[:5]:
             if not t.get("started_at"):
-                t["started_at"] = t.get("assigned_at")
+                t["started_at"] = t.get("assigned_at") or t.get("created_at")
             lineas.append(formatear_linea_ticket(
                 t, mostrar_tiempo=True, mostrar_worker=True,
                 campo_fecha="started_at",
@@ -1014,6 +1026,8 @@ def mostrar_tickets_asignados_y_en_curso(from_phone: str, tenant=None) -> None:
     if asignados:
         lineas.append(f"📋 ASIGNADAS ({len(asignados)}):")
         for t in asignados[:5]:
+            if not t.get("assigned_at"):
+                t["assigned_at"] = t.get("created_at")
             lineas.append(formatear_linea_ticket(
                 t, mostrar_tiempo=True, mostrar_worker=True,
                 campo_fecha="assigned_at",
