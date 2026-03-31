@@ -126,6 +126,26 @@ def crear_ticket(
 # LEER
 # ============================================================
 
+def _enriquecer_workers(tickets: list, property_id: str) -> list:
+    """Rellena worker_name en tickets donde falta pero assigned_to está presente.
+
+    El endpoint de NestJS devuelve assignedToUserId pero no el objeto assignee
+    embebido, por lo que ticket_from_nestjs deja worker_name=None. Este helper
+    resuelve el nombre consultando la caché de workers (TTL 5 min).
+    """
+    sin_nombre = [t for t in tickets if not t.get("worker_name") and t.get("assigned_to")]
+    if not sin_nombre or not property_id:
+        return tickets
+    from gateway_app.services.workers_db import obtener_todos_workers
+    workers = obtener_todos_workers(property_id=property_id)
+    by_id = {w["id"]: w["nombre_completo"] for w in workers if w.get("id")}
+    for t in sin_nombre:
+        nombre = by_id.get(t["assigned_to"])
+        if nombre:
+            t["worker_name"] = nombre
+    return tickets
+
+
 def obtener_ticket_por_id(ticket_id, *, property_id: str = None) -> Optional[Dict[str, Any]]:
     """Retorna el ticket normalizado al formato Flask, o None."""
     if not ticket_id:
@@ -135,7 +155,9 @@ def obtener_ticket_por_id(ticket_id, *, property_id: str = None) -> Optional[Dic
     data = api_get(f"/api/v1/tickets/property/{property_id}/code/{int(ticket_id)}")
     if not data:
         return None
-    return ticket_from_nestjs(data)
+    ticket = ticket_from_nestjs(data)
+    [ticket] = _enriquecer_workers([ticket], property_id)
+    return ticket
 
 
 def obtener_pendientes(
@@ -162,7 +184,8 @@ def obtener_asignados(*, property_id: str = None) -> List[Dict[str, Any]]:
         "propertyId": property_id,
         "status":     STATUS_TO_NESTJS["ASIGNADO"],
     })
-    return [ticket_from_nestjs(t) for t in _items(data)]
+    tickets = [ticket_from_nestjs(t) for t in _items(data)]
+    return _enriquecer_workers(tickets, property_id)
 
 
 def obtener_en_curso(*, property_id: str = None) -> List[Dict[str, Any]]:
@@ -173,7 +196,8 @@ def obtener_en_curso(*, property_id: str = None) -> List[Dict[str, Any]]:
         "propertyId": property_id,
         "status":     STATUS_TO_NESTJS["EN_CURSO"],
     })
-    return [ticket_from_nestjs(t) for t in _items(data)]
+    tickets = [ticket_from_nestjs(t) for t in _items(data)]
+    return _enriquecer_workers(tickets, property_id)
 
 
 def obtener_tickets_worker(
