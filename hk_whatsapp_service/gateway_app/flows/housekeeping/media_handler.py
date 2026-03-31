@@ -284,24 +284,39 @@ def handle_media_context_response(from_phone: str, text: str, tenant=None) -> bo
     if ubicacion:
         media_id = media_info["media_id"]
         media_type = media_info["media_type"]
-        
+
+        # Intentar extraer asignación y descripción del mismo mensaje
+        worker_nombre_ctx, text_sin_asign = _extract_assignment_from_caption(text)
+        detalle = _extraer_descripcion_sin_ubicacion(text_sin_asign, ubicacion)
+
         state.pop("media_pendiente", None)
         persist_state(from_phone, state)
-        
-        # Guardar para el siguiente paso (esperar descripción)
-        state["media_para_ticket"] = {
-            "media_id": media_id,
-            "media_type": media_type,
-            "ubicacion": ubicacion
-        }
-        persist_state(from_phone, state)
-        
-        send_whatsapp(
-            from_phone,
-            f"📍 Ubicación: {ubicacion}\n\n"
-            "¿Cuál es el problema?\n"
-            "(Describe brevemente o envía audio)"
-        )
+
+        if detalle:
+            # Tenemos todo: crear ticket directamente sin preguntar más
+            _crear_ticket_con_media(
+                from_phone=from_phone,
+                media_id=media_id,
+                media_type=media_type,
+                ubicacion=ubicacion,
+                detalle=detalle,
+                tenant=tenant,
+                worker_nombre=worker_nombre_ctx,
+            )
+        else:
+            # Solo tenemos ubicación: pedir descripción
+            state["media_para_ticket"] = {
+                "media_id": media_id,
+                "media_type": media_type,
+                "ubicacion": ubicacion,
+            }
+            persist_state(from_phone, state)
+            send_whatsapp(
+                from_phone,
+                f"📍 Ubicación: {ubicacion}\n\n"
+                "¿Cuál es el problema?\n"
+                "(Describe brevemente o envía audio)"
+            )
         return True
     
     # ─────────────────────────────────────────────────────────────
@@ -370,6 +385,23 @@ def handle_media_detail_response(from_phone: str, text: str, tenant=None) -> boo
 # ============================================================
 # FUNCIONES AUXILIARES
 # ============================================================
+
+def _extraer_descripcion_sin_ubicacion(text: str, ubicacion: str) -> Optional[str]:
+    """
+    Dado el texto (ya sin directiva de asignación), elimina la referencia a la
+    ubicación —incluyendo preposiciones de contexto como "en la", "hab"— y
+    retorna el resto como descripción del problema.
+    Retorna None si no queda texto significativo.
+    """
+    cleaned = re.sub(
+        r'\b(?:en\s+(?:la\s+|el\s+|los?\s+|las?\s+)?|habitaci[oó]n\s+|hab\.?\s+)?'
+        + re.escape(ubicacion) + r'\b',
+        '',
+        text,
+        flags=re.IGNORECASE,
+    ).strip(' .,:-')
+    return cleaned if cleaned else None
+
 
 def _extract_assignment_from_caption(text: str):
     """
