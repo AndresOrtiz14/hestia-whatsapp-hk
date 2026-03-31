@@ -1751,9 +1751,9 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
                 send_whatsapp(from_phone, "❌ Error creando tarea. Intenta de nuevo.")
                 return True
             
-            ticket_id = ticket["id"]
+            ticket_id = ticket["id_code"]
             prioridad_emoji = {"ALTA": "🔴", "MEDIA": "🟡", "BAJA": "🟢"}.get(prioridad, "🟡")
-            
+
             # 2. Buscar trabajador
             from gateway_app.services.workers_db import buscar_workers_por_nombre
             coincidencias = buscar_workers_por_nombre(nombre_trabajador, property_id=tenant.property_id if tenant else "")
