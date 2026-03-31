@@ -1217,19 +1217,27 @@ def crear_ticket_desde_draft(from_phone: str, tenant=None) -> None:
         from gateway_app.services.workers_db import obtener_supervisores_por_area as _get_sups_create
         _property_id_create = tenant.property_id if tenant else ""
         _sups_create = _get_sups_create(clasificacion["area"], property_id=_property_id_create)
+        logger.info(
+            "HK_CREATE_FROM_DRAFT supervisor_lookup area=%s property_id=%s found=%d",
+            clasificacion["area"], _property_id_create, len(_sups_create)
+        )
         if not _sups_create:
             # Fallback: buscar supervisores sin filtro de área
             _sups_create = _get_sups_create("", property_id=_property_id_create)
+            logger.info(
+                "HK_CREATE_FROM_DRAFT supervisor_lookup_fallback property_id=%s found=%d",
+                _property_id_create, len(_sups_create)
+            )
         supervisor_phones = [s["telefono"] for s in _sups_create if s.get("telefono")]
+        logger.info("HK_CREATE_FROM_DRAFT supervisor_phones=%s", supervisor_phones)
 
         # ====================================================================
-        # ✅ NUEVO: CHECK DE HORARIO LABORAL
+        # CHECK DE HORARIO LABORAL
         # ====================================================================
         if supervisor_phones:
             en_horario = esta_en_horario_laboral()
 
             if en_horario:
-                # ✅ EN HORARIO: Notificar supervisores normalmente
                 logger.info(f"✅ Ticket #{ticket_id} creado EN horario laboral - Notificando {len(supervisor_phones)} supervisores")
 
                 from gateway_app.services.workers_db import buscar_worker_por_telefono
@@ -1248,19 +1256,22 @@ def crear_ticket_desde_draft(from_phone: str, tenant=None) -> None:
                     )
                     logger.info(f"✅ Notificación enviada a supervisor {supervisor_phone}")
             else:
-                # 🌙 FUERA DE HORARIO: NO notificar supervisores
                 logger.warning(f"🌙 Ticket #{ticket_id} creado FUERA de horario laboral - NO se notifica a supervisores")
-                
-                # Informar al worker que será atendido mañana
                 send_whatsapp(
                     from_phone,
                     f"\n🌙 Fuera de horario laboral\n"
                     f"⏰ Supervisión será notificada mañana a las 7:30 AM"
                 )
+        else:
+            logger.warning(
+                "HK_CREATE_FROM_DRAFT no_supervisors_found ticket=%s area=%s property_id=%s",
+                ticket_id, clasificacion["area"], _property_id_create
+            )
         # ====================================================================
 
         reset_ticket_draft(from_phone)
         state["state"] = MENU
+        persist_user_state(from_phone, state)
 
     except Exception as e:
         logger.exception("HK_CREATE_FROM_DRAFT exception from=%s err=%s", from_phone, e)
