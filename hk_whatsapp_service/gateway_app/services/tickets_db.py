@@ -280,8 +280,10 @@ def iniciar_ticket(ticket_id) -> bool:
     if not ticket_uuid:
         logger.error("iniciar_ticket: no se pudo resolver UUID para idCode=%s", ticket_id)
         return False
+    from datetime import datetime, timezone
     result = api_put(f"/api/v1/tickets/{ticket_uuid}", {
-        "status": STATUS_TO_NESTJS["EN_CURSO"],
+        "status":    STATUS_TO_NESTJS["EN_CURSO"],
+        "startedAt": datetime.now(timezone.utc).isoformat(),
     })
     return result is not None
 

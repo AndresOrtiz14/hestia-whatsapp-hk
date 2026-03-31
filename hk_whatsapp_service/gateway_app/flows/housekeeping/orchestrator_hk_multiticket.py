@@ -1328,7 +1328,7 @@ def terminar_turno(from_phone: str, tenant=None) -> None:
     desactivar_turno_por_telefono(from_phone, property_id=tenant.property_id if tenant else "")
 
     # Verificar si tiene tickets activos
-    tickets = obtener_tickets_asignados_a(from_phone)
+    tickets = obtener_tickets_asignados_a(from_phone, property_id=tenant.property_id if tenant else None)
     tickets_activos = [t for t in tickets if t.get('estado') == 'EN_CURSO']
     
     if len(tickets_activos) > 0:
