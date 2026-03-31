@@ -1194,7 +1194,8 @@ def crear_ticket_desde_draft(from_phone: str, tenant=None) -> None:
             state["state"] = MENU
             return
 
-        ticket_id = ticket["id"]
+        ticket_uuid = ticket["id"]
+        ticket_id = ticket.get("id_code") or ticket_uuid
         logger.info("HK_CREATE_FROM_DRAFT created_id=%s from=%s", ticket_id, from_phone)
 
         # ✅ MODIFICADO: Mensaje con ubicación formateada

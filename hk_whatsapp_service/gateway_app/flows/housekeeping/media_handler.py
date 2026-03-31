@@ -490,6 +490,7 @@ def _crear_ticket_con_media(
                 reportado_por=from_phone,
                 storage_url=media_result.get("storage_url"),
                 tenant=tenant,
+                area=area,
             )
         
         logger.info(f"✅ Ticket #{ticket_id} creado con {media_type} por {from_phone}")
@@ -565,12 +566,13 @@ def _notificar_supervisor_nuevo_ticket(
     reportado_por: str,
     storage_url: Optional[str] = None,
     tenant=None,
+    area: str = "HOUSEKEEPING",
 ) -> None:
     """Notifica al supervisor sobre un nuevo ticket con foto/video."""
     from gateway_app.services.whatsapp_client import send_whatsapp_image, send_whatsapp_text
     from gateway_app.services.workers_db import obtener_supervisores_por_area
 
-    _area = "HOUSEKEEPING"
+    _area = area
     _sups = obtener_supervisores_por_area(_area, property_id=tenant.property_id if tenant else "")
     supervisor_phones = [s["telefono"] for s in _sups if s.get("telefono")]
 
