@@ -1118,6 +1118,8 @@ def finalizar_ticket_supervisor(from_phone: str, ticket_id: int, tenant=None) ->
             send_whatsapp_text(
                 to=worker_phone_dest,
                 body=msg_worker_tarea_finalizada_sup(ticket_id, ubicacion, detalle),
+                token=tenant.wa_token if tenant else None,
+                phone_number_id=tenant.phone_number_id if tenant else None,
             )
             logger.info(f"✅ Worker {worker_phone_dest} notificado de finalización")
         except Exception as e:
@@ -1265,14 +1267,22 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
                 send_whatsapp(from_phone, f"❌ No encontré la tarea #{ticket_id}")
                 return True
             
-            # Guardar worker original
-            huesped_whatsapp_original = ticket.get("huesped_whatsapp", "")
-            if "|" in huesped_whatsapp_original:
-                worker_original_phone, worker_original_name = huesped_whatsapp_original.split("|", 1)
-            else:
-                worker_original_phone = None
-                worker_original_name = None
-            
+            # Obtener worker original via assigned_to UUID
+            worker_original_phone = None
+            worker_original_name = ticket.get("worker_name") or None
+            _orig_uuid = ticket.get("assigned_to")
+            if _orig_uuid and (tenant.property_id if tenant else None):
+                try:
+                    from gateway_app.services.workers_db import obtener_todos_workers
+                    for w in obtener_todos_workers(property_id=tenant.property_id):
+                        if w.get("id") == _orig_uuid:
+                            worker_original_phone = w.get("telefono")
+                            if not worker_original_name:
+                                worker_original_name = w.get("nombre_completo")
+                            break
+                except Exception:
+                    logger.warning(f"reasignar: no se pudo obtener worker original uuid={_orig_uuid}")
+
             # Buscar nuevo worker
             from gateway_app.services.workers_db import buscar_workers_por_nombre
             candidatas = buscar_workers_por_nombre(worker_nombre, property_id=tenant.property_id if tenant else "")
@@ -1572,19 +1582,28 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
         
         # ✅ Obtener ticket para guardar worker original
         from gateway_app.services.tickets_db import asignar_ticket
-        ticket = obtener_ticket_por_id(ticket_id)
-        
+        _prop_id = tenant.property_id if tenant else None
+        ticket = obtener_ticket_por_id(ticket_id, property_id=_prop_id)
+
         if not ticket:
             send_whatsapp(from_phone, f"❌ No encontré la tarea #{ticket_id}")
             return True
-        
-        # ✅ Guardar worker original
-        huesped_whatsapp_original = ticket.get("huesped_whatsapp", "")
-        if "|" in huesped_whatsapp_original:
-            worker_original_phone, worker_original_name = huesped_whatsapp_original.split("|", 1)
-        else:
-            worker_original_phone = None
-            worker_original_name = None
+
+        # Obtener worker original via assigned_to UUID (huesped_whatsapp no existe en ticket normalizado)
+        worker_original_phone = None
+        worker_original_name = ticket.get("worker_name") or None
+        original_assigned_uuid = ticket.get("assigned_to")
+        if original_assigned_uuid and _prop_id:
+            try:
+                from gateway_app.services.workers_db import obtener_todos_workers
+                for w in obtener_todos_workers(property_id=_prop_id):
+                    if w.get("id") == original_assigned_uuid:
+                        worker_original_phone = w.get("telefono")
+                        if not worker_original_name:
+                            worker_original_name = w.get("nombre_completo")
+                        break
+            except Exception:
+                logger.warning(f"reasignar: no se pudo obtener worker original uuid={original_assigned_uuid}")
         
         # Buscar nuevo worker
         from gateway_app.services.workers_db import buscar_workers_por_nombre
