@@ -208,7 +208,12 @@ def handle_supervisor_message_simple(from_phone: str, text: str, tenant=None) ->
                     for w in workers_en_turno:
                         phone = w.get("telefono")
                         if phone:
-                            send_whatsapp_text(to=phone, body=msg_aviso_general(mensaje_aviso))
+                            send_whatsapp_text(
+                                to=phone,
+                                body=msg_aviso_general(mensaje_aviso),
+                                token=tenant.wa_token if tenant else None,
+                                phone_number_id=tenant.phone_number_id if tenant else None,
+                            )
                             enviados += 1
                     state.pop("confirmacion_pendiente", None)
                     persist_supervisor_state(from_phone, state)
@@ -1235,6 +1240,8 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
                 )
 
                 notificar_worker_nueva_tarea(worker_phone, ticket_id, ubicacion, detalle, prioridad,
+                                             token=tenant.wa_token if tenant else None,
+                                             phone_number_id=tenant.phone_number_id if tenant else None,
                                              property_id=_prop_id)
 
                 # Notificar al worker original si es reasignación
@@ -1247,6 +1254,8 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
                             body=msg_worker_tarea_reasignada_saliente(
                                 ticket_id, ubicacion, worker_nombre,
                             ),
+                            token=tenant.wa_token if tenant else None,
+                            phone_number_id=tenant.phone_number_id if tenant else None,
                         )
                         logger.info(f"✅ Notificación de reasignación enviada a {worker_original_phone}")
 
@@ -1953,7 +1962,9 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
                             f"#{ticket_id} · {ticket.get('ubicacion') or ticket.get('habitacion') or '?'}\n"
                             f"{detalle}\n"
                             f"{prioridad_emoji} Prioridad: {prioridad}\n\n"
-                            f"💡 Responde 'tomar' para aceptar"
+                            f"💡 Responde 'tomar' para aceptar",
+                        token=tenant.wa_token if tenant else None,
+                        phone_number_id=tenant.phone_number_id if tenant else None,
                     )
                     
                     return True
