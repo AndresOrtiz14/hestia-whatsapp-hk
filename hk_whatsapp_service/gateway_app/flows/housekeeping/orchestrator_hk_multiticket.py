@@ -699,15 +699,9 @@ def finalizar_ticket_especifico(from_phone: str, ticket_id: int, tenant=None) ->
     
 # ✅ Actualizar estado en BD: EN_CURSO → RESUELTO
     if actualizar_estado_ticket(ticket_data.get("id"), "RESUELTO"):
-        # ✅ FIX A7: Usar timezone-aware para compatibilidad con PostgreSQL TIMESTAMPTZ
         from datetime import timezone
         now = datetime.now(timezone.utc)
-        execute(
-            "UPDATE public.tickets SET ended_at = ? WHERE id = ?",
-            [now, ticket_data.get("id")],
-            commit=True
-        )
-        
+
         # ✅ CALCULAR TIEMPO DE RESOLUCIÓN
         started_at = ticket_data.get("started_at")
         if started_at:

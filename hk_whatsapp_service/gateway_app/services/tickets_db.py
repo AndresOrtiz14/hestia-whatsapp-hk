@@ -231,7 +231,8 @@ def asignar_ticket(
 
     if not _is_uuid(str(worker_id)):
         from gateway_app.services.workers_db import buscar_worker_por_telefono
-        worker = buscar_worker_por_telefono(worker_id)
+        _pid = property_id or (os.getenv("PROPERTY_ID_DEFAULT", "") or None)
+        worker = buscar_worker_por_telefono(worker_id, property_id=_pid) if _pid else None
         if not worker:
             logger.error("asignar_ticket: no worker para phone=%s", worker_id)
             return False
