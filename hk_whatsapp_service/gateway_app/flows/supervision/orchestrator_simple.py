@@ -321,7 +321,7 @@ def handle_supervisor_message_simple(from_phone: str, text: str, tenant=None) ->
 
         # "ver 98" → mostrar info del ticket directamente
         if raw_cmd.isdigit():
-            mostrar_info_ticket(from_phone, int(raw_cmd))
+            mostrar_info_ticket(from_phone, int(raw_cmd), tenant=tenant)
             return
 
         # 4) Crear nuevo ticket
@@ -381,7 +381,7 @@ def handle_supervisor_message_simple(from_phone: str, text: str, tenant=None) ->
             match = re.search(r'\b(\d{2,4})\b', raw)
             if match:
                 ticket_id = int(match.group(1))
-                mostrar_info_ticket(from_phone, ticket_id)
+                mostrar_info_ticket(from_phone, ticket_id, tenant=tenant)
                 return
         
         # 4.9) "asignar" solo
@@ -912,7 +912,7 @@ def mostrar_retrasados(from_phone: str, tenant=None) -> None:
     send_whatsapp(from_phone, msg)
 
 
-def mostrar_info_ticket(from_phone: str, ticket_id: int) -> None:
+def mostrar_info_ticket(from_phone: str, ticket_id: int, tenant=None) -> None:
     """Muestra detalle completo de una tarea."""
     from gateway_app.core.utils.message_constants import (
         emoji_prioridad, emoji_estado, label_estado,
@@ -920,7 +920,8 @@ def mostrar_info_ticket(from_phone: str, ticket_id: int) -> None:
         nombre_worker_de_ticket,
     )
 
-    ticket = obtener_ticket_por_id(ticket_id)
+    property_id = tenant.property_id if tenant else None
+    ticket = obtener_ticket_por_id(ticket_id, property_id=property_id)
 
     if not ticket:
         send_whatsapp(from_phone, f"❌ No encontré la tarea #{ticket_id}")
