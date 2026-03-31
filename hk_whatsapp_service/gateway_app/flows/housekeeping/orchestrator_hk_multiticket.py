@@ -1214,7 +1214,11 @@ def crear_ticket_desde_draft(from_phone: str, tenant=None) -> None:
         )
 
         from gateway_app.services.workers_db import obtener_supervisores_por_area as _get_sups_create
-        _sups_create = _get_sups_create(clasificacion["area"], property_id=tenant.property_id if tenant else "")
+        _property_id_create = tenant.property_id if tenant else ""
+        _sups_create = _get_sups_create(clasificacion["area"], property_id=_property_id_create)
+        if not _sups_create:
+            # Fallback: buscar supervisores sin filtro de área
+            _sups_create = _get_sups_create("", property_id=_property_id_create)
         supervisor_phones = [s["telefono"] for s in _sups_create if s.get("telefono")]
 
         # ====================================================================

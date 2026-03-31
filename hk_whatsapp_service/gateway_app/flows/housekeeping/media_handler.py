@@ -572,8 +572,11 @@ def _notificar_supervisor_nuevo_ticket(
     from gateway_app.services.whatsapp_client import send_whatsapp_image, send_whatsapp_text
     from gateway_app.services.workers_db import obtener_supervisores_por_area
 
-    _area = area
-    _sups = obtener_supervisores_por_area(_area, property_id=tenant.property_id if tenant else "")
+    _property_id = tenant.property_id if tenant else ""
+    _sups = obtener_supervisores_por_area(area, property_id=_property_id)
+    if not _sups:
+        # Fallback: buscar supervisores sin filtro de área
+        _sups = obtener_supervisores_por_area("", property_id=_property_id)
     supervisor_phones = [s["telefono"] for s in _sups if s.get("telefono")]
 
     if not supervisor_phones:
