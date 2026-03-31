@@ -595,6 +595,7 @@ def _notificar_supervisor_nuevo_ticket(
     )
     
     _phone_number_id = tenant.phone_number_id if tenant else None
+    _token = tenant.wa_token if tenant else None
     for sup_phone in supervisor_phones:
         try:
             if media_type == "image":
@@ -602,12 +603,13 @@ def _notificar_supervisor_nuevo_ticket(
                     to=sup_phone,
                     media_id=media_id,
                     caption=caption,
+                    token=_token,
                     phone_number_id=_phone_number_id,
                 )
                 if not result.get("success"):
-                    send_whatsapp_text(to=sup_phone, body=caption, phone_number_id=_phone_number_id)
+                    send_whatsapp_text(to=sup_phone, body=caption, token=_token, phone_number_id=_phone_number_id)
             else:
-                send_whatsapp_text(to=sup_phone, body=caption, phone_number_id=_phone_number_id)
+                send_whatsapp_text(to=sup_phone, body=caption, token=_token, phone_number_id=_phone_number_id)
 
             logger.info(f"✅ Supervisor {sup_phone} notificado de ticket #{ticket_id}")
             
