@@ -155,6 +155,7 @@ def _clasificar_con_llm(detalle: str, ubicacion: str, area_worker: str) -> dict:
         model="gpt-4o-mini",          # Rápido y barato — ideal para clasificación
         temperature=0,                 # Queremos determinismo, no creatividad
         max_tokens=200,
+        timeout=20,                    # Falla rápido → cae a fallback heurístico
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user",   "content": user_msg},

@@ -23,8 +23,7 @@ def texto_menu_simple(turno_activo: bool = True) -> str:
 
 💡 O escribe:
 - 'tomar' - Tomar tarea
-- 'fin' - Finalizar
-- 'pausar' - Pausar"""
+- 'fin' - Finalizar"""
     else:
         return """🏨 Menú de Operaciones
 
@@ -46,7 +45,6 @@ def texto_ayuda() -> str:
 📋 TRABAJAR:
 • 'tomar' - Tomar la más urgente
 • 'fin' - Finalizar tarea
-• 'pausar' / 'reanudar'
 
 ➕ REPORTAR:
 • 'reportar' - Crear reporte
@@ -89,8 +87,7 @@ def texto_saludo_con_turno(turno_activo: bool) -> str:
 
 💡 O escribe:
 - 'tomar' - Tomar tarea
-- 'fin' - Finalizar
-- 'pausar' - Pausar"""
+- 'fin' - Finalizar"""
     else:
         return """👋 Hola, tu turno está inactivo ⏸️
 

@@ -64,6 +64,9 @@ from .areas_comunes_helpers import (
 )
 
 from .media_handler import handle_media_context_response, handle_media_detail_response
+from gateway_app.core.utils.horario import esta_en_horario_laboral, obtener_mensaje_fuera_horario
+from gateway_app.services.ticket_classifier import clasificar_ticket
+from gateway_app.services.workers_db import obtener_supervisores_por_area, buscar_worker_por_telefono
 
 def verificar_turno_activo(from_phone: str, tenant=None) -> bool:
     """
@@ -429,7 +432,6 @@ def handle_hk_message_simple(from_phone: str, text: str, tenant=None) -> None:
                 "💡 Comandos:\n"
                 "• 'activos' - Ver tus tareas activas\n"
                 "• 'fin [#]' - Terminar tarea específica\n"
-                "• 'pausar [#]' - Pausar tarea\n"
                 "• 'tomar' - Tomar otra tarea\n"
                 "• 'M' - Menú"
             )
@@ -569,7 +571,7 @@ def mostrar_tickets_activos(from_phone: str, tenant=None) -> None:
             f"   {detalle}"
         )
     
-    lineas.append("\n💡 'fin [#]' para terminar | 'pausar [#]' para pausar")
+    lineas.append("\n💡 'fin [#]' para terminar")
     
     send_whatsapp(from_phone, "\n".join(lineas))
 
@@ -1125,8 +1127,6 @@ def crear_ticket_desde_draft(from_phone: str, tenant=None) -> None:
     Crea ticket desde el borrador y notifica al supervisor.
     ✅ MODIFICADO: Solo notifica a supervisores en horario laboral (7:30 AM - 11:30 PM)
     """
-    from gateway_app.core.utils.horario import esta_en_horario_laboral, obtener_mensaje_fuera_horario
-    
     state = get_user_state(from_phone)
 
     if state.get("state") != CONFIRMANDO_REPORTE:
@@ -1155,7 +1155,6 @@ def crear_ticket_desde_draft(from_phone: str, tenant=None) -> None:
         area_worker = state.get("area_worker", "HOUSEKEEPING")
         
         # ── NUEVO: Clasificar con IA ───────────────────────────────
-        from gateway_app.services.ticket_classifier import clasificar_ticket
         clasificacion = clasificar_ticket(
             detalle=draft["detalle"],
             ubicacion=ubicacion,
@@ -1214,16 +1213,15 @@ def crear_ticket_desde_draft(from_phone: str, tenant=None) -> None:
             f"{prioridad_emoji} Prioridad: {draft['prioridad']}"
         )
 
-        from gateway_app.services.workers_db import obtener_supervisores_por_area as _get_sups_create
         _property_id_create = tenant.property_id if tenant else ""
-        _sups_create = _get_sups_create(clasificacion["area"], property_id=_property_id_create)
+        _sups_create = obtener_supervisores_por_area(clasificacion["area"], property_id=_property_id_create)
         logger.info(
             "HK_CREATE_FROM_DRAFT supervisor_lookup area=%s property_id=%s found=%d",
             clasificacion["area"], _property_id_create, len(_sups_create)
         )
         if not _sups_create:
             # Fallback: buscar supervisores sin filtro de área
-            _sups_create = _get_sups_create("", property_id=_property_id_create)
+            _sups_create = obtener_supervisores_por_area("", property_id=_property_id_create)
             logger.info(
                 "HK_CREATE_FROM_DRAFT supervisor_lookup_fallback property_id=%s found=%d",
                 _property_id_create, len(_sups_create)
@@ -1239,8 +1237,6 @@ def crear_ticket_desde_draft(from_phone: str, tenant=None) -> None:
 
             if en_horario:
                 logger.info(f"✅ Ticket #{ticket_id} creado EN horario laboral - Notificando {len(supervisor_phones)} supervisores")
-
-                from gateway_app.services.workers_db import buscar_worker_por_telefono
 
                 worker = buscar_worker_por_telefono(from_phone, property_id=tenant.property_id if tenant else "")
                 worker_nombre = worker.get("nombre_completo") if worker else "Trabajador"
