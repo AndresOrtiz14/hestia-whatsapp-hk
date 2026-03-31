@@ -368,7 +368,8 @@ def handle_hk_message_simple(from_phone: str, text: str, tenant=None) -> None:
         
         # 1) Saludo inicial del día (después de detección de reporte para no descartarlos)
         today_str = date.today().isoformat()
-        if state.get("last_greet_date") != today_str:
+        current_state_for_greet = state.get("state")
+        if state.get("last_greet_date") != today_str and current_state_for_greet not in [REPORTANDO_HAB, REPORTANDO_DETALLE, CONFIRMANDO_REPORTE]:
             state["last_greet_date"] = today_str
             turno_activo = state.get("turno_activo", False)
 
