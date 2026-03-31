@@ -312,6 +312,11 @@ def handle_supervisor_message_simple(from_phone: str, text: str, tenant=None) ->
         if raw_cmd.startswith("ver "):
             raw_cmd = raw_cmd[4:].strip()
 
+        # "ver 98" → mostrar info del ticket directamente
+        if raw_cmd.isdigit():
+            mostrar_info_ticket(from_phone, int(raw_cmd))
+            return
+
         # 4) Crear nuevo ticket
         if raw_cmd in ["crear", "nuevo", "nueva", "nueva tarea", "crear tarea", "registrar"]:
             send_whatsapp(
@@ -366,7 +371,7 @@ def handle_supervisor_message_simple(from_phone: str, text: str, tenant=None) ->
         # 4.8) Ver info de ticket
         if any(word in raw for word in ["ticket", "tarea", "cual es", "cuál es", "ver el", "info"]):
             import re
-            match = re.search(r'\b(\d{3,4})\b', raw)
+            match = re.search(r'\b(\d{2,4})\b', raw)
             if match:
                 ticket_id = int(match.group(1))
                 mostrar_info_ticket(from_phone, ticket_id)
