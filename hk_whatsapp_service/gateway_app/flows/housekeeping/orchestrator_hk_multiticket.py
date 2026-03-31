@@ -763,7 +763,7 @@ def finalizar_ticket_especifico(from_phone: str, ticket_id: int, tenant=None) ->
                 logger.info(f"✅ Notificación de finalización enviada a supervisor {supervisor_phone}")
         
         # Verificar si aún tiene tickets activos
-        tickets = obtener_tickets_asignados_a(from_phone)
+        tickets = obtener_tickets_asignados_a(from_phone, property_id=tenant.property_id if tenant else None)
         tickets_activos = [t for t in tickets if t.get('estado') == 'EN_CURSO']
         
         # Actualizar estado

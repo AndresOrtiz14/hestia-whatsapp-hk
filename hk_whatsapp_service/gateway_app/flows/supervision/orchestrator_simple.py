@@ -1636,6 +1636,8 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
                         body=msg_worker_tarea_reasignada_saliente(
                             ticket_id, ubicacion, worker_nombre_completo,
                         ),
+                        token=tenant.wa_token if tenant else None,
+                        phone_number_id=tenant.phone_number_id if tenant else None,
                     )
                     logger.info(f"✅ Notificación de reasignación enviada a {worker_original_phone}")
 
