@@ -1653,6 +1653,8 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
 
                 # 3. Notificar al NUEVO worker
                 notificar_worker_nueva_tarea(worker_phone, ticket_id, ubicacion, detalle, prioridad,
+                                             token=tenant.wa_token if tenant else None,
+                                             phone_number_id=tenant.phone_number_id if tenant else None,
                                              property_id=tenant.property_id if tenant else None)
 
                 logger.info(f"✅ Tarea #{ticket_id} reasignada de {worker_original_name} a {worker_nombre_completo}")

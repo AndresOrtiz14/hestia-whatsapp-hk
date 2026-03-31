@@ -758,7 +758,9 @@ def finalizar_ticket_especifico(from_phone: str, ticket_id: int, tenant=None) ->
                          f"#{ticket_id} · Hab. {ubicacion}\n"
                          f"{ticket_data.get('detalle', 'Sin detalle')}\n"
                          f"{prioridad_emoji} Prioridad: {ticket_data.get('prioridad', 'MEDIA')}\n"
-                         f"{tiempo_emoji} Tiempo: {tiempo_texto}"
+                         f"{tiempo_emoji} Tiempo: {tiempo_texto}",
+                    token=tenant.wa_token if tenant else None,
+                    phone_number_id=tenant.phone_number_id if tenant else None,
                 )
                 logger.info(f"✅ Notificación de finalización enviada a supervisor {supervisor_phone}")
         
