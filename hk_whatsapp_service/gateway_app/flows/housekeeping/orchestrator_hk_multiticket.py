@@ -327,20 +327,11 @@ def handle_hk_message_simple(from_phone: str, text: str, tenant=None) -> None:
         if raw in ['1', '2', '3', '4'] and state.get("state") not in [REPORTANDO_HAB, REPORTANDO_DETALLE, CONFIRMANDO_REPORTE]:
             turno_activo = state.get("turno_activo", False)
             handle_menu(from_phone, raw, tenant=tenant)
-            return
-
-        # 1) Saludo inicial del día (va después de comandos globales para no interceptarlos)
-        today_str = date.today().isoformat()
-        if state.get("last_greet_date") != today_str:
-            state["last_greet_date"] = today_str
-            turno_activo = state.get("turno_activo", False)
-
-            from .ui_simple import texto_saludo_con_turno
-            send_whatsapp(from_phone, texto_saludo_con_turno(turno_activo))
-            state["state"] = MENU
+            state = get_user_state(from_phone)
             return
 
         # 3) Detectar reporte directo adaptado al área del worker
+        # (va antes del saludo para que mensajes con reporte no queden descartados)
         current_state = state.get("state")
         if current_state not in [REPORTANDO_HAB, REPORTANDO_DETALLE, CONFIRMANDO_REPORTE]:
             logger.info(f"🔍 DETECCIÓN - Intentando detectar reporte directo para área: {area_worker}")
@@ -375,6 +366,17 @@ def handle_hk_message_simple(from_phone: str, text: str, tenant=None) -> None:
                 send_whatsapp(from_phone, mensaje)
                 return
         
+        # 1) Saludo inicial del día (después de detección de reporte para no descartarlos)
+        today_str = date.today().isoformat()
+        if state.get("last_greet_date") != today_str:
+            state["last_greet_date"] = today_str
+            turno_activo = state.get("turno_activo", False)
+
+            from .ui_simple import texto_saludo_con_turno
+            send_whatsapp(from_phone, texto_saludo_con_turno(turno_activo))
+            state["state"] = MENU
+            return
+
         # 4) Comandos globales
         if es_comando_reportar(raw):
             iniciar_reporte(from_phone, tenant=tenant)
@@ -462,6 +464,7 @@ def handle_menu(from_phone: str, raw: str, tenant=None) -> None:
         if raw in ['2', 'reportar', 'reportar problema']:
             iniciar_reporte(from_phone, tenant=tenant)
             state["state"] = REPORTANDO_HAB
+            persist_user_state(from_phone, state)
             return
 
         if raw in ['3', 'terminar turno', 'fin turno']:

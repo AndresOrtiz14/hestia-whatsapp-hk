@@ -5,6 +5,7 @@ Todos los módulos del bot usan este cliente — nunca requests directo al backe
 """
 import os
 import logging
+import time
 import requests
 from typing import Any, Dict, Optional
 
@@ -33,23 +34,28 @@ def _unwrap(resp: Any) -> Optional[Any]:
 
 
 def api_get(path: str, params: Dict = None) -> Optional[Any]:
-    try:
-        r = requests.get(
-            f"{_BASE}{path}",
-            headers=_headers(),
-            params=params,
-            timeout=_TIMEOUT,
-        )
-        r.raise_for_status()
-        return _unwrap(r.json())
-    except requests.HTTPError as e:
-        status = e.response.status_code
-        log = logger.warning if status == 429 else logger.error
-        log("api_get HTTPError %s %s: %s", status, path, e.response.text[:200])
-        return None
-    except Exception:
-        logger.exception("api_get failed: %s", path)
-        return None
+    for attempt in range(2):
+        try:
+            r = requests.get(
+                f"{_BASE}{path}",
+                headers=_headers(),
+                params=params,
+                timeout=_TIMEOUT,
+            )
+            r.raise_for_status()
+            return _unwrap(r.json())
+        except requests.HTTPError as e:
+            status = e.response.status_code
+            if status == 429 and attempt == 0:
+                logger.warning("api_get 429 %s — reintentando en 1s", path)
+                time.sleep(1)
+                continue
+            log = logger.warning if status == 429 else logger.error
+            log("api_get HTTPError %s %s: %s", status, path, e.response.text[:200])
+            return None
+        except Exception:
+            logger.exception("api_get failed: %s", path)
+            return None
 
 
 def api_post(path: str, body: Dict) -> Optional[Any]:
