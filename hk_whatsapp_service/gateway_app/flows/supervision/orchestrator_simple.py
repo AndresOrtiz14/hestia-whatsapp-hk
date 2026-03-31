@@ -844,6 +844,10 @@ def mostrar_en_proceso(from_phone: str, tenant=None) -> None:
         send_whatsapp(from_phone, "✅ No hay tareas en proceso")
         return
 
+    for t in tickets:
+        if not t.get("started_at"):
+            t["started_at"] = t.get("assigned_at")
+
     msg = formatear_lista_tickets(
         tickets,
         titulo="🔄 Tareas en Proceso",
@@ -985,6 +989,8 @@ def mostrar_tickets_asignados_y_en_curso(from_phone: str, tenant=None) -> None:
     if en_curso:
         lineas.append(f"🔄 EN CURSO ({len(en_curso)}):")
         for t in en_curso[:5]:
+            if not t.get("started_at"):
+                t["started_at"] = t.get("assigned_at")
             lineas.append(formatear_linea_ticket(
                 t, mostrar_tiempo=True, mostrar_worker=True,
                 campo_fecha="started_at",
@@ -997,7 +1003,8 @@ def mostrar_tickets_asignados_y_en_curso(from_phone: str, tenant=None) -> None:
         lineas.append(f"📋 ASIGNADAS ({len(asignados)}):")
         for t in asignados[:5]:
             lineas.append(formatear_linea_ticket(
-                t, mostrar_tiempo=False, mostrar_worker=True,
+                t, mostrar_tiempo=True, mostrar_worker=True,
+                campo_fecha="assigned_at",
             ))
         if len(asignados) > 5:
             lineas.append(f"   ... y {len(asignados) - 5} más")

@@ -139,6 +139,7 @@ def ticket_from_nestjs(t: dict) -> dict:
         "worker_name": _extract_worker_name(t.get("assignee")),
         "photo_url":   t.get("photoUrl"),
         "started_at":  t.get("startedAt"),
+        "assigned_at": t.get("assignedAt"),
     }
 
 
