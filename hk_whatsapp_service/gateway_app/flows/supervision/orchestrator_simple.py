@@ -1821,6 +1821,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
 
                 state["ticket_seleccionado"] = ticket_id
                 state["esperando_asignacion"] = True
+                persist_supervisor_state(from_phone, state)
                 return True
 
             else:
@@ -1853,8 +1854,9 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
 
                 state["ticket_seleccionado"] = ticket_id
                 state["esperando_asignacion"] = True
+                persist_supervisor_state(from_phone, state)
                 return True
-        
+
         except Exception as e:
             logger.exception(f"❌ Error en crear_y_asignar: {e}")
             send_whatsapp(from_phone, "❌ Error creando tarea. Intenta de nuevo.")

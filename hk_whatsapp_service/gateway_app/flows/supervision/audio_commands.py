@@ -122,7 +122,10 @@ def extract_worker_name(text: str) -> Optional[str]:
             for cleanup in cleanup_words:
                 if posible_nombre.endswith(cleanup):
                     posible_nombre = posible_nombre[:-len(cleanup)].strip()
-            
+
+            # Limpiar puntuación al final (ej: "Pedro." → "Pedro")
+            posible_nombre = re.sub(r'[.,!?;:]+$', '', posible_nombre).strip()
+
             # ✅ NUEVO: Si tiene más de una palabra, capitalizar y retornar directo
             if ' ' in posible_nombre:
                 # Nombres compuestos: "chef cocina" → "Chef Cocina"
