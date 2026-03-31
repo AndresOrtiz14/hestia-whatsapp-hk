@@ -727,8 +727,12 @@ def finalizar_ticket_especifico(from_phone: str, ticket_id: int, tenant=None) ->
         
         # ✅ NOTIFICAR AL SUPERVISOR
         from gateway_app.services.workers_db import obtener_supervisores_por_area as _get_sups_hk
+        _prop_id_sups = tenant.property_id if tenant else ""
         _ticket_area = ticket_data.get("area", "HOUSEKEEPING")
-        _sups = _get_sups_hk(_ticket_area, property_id=tenant.property_id if tenant else "")
+        _sups = _get_sups_hk(_ticket_area, property_id=_prop_id_sups)
+        if not _sups:
+            # Fallback: buscar supervisores sin filtro de área
+            _sups = _get_sups_hk("", property_id=_prop_id_sups)
         supervisor_phones = [s["telefono"] for s in _sups if s.get("telefono")]
 
         if supervisor_phones:
