@@ -88,17 +88,22 @@ def verificar_turno_activo(from_phone: str, tenant=None) -> bool:
     
     # Auto-iniciar turno silenciosamente (para acciones que requieren turno)
     from datetime import datetime
-    ok = activar_turno_por_telefono(from_phone, property_id=tenant.property_id if tenant else "")
+    _property_id = tenant.property_id if tenant else ""
+    ok = activar_turno_por_telefono(from_phone, property_id=_property_id)
     if ok:
         state["turno_activo"] = True
         state["turno_inicio"] = datetime.now().isoformat()
-        
+        if not state.get("user_id"):
+            worker = buscar_worker_por_telefono(from_phone, property_id=_property_id)
+            if worker:
+                state["user_id"] = worker.get("id")
+
         send_whatsapp(
             from_phone,
             "🟢 Turno iniciado automáticamente\n\n"
             "💡 Para terminar tu turno, escribe 'terminar turno'"
         )
-    
+
     return True
 
 import re
@@ -1072,6 +1077,7 @@ def handle_confirmando_reporte(from_phone: str, raw: str, tenant=None) -> None:
 def crear_ticket_directo_DESPUES(from_phone: str, reporte: dict, area_worker: str = "HOUSEKEEPING") -> None:
     from gateway_app.services.tickets_db import crear_ticket, obtener_tickets_asignados_a
     from gateway_app.services.ticket_classifier import clasificar_ticket  # ← NUEVO
+    _state = get_user_state(from_phone)
 
     try:
         # ── NUEVO: Clasificar con IA ───────────────────────────────
@@ -1090,6 +1096,7 @@ def crear_ticket_directo_DESPUES(from_phone: str, reporte: dict, area_worker: st
             origen="trabajador",
             canal_origen="WHATSAPP_BOT_HOUSEKEEPING",
             area=clasificacion["area"],                    # ← ahora viene del clasificador
+            user_id=_state.get("user_id"),
             # ── NUEVO: pasar metadata de routing ──────────────────
             routing_source=clasificacion["routing_source"],
             routing_reason=clasificacion["routing_reason"],
@@ -1171,6 +1178,7 @@ def crear_ticket_desde_draft(from_phone: str, tenant=None) -> None:
             canal_origen="WHATSAPP_BOT_HOUSEKEEPING",
             area=clasificacion["area"],                   # ← CAMBIADO
             property_id=tenant.property_id if tenant else None,
+            user_id=state.get("user_id"),
             routing_source=clasificacion["routing_source"],    # ← NUEVO
             routing_reason=clasificacion["routing_reason"],    # ← NUEVO
             routing_confidence=clasificacion["routing_confidence"],  # ← NUEVO
@@ -1288,14 +1296,19 @@ def iniciar_turno(from_phone: str, tenant=None) -> None:
         send_whatsapp(from_phone, "⚠️ Tu turno ya está activo\n\n💡 Di 'M' para volver al menú")
         return
 
-    ok = activar_turno_por_telefono(from_phone, property_id=tenant.property_id if tenant else "")
+    _property_id = tenant.property_id if tenant else ""
+    ok = activar_turno_por_telefono(from_phone, property_id=_property_id)
     if not ok:
         send_whatsapp(from_phone, "❌ No pude activar tu turno en el sistema (usuario no encontrado).")
         return
-    
+
     state["turno_activo"] = True
     state["turno_inicio"] = datetime.now().isoformat()
     state["turno_fin"] = None
+    if not state.get("user_id"):
+        worker = buscar_worker_por_telefono(from_phone, property_id=_property_id)
+        if worker:
+            state["user_id"] = worker.get("id")
     from .ui_simple import texto_menu_simple
     send_whatsapp(
         from_phone,

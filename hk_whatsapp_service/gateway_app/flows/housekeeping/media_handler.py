@@ -477,7 +477,8 @@ def _crear_ticket_con_media(
     from gateway_app.flows.housekeeping.outgoing import send_whatsapp
     from gateway_app.services.tickets_db import crear_ticket
     from gateway_app.services.media_storage import process_and_store_media
-    
+    from gateway_app.flows.housekeeping.state_simple import get_user_state
+
     from gateway_app.services.ticket_classifier import clasificar_ticket
     clasificacion = clasificar_ticket(
         detalle=detalle,
@@ -485,7 +486,8 @@ def _crear_ticket_con_media(
     )
     prioridad = clasificacion["prioridad"]
     area = clasificacion["area"]
-    
+    _state = get_user_state(from_phone)
+
     try:
         ticket = crear_ticket(
             habitacion=ubicacion,
@@ -495,6 +497,7 @@ def _crear_ticket_con_media(
             creado_por=from_phone,
             origen="supervisor",
             property_id=tenant.property_id if tenant else None,
+            user_id=_state.get("user_id"),
             routing_source=clasificacion["routing_source"],
             routing_reason=clasificacion["routing_reason"],
             routing_confidence=clasificacion["routing_confidence"],

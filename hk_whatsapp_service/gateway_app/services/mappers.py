@@ -89,7 +89,7 @@ def _extract_worker_name(assignee: Optional[dict]) -> Optional[str]:
 
 # ── Conversores públicos ──────────────────────────────────────────────────────
 
-def ticket_to_nestjs(data: dict, property_id: str) -> dict:
+def ticket_to_nestjs(data: dict, property_id: str, user_id: str = None) -> dict:
     """
     Convierte payload del bot al DTO que acepta POST /api/v1/tickets.
     data puede contener: ubicacion, habitacion, detalle, prioridad, area
@@ -101,7 +101,7 @@ def ticket_to_nestjs(data: dict, property_id: str) -> dict:
     room_number   = ubicacion if ubicacion.isdigit() else None
     location_desc = ubicacion if not ubicacion.isdigit() else None
 
-    return {
+    payload = {
         "propertyId":          property_id,
         "title":               _generar_titulo(
                                    data.get("detalle", ""), area_flask, ubicacion
@@ -113,9 +113,10 @@ def ticket_to_nestjs(data: dict, property_id: str) -> dict:
         "channel":             "whatsapp_staff",
         "roomNumber":          room_number,
         "locationDescription": location_desc,
-        # guestId y createdByUserId ausentes intencionalmente:
-        # el NestJS los resuelve como null, organizationId lo deriva de propertyId.
     }
+    if user_id:
+        payload["createdByUserId"] = user_id
+    return payload
 
 
 def ticket_from_nestjs(t: dict) -> dict:

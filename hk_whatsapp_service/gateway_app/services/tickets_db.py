@@ -80,6 +80,7 @@ def crear_ticket(
     *,
     area: str = "HOUSEKEEPING",
     property_id: str = None,
+    user_id: str = None,
     # absorber parámetros de la firma vieja para no romper llamadas existentes
     org_id=None,
     hotel_id=None,
@@ -108,6 +109,7 @@ def crear_ticket(
             "area":      area,
         },
         property_id=property_id,
+        user_id=user_id,
     )
     result = api_post("/api/v1/tickets", payload)
     if not result:

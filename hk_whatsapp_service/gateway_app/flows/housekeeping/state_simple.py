@@ -32,6 +32,7 @@ _STATE_CACHE: Dict[str, Dict[str, Any]] = {}
 def _default_state() -> Dict[str, Any]:
     return {
         "state": MENU,
+        "user_id": None,
         "ticket_activo": None,
         "ticket_draft": {
             "habitacion": None,

@@ -60,6 +60,8 @@ def verificar_y_activar_turno_auto(from_phone: str, state: dict, tenant=None) ->
     if worker.get("turno_activo", False):
         logger.info("🔍 TURNO_AUTO: NestJS confirma turno activo → sync estado local y skip")
         state["turno_activo"] = True
+        if not state.get("user_id"):
+            state["user_id"] = worker.get("id")
         from gateway_app.flows.housekeeping.state_simple import persist_user_state
         persist_user_state(from_phone, state)
         return None
@@ -81,6 +83,8 @@ def verificar_y_activar_turno_auto(from_phone: str, state: dict, tenant=None) ->
     state["turno_activo"] = True
     state["turno_inicio"] = datetime.now(TIMEZONE).isoformat()
     state["turno_auto_activado"] = True
+    if not state.get("user_id"):
+        state["user_id"] = worker.get("id")
 
     # Limpiar flags de recordatorio (ya no son necesarios para la lógica,
     # pero los limpiamos para no acumular basura en el state)
