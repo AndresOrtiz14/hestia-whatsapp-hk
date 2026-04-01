@@ -217,6 +217,7 @@ def formatear_linea_ticket(
     mostrar_tiempo: bool = True,
     mostrar_worker: bool = False,
     campo_fecha: str = "created_at",
+    mostrar_area: bool = False,
 ) -> str:
     """
     Línea estándar de ticket para listas.
@@ -239,6 +240,11 @@ def formatear_linea_ticket(
     det = detalle_de_ticket(t)
 
     partes = [f"{pri} #{tid} · {ubi}"]
+
+    if mostrar_area:
+        area = t.get("area", "")
+        if area:
+            partes.append(f"{emoji_area(area)} {tag_area(area)}")
 
     if mostrar_tiempo:
         mins = calcular_minutos(t.get(campo_fecha))
@@ -263,6 +269,7 @@ def formatear_lista_tickets(
     mostrar_worker: bool = False,
     campo_fecha: str = "created_at",
     max_items: int = 10,
+    mostrar_area: bool = False,
 ) -> str:
     """
     Lista formateada de tickets con título, líneas y hint.
@@ -288,6 +295,7 @@ def formatear_lista_tickets(
             mostrar_tiempo=mostrar_tiempo,
             mostrar_worker=mostrar_worker,
             campo_fecha=campo_fecha,
+            mostrar_area=mostrar_area,
         ))
 
     if len(tickets) > max_items:

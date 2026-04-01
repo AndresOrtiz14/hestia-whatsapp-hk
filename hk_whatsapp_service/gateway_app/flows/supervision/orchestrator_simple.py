@@ -753,6 +753,7 @@ def mostrar_pendientes_simple(from_phone: str, tenant=None) -> None:
         hint="💡 Di 'asignar [#] a [nombre]' o 'siguiente'",
         mostrar_tiempo=True,
         mostrar_worker=False,
+        mostrar_area=True,
     )
     send_whatsapp(from_phone, msg)
 
@@ -917,7 +918,7 @@ def mostrar_info_ticket(from_phone: str, ticket_id: int, tenant=None) -> None:
     from gateway_app.core.utils.message_constants import (
         emoji_prioridad, emoji_estado, label_estado,
         ubicacion_de_ticket, calcular_minutos, formato_tiempo,
-        nombre_worker_de_ticket,
+        nombre_worker_de_ticket, emoji_area, tag_area,
     )
 
     property_id = tenant.property_id if tenant else None
@@ -939,6 +940,10 @@ def mostrar_info_ticket(from_phone: str, ticket_id: int, tenant=None) -> None:
         f"{emoji_prioridad(prioridad)} Prioridad: {prioridad}",
         f"📊 Estado: {label_estado(estado)}",
     ]
+
+    area = ticket.get("area", "")
+    if area:
+        lineas.append(f"{emoji_area(area)} Área: {tag_area(area)}")
 
     if estado in ("EN_CURSO", "ASIGNADO"):
         worker = nombre_worker_de_ticket(ticket)
