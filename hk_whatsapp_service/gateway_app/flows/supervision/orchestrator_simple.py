@@ -2029,10 +2029,11 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
             send_whatsapp(from_phone, f"❌ Área inválida: '{nueva_area}'. Opciones: HOUSEKEEPING, MANTENIMIENTO, AREAS_COMUNES")
             return True
 
-        ok = tickets_db.actualizar_area_ticket(ticket_id, nueva_area)
+        property_id = tenant.property_id if tenant else None
+        ok = tickets_db.actualizar_area_ticket(ticket_id, nueva_area, property_id=property_id)
 
         if ok:
-            ticket = obtener_ticket_por_id(ticket_id)
+            ticket = obtener_ticket_por_id(ticket_id, property_id=property_id)
             ubicacion = (ticket.get("ubicacion") or ticket.get("habitacion") or "?") if ticket else "?"
             detalle = ticket.get("detalle", "?") if ticket else "?"
             prioridad = ticket.get("prioridad", "MEDIA") if ticket else "MEDIA"

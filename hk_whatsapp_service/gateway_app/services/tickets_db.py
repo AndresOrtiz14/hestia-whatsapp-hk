@@ -492,12 +492,12 @@ def actualizar_ticket_estado(ticket_id, nuevo_estado: str) -> bool:
     return actualizar_estado_ticket(ticket_id, nuevo_estado)
 
 
-def actualizar_area_ticket(ticket_id, nueva_area: str) -> bool:
+def actualizar_area_ticket(ticket_id, nueva_area: str, property_id: str = None) -> bool:
     """
     Actualiza el área de un ticket.
     Stub compat → PUT /api/v1/tickets/:id con areaCode.
     """
-    ticket_uuid = _resolve_ticket_uuid(ticket_id)
+    ticket_uuid = _resolve_ticket_uuid(ticket_id, property_id=property_id)
     if not ticket_uuid:
         logger.error("actualizar_area_ticket: no se pudo resolver UUID para idCode=%s", ticket_id)
         return False
