@@ -1739,9 +1739,12 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
         
         # 1. Crear el ticket en BD
         from gateway_app.services.tickets_db import crear_ticket, asignar_ticket
-        
+        from gateway_app.services.workers_db import buscar_worker_por_telefono
+
         try:
             area = infer_area_from_ubicacion(ubicacion)
+            _sup = buscar_worker_por_telefono(from_phone, property_id=tenant.property_id if tenant else "")
+            supervisor_id = _sup.get("id") if _sup else None
             ticket = crear_ticket(
                 habitacion=ubicacion,  # ✅ MODIFICADO: Genérico
                 detalle=detalle,
@@ -1750,6 +1753,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
                 creado_por=from_phone,
                 origen="supervisor",
                 property_id=tenant.property_id if tenant else None,
+                user_id=supervisor_id,
             )
             
             if not ticket:
@@ -1874,16 +1878,19 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
         
         from gateway_app.services.tickets_db import crear_ticket
         from gateway_app.services.ticket_classifier import clasificar_ticket  # ← NUEVO
+        from gateway_app.services.workers_db import buscar_worker_por_telefono
         try:
             # ── Clasificación inteligente ────────────────────────────────
             clasificacion = clasificar_ticket(
                 detalle=detalle,
                 ubicacion=str(ubicacion) if ubicacion else "",
             )
-            prioridad = clasificacion["prioridad"] 
+            prioridad = clasificacion["prioridad"]
             area = clasificacion["area"]
             # ────────────────────────────────────────────────────────────
-            
+
+            _sup = buscar_worker_por_telefono(from_phone, property_id=tenant.property_id if tenant else "")
+            supervisor_id = _sup.get("id") if _sup else None
             ticket = crear_ticket(
                 habitacion=ubicacion,
                 detalle=detalle,
@@ -1892,6 +1899,7 @@ def maybe_handle_audio_command_simple(from_phone: str, text: str, tenant=None) -
                 creado_por=from_phone,
                 origen="supervisor",
                 property_id=tenant.property_id if tenant else None,
+                user_id=supervisor_id,
                 routing_source=clasificacion["routing_source"],    # ← NUEVO
                 routing_reason=clasificacion["routing_reason"],    # ← NUEVO
                 routing_confidence=clasificacion["routing_confidence"],  # ← NUEVO
