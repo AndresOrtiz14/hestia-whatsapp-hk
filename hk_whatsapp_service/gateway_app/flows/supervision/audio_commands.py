@@ -192,7 +192,6 @@ def extract_habitacion(text: str) -> Optional[str]:
     r'la\s+(\d{3,4})',             # genérico: mantener 3-4 dígitos
     r'número\s+(\d{3,4})',         # genérico: mantener 3-4 dígitos
     r'\ben\s+(\d{3,4})\b',        # genérico: mantener 3-4 dígitos
-    r'\bpiso\s+(\d{1,2})\b',
 ]
     
     text_lower = text.lower()
@@ -262,8 +261,12 @@ def extract_area_comun(text: str) -> Optional[str]:
             lambda m: "Estacionamiento",
         
         # Escalera
-        r'escalera(?:s)?(?:\s+(?:del\s+)?(?:piso\s+)?(\d+))?': 
+        r'escalera(?:s)?(?:\s+(?:del\s+)?(?:piso\s+)?(\d+))?':
             lambda m: f"Escalera{f' Piso {m.group(1)}' if m.group(1) else ''}",
+
+        # Piso (standalone, sin área asociada)
+        r'\bpiso\s+(\d{1,2})\b':
+            lambda m: f"Piso {m.group(1)}",
         
         # Gimnasio
         r'gimnasio|gym': 
@@ -540,17 +543,10 @@ def detect_audio_intent(text: str) -> Dict[str, Any]:
         }
     
     # Patrón 1: "Asignar ticket 1503 a María"
+    # Solo retorna asignar_ticket si NO hay ubicación detectada.
+    # Si hay ubicación (piso, habitación, área común), caer a crear_y_asignar.
     if es_asignar and ticket_id and worker and not es_reasignar:
-        tiene_contexto_habitacion = any(word in text.lower() for word in [
-            'la ', 'el ', 'hab ', 'habitacion', 'habitación', 'cuarto', 'pieza'
-        ])
-        
-        if ticket_id and ticket_id < 100:
-            tiene_contexto_habitacion = False
-        
-        if tiene_contexto_habitacion:
-            pass
-        else:
+        if not ubicacion:
             return {
                 "intent": "asignar_ticket",
                 "ticket_id": ticket_id,
